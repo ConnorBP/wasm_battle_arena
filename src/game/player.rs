@@ -1,7 +1,7 @@
 use bevy::{prelude::*,math::{Vec2Swizzles, Vec3Swizzles}};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 
-use super::{components::*, MAP_SIZE, textures::ImageAssets};
+use super::{components::*, MAP_SIZE, textures::ImageAssets, RollbackState};
 use super::networking::GgrsConfig;
 use super::input;
 
@@ -32,9 +32,24 @@ pub fn move_players(
     }
 }
 
-pub fn spawn_players(mut commands: Commands) {
+pub fn spawn_players(
+    mut commands: Commands,
+    players: Query<Entity, With<Player>>,
+    bullets: Query<Entity, With<Bullet>>,
+) {
 
     info!("spawning players");
+
+    // despawn last games stuff
+
+    for player in &players {
+        commands.entity(player).despawn_recursive();
+    }
+
+    for bullet in &bullets {
+        commands.entity(bullet).despawn_recursive();
+    }
+
     // p1
     commands.spawn((
         Player { handle: 0 },
@@ -43,7 +58,7 @@ pub fn spawn_players(mut commands: Commands) {
         SpriteBundle {
             transform: Transform::from_translation(Vec3::new(-2.,0.,100.)),
             sprite: Sprite {
-                color: Color::rgb(1., 0.47, 1.),
+                color: Color::rgb(0.3, 1., 0.1),
                 custom_size: Some(Vec2::new(1.,1.)),
                 ..default()
             },
@@ -61,7 +76,7 @@ pub fn spawn_players(mut commands: Commands) {
         SpriteBundle {
             transform: Transform::from_translation(Vec3::new(2.,0.,100.)),
             sprite: Sprite {
-                color: Color::rgb(5., 0.3, 1.),
+                color: Color::rgb(0.5, 0.3, 1.),
                 custom_size: Some(Vec2::new(1.,1.)),
                 ..default()
             },
@@ -128,7 +143,7 @@ pub fn kill_players(
     mut commands: Commands,
     players: Query<(Entity, &Transform), (With<Player>, Without<Bullet>)>,
     bullets: Query<&Transform, With<Bullet>>,
-    // mut next_state: ResMut<NextState<RollbackState>>,
+    mut next_state: ResMut<NextState<RollbackState>>,
 ) {
     for (player, player_transform) in &players {
         for bullet_transform in &bullets {
@@ -138,7 +153,7 @@ pub fn kill_players(
             );
             if distance < PLAYER_RADIUS + BULLET_RADIUS {
                 commands.entity(player).despawn_recursive();
-                // next_state.set(RollbackState::RoundEnd);
+                next_state.set(RollbackState::RoundEnd);
             }
         }
     }

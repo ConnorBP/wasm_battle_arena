@@ -1038,6 +1038,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_roll_safe"
+version = "0.1.0"
+source = "git+https://github.com/johanhelsing/bevy_roll_safe#f16d31a786e1721864a982fec32ba752b7875db6"
+dependencies = [
+ "bevy",
+ "bevy_ggrs",
+ "glam",
+]
+
+[[package]]
 name = "bevy_scene"
 version = "0.11.2"
 source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
@@ -2312,6 +2322,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5418c17512bdf42730f9032c74e1ae39afc408745ebb2acf72fbc4691c17945"
 dependencies = [
  "bytemuck",
+ "libm",
  "serde",
 ]
 
@@ -2858,6 +2869,12 @@ dependencies = [
  "cfg-if",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "libm"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
 name = "libudev-sys"
@@ -4900,6 +4917,7 @@ dependencies = [
  "bevy_asset_loader",
  "bevy_ggrs",
  "bevy_matchbox",
+ "bevy_roll_safe",
  "ggrs",
 ]
 

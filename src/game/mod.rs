@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_ggrs::{GgrsAppExtension, GgrsPlugin, GgrsSchedule};
 use bevy_asset_loader::prelude::*;
-// use bevy_roll_safe::prelude::*;
+use bevy_roll_safe::prelude::*;
 
 mod components;
 mod player;
@@ -26,14 +28,25 @@ pub enum GameState {
     InGame,
 }
 
-// #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default, Reflect)]
-// enum RollbackState {
-//     /// When the characters running and gunning
-//     #[default]
-//     InRound,
-//     /// When one character is dead, and we're transitioning to the next round
-//     RoundEnd,
-// }
+#[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default, Reflect)]
+enum RollbackState {
+    /// When the characters running and gunning
+    #[default]
+    InRound,
+    /// When one character is dead, and we're transitioning to the next round
+    RoundEnd,
+}
+
+#[derive(Resource, Reflect, Deref, DerefMut)]
+#[reflect(Resource)]
+struct RoundEndTimer(Timer);
+
+impl Default for RoundEndTimer {
+    fn default() -> Self {
+        RoundEndTimer(Timer::from_seconds(1.0, TimerMode::Repeating))
+    }
+}
+
 
 pub fn run() {
     App::new()
@@ -58,17 +71,19 @@ pub fn run() {
     .add_ggrs_plugin(
         GgrsPlugin::<networking::GgrsConfig>::new()
             .with_input_system(input)
-            // .register_roll_state::<RollbackState>()
+            .register_roll_state::<RollbackState>()
+            .register_rollback_resource::<RoundEndTimer>()
             .register_rollback_component::<Transform>()
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<MoveDir>()
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
+    .init_resource::<RoundEndTimer>()
     .add_systems(
         OnEnter(GameState::Matchmaking),
         (setup, start_matchbox_socket),
     )
-    .add_systems(OnEnter(GameState::InGame), spawn_players)
+    // .add_systems(OnEnter(GameState::InGame), spawn_players)
     .add_systems(
         Update,
         (
@@ -76,8 +91,8 @@ pub fn run() {
             camera_follow.run_if(in_state(GameState::InGame)),
         ),
     )
-    // .add_roll_state::<RollbackState>(GgrsSchedule)
-    // .add_systems(OnEnter(RollbackState::InRound), spawn_players)
+    .add_roll_state::<RollbackState>(GgrsSchedule)
+    .add_systems(OnEnter(RollbackState::InRound), spawn_players)
     .add_systems(
         GgrsSchedule,
         (
@@ -87,16 +102,16 @@ pub fn run() {
             move_bullets.after(fire_bullets),
             kill_players.after(move_bullets).after(move_players),
         )
-            // .after(apply_state_transition::<RollbackState>)
-            // .distributive_run_if(in_state(RollbackState::InRound)),
+            .after(apply_state_transition::<RollbackState>)
+            .distributive_run_if(in_state(RollbackState::InRound)),
     )
-    // .add_systems(
-    //     GgrsSchedule,
-    //     round_end_timeout
-    //         .ambiguous_with(kill_players)
-    //         .distributive_run_if(in_state(RollbackState::RoundEnd))
-    //         .after(apply_state_transition::<RollbackState>),
-    // )
+    .add_systems(
+        GgrsSchedule,
+        round_end_timeout
+            .ambiguous_with(kill_players)
+            .distributive_run_if(in_state(RollbackState::RoundEnd))
+            .after(apply_state_transition::<RollbackState>),
+    )
     .run();
 }
 
@@ -161,5 +176,16 @@ fn camera_follow(
             transform.translation.x = pos.x;
             transform.translation.y = pos.y;
         }
+    }
+}
+
+fn round_end_timeout(
+    mut timer: ResMut<RoundEndTimer>,
+    mut state: ResMut<NextState<RollbackState>>
+) {
+    timer.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60
+
+    if timer.just_finished() {
+        state.set(RollbackState::InRound);
     }
 }

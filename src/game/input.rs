@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_ggrs::{ggrs, PlayerInputs, AddRollbackCommandExtension};
+use bevy_ggrs::ggrs;
 
 
 // constants for encoding movement commands

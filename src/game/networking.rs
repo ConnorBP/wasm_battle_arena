@@ -1,4 +1,4 @@
-use bevy::{prelude::*, render::camera::ScalingMode, tasks::IoTaskPool};
+use bevy::prelude::*;
 use bevy_matchbox::{
     prelude::*,
     MatchboxSocket,
