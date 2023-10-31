@@ -4,18 +4,21 @@ use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_ggrs::{GgrsAppExtension, GgrsPlugin, GgrsSchedule};
 use bevy_asset_loader::prelude::*;
 use bevy_roll_safe::prelude::*;
+use bevy_egui::EguiPlugin;
 
 mod components;
 mod player;
 mod input;
 mod networking;
 mod textures;
+mod gui;
 
 use components::*;
 use player::*;
 use input::*;
 use networking::*;
 use textures::*;
+use gui::*;
 
 const MAP_SIZE: u32 = 41;
 const GRID_WIDTH: f32 = 0.05;
@@ -41,6 +44,10 @@ enum RollbackState {
 #[reflect(Resource)]
 struct RoundEndTimer(Timer);
 
+#[derive(Resource, Reflect, Default, Debug)]
+#[reflect(Resource)]
+struct Scores(u32, u32);
+
 impl Default for RoundEndTimer {
     fn default() -> Self {
         RoundEndTimer(Timer::from_seconds(1.0, TimerMode::Repeating))
@@ -55,7 +62,7 @@ pub fn run() {
         LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::Matchmaking)
     )
     .add_collection_to_loading_state::<_, ImageAssets>(GameState::AssetLoading)
-    .add_plugins(
+    .add_plugins((
         DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(Window {
@@ -67,18 +74,22 @@ pub fn run() {
             }),
             ..default()
         })
-    )
+        .set(ImagePlugin::default_nearest()),// set pixel art render mode
+        EguiPlugin,
+    ))
     .add_ggrs_plugin(
         GgrsPlugin::<networking::GgrsConfig>::new()
             .with_input_system(input)
             .register_roll_state::<RollbackState>()
             .register_rollback_resource::<RoundEndTimer>()
+            .register_rollback_resource::<Scores>()
             .register_rollback_component::<Transform>()
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<MoveDir>()
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .init_resource::<RoundEndTimer>()
+    .init_resource::<Scores>()
     .add_systems(
         OnEnter(GameState::Matchmaking),
         (setup, start_matchbox_socket),
@@ -88,7 +99,9 @@ pub fn run() {
         Update,
         (
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
-            camera_follow.run_if(in_state(GameState::InGame)),
+            (player_look, camera_follow, update_score_ui).run_if(in_state(GameState::InGame)),
+            update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
+            update_respawn_ui.run_if(in_state(RollbackState::RoundEnd)),
         ),
     )
     .add_roll_state::<RollbackState>(GgrsSchedule)

@@ -44,7 +44,7 @@ pub fn wait_for_players(
 
     let min_players = 2;
     if players.len() < min_players {
-        info!("not enough players {players:?} {peer_count}");
+        // info!("not enough players {players:?} {peer_count}");
         return;
     }
 
