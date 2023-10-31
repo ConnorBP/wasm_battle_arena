@@ -29,9 +29,19 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
         .anchor(Align2::CENTER_TOP, (0., 25.))
         .show(contexts.ctx_mut(), |ui| {
             ui.label(
-                RichText::new(format!("Waiting for players"))
+                RichText::new(format!("PAC BATTLE"))
+                    .color(Color32::LIGHT_BLUE)
+                    .font(FontId::proportional(68.0)),
+            );
+            ui.label(
+                RichText::new(format!("Game by Connor Postma 2023"))
+                    .color(Color32::GRAY)
+                    .font(FontId::monospace(24.0)),
+            );
+            ui.label(
+                RichText::new(format!("Waiting for opponent to join..."))
                     .color(Color32::WHITE)
-                    .font(FontId::proportional(72.0)),
+                    .font(FontId::proportional(48.0)),
             );
         });
 }
