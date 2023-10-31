@@ -21,7 +21,7 @@ impl ggrs::Config for GgrsConfig {
 }
 
 pub fn start_matchbox_socket(mut commands: Commands) {
-    let room_url = "ws://127.0.0.1:3536/battle?next=2";
+    let room_url = "ws://matchbox.segfault.site:3536/battle?next=2";
     info!("connecting to matchbox server: {room_url}");
     commands.insert_resource(MatchboxSocket::new_ggrs(room_url));
 }
