@@ -11,3 +11,5 @@ Designed in Bevy game engine based on the following game design tutorial series:
 - [ ] auto generate the map with wave collapse or perlin noise
 - [ ] update player spawn function with random locaion
 - [ ] check player spawn location generation with collision to not spawn in wall
+- [ ] add touch screen / mobile controls and functionality
+- [ ] add sound effects and subtle music
