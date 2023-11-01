@@ -4285,6 +4285,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "seeded-random"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "237b344c25622ede58b1196b3c9d5387cad2743b2b86c450f886100d8751f256"
+dependencies = [
+ "parking_lot 0.12.1",
+ "rand",
+ "rand_chacha",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5112,7 +5123,7 @@ checksum = "ca6ad05a4870b2bf5fe995117d3728437bd27d7cd5f06f13c17443ef369775a1"
 
 [[package]]
 name = "wasm_battle_arena"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "bevy",
  "bevy_asset_loader",
@@ -5122,6 +5133,8 @@ dependencies = [
  "bevy_roll_safe",
  "egui_plot",
  "ggrs",
+ "seeded-random",
+ "wasm-bindgen",
 ]
 
 [[package]]

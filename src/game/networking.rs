@@ -6,6 +6,8 @@ use bevy_matchbox::{
 };
 use bevy_ggrs::{*, ggrs::PlayerType};
 
+use crate::game::GameSeed;
+
 use super::GameState;
 // use matchbox_socket::{WebRtcSocket, PeerId};
 pub struct GgrsConfig;
@@ -21,7 +23,19 @@ impl ggrs::Config for GgrsConfig {
 }
 
 pub fn start_matchbox_socket(mut commands: Commands) {
-    let room_url = "ws://matchbox.segfault.site:3536/battle?next=2";
+    let secure = crate::interface::is_secure();
+    #[cfg(not(feature="local"))]
+    let room_url = if secure {
+        info!("Website is secure, connecting with Secure Web Socket.");
+        "wss://matchbox.segfault.site:3536/battle?next=2"
+    } else {
+        "ws://matchbox.segfault.site:3536/battle?next=2"
+    };
+    
+    #[cfg(feature="local")]
+    let room_url = "ws://127.0.0.1:3536/battle?next=2";
+
+    // let room_url = "ws://matchbox.segfault.site:3536/battle?next=2";
     info!("connecting to matchbox server: {room_url}");
     commands.insert_resource(MatchboxSocket::new_ggrs(room_url));
 }
@@ -36,17 +50,35 @@ pub fn wait_for_players(
         return; // we've already started
     }
 
-    // Check for new connections
-    socket.update_peers();
-    let players = socket.players();
-    let peer_count = socket.connected_peers().count();
+    // get local id when assigned to our socket or return from func
+    let local_id = match socket.id() {
+        Some(id) => id.0.as_u128(),
+        _ => return,
+    };
 
+    // Check for new connections and
+    // xor local id and peer ids together to get session hash
+    // should be the same on every client because xor is addative (unordered)
+    let session_hash = {
+        let mut out_id = u128::MAX;
+        out_id ^= local_id;
+        for (id,_) in socket.update_peers().iter() {
+            out_id ^= id.0.as_u128();
+        }
+
+        //shrink down to 64 bits
+        (out_id & u128::MAX >> 8) as u64  ^ (out_id >> 8) as u64
+    };
+
+    let players = socket.players();
 
     let min_players = 2;
     if players.len() < min_players {
         // info!("not enough players {players:?} {peer_count}");
         return;
     }
+
+
 
     info!("All peers have joined, going in-game");
 
@@ -72,6 +104,10 @@ pub fn wait_for_players(
         .start_p2p_session(channel)
         .expect("starting ggrs p2p session");
 
+    info!("Started new session {session_hash:#02x}");
+
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
+    // insert session hash to seed our psudo rng
+    commands.insert_resource(GameSeed(session_hash));
     next_state.set(GameState::InGame);
 }

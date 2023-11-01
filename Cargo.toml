@@ -1,6 +1,6 @@
 [package]
 name = "wasm_battle_arena"
-version = "0.1.0"
+version = "0.1.3"
 edition = "2021"
 
 [profile.release]
@@ -16,6 +16,8 @@ bevy_asset_loader = { version = "0.17", features=["2d"]}
 bevy_roll_safe = { git = "https://github.com/johanhelsing/bevy_roll_safe" }
 bevy_egui = "0.22"
 egui_plot = "0.23"
+wasm-bindgen = "0.2.87"
+seeded-random = "0.6"
 
 [patch.crates-io]
 bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }

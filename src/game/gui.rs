@@ -1,13 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
-use egui_plot::{Plot, Legend, Polygon};
 
 use super::{Scores, RoundEndTimer};
-
-// for loading circle
-use std::f64::consts::TAU;
-const FULL_CIRCLE_VERTICES: f64 = 240.0;
-const RADIUS: f64 = 1.0;
 
 pub fn update_score_ui(mut contexts: EguiContexts, scores: Res<Scores>) {
     let Scores(p1_score, p2_score) = *scores;

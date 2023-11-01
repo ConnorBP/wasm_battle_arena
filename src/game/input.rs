@@ -9,11 +9,11 @@ const INPUT_LEFT: u8 = 1<< 2;
 const INPUT_RIGHT: u8 = 1<< 3;
 const INPUT_FIRE: u8 = 1<< 4;
 
-const INPUT_ALL: u8 = INPUT_UP
-                    & INPUT_DOWN
-                    & INPUT_LEFT
-                    & INPUT_RIGHT
-                    & INPUT_FIRE;
+// const INPUT_ALL: u8 = INPUT_UP
+//                     & INPUT_DOWN
+//                     & INPUT_LEFT
+//                     & INPUT_RIGHT
+//                     & INPUT_FIRE;
 
 pub fn input(_: In<ggrs::PlayerHandle>, keys: Res<Input<KeyCode>>) -> u8 {
     let mut input = 0u8;

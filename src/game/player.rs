@@ -1,7 +1,8 @@
 use bevy::{prelude::*,math::{Vec2Swizzles, Vec3Swizzles}};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
+use seeded_random::{Random, Seed};
 
-use super::{components::*, MAP_SIZE, textures::ImageAssets, RollbackState, Scores};
+use super::{components::*, MAP_SIZE, textures::ImageAssets, RollbackState, Scores, GameSeed};
 use super::networking::GgrsConfig;
 use super::input;
 
@@ -80,6 +81,7 @@ fn get_directional_sprite(dir: Vec2) -> usize {
 pub fn spawn_players(
     mut commands: Commands,
     images: Res<ImageAssets>,
+    mut seed: ResMut<GameSeed>,
     players: Query<Entity, With<Player>>,
     bullets: Query<Entity, With<Bullet>>,
 ) {
@@ -96,11 +98,20 @@ pub fn spawn_players(
         commands.entity(bullet).despawn_recursive();
     }
 
+    // generate new spawn positions
+    let positions = generate_random_positions(2, seed.0);
+
+    // now advance the seed for next spawn
+    seed.0 = Random::from_seed(Seed::unsafe_new(seed.0)).gen();
+
     // p1
-    spawn_player(&mut commands, &images, 0, -Vec2::X, Vec3::new(-2.,0.,100.));
+    spawn_player(&mut commands, &images, 0, -Vec2::X, grid_to_world(positions[0]).extend(100.));
+    // spawn_player(&mut commands, &images, 0, -Vec2::X, grid_to_world((MAP_SIZE-1,MAP_SIZE-1)).extend(100.));
 
     // p2
-    spawn_player(&mut commands, &images, 1, Vec2::X, Vec3::new(2.,0.,100.));
+    spawn_player(&mut commands, &images, 1, Vec2::X, grid_to_world(positions[1]).extend(100.));
+    // spawn_player(&mut commands, &images, 1, Vec2::X, grid_to_world((0,0)).extend(100.));
+
 
 }
 
@@ -148,6 +159,47 @@ fn spawn_player(
     commands.entity(parent).push_children(&[child]);
 }
 
+// takes in a grid position from 0 to map_size and outputs a world coordinate
+fn grid_to_world(grid_pos: (u32,u32)) -> Vec2 {
+    Vec2::new(
+        (grid_pos.0 as f32 - MAP_SIZE as f32 / 2.)+0.5,
+        (grid_pos.1 as f32 - MAP_SIZE as f32 / 2.)+0.5,
+    )
+}
+
+fn generate_random_positions(count: usize, base_seed: u64) -> Vec<(u32,u32)> {
+    use seeded_random::{Random,Seed};
+    let mut rand = Random::from_seed(Seed::unsafe_new(base_seed));
+    let mut positions: Vec<(u32,u32)> = vec![];
+    // // generate a position and then check each position for collisions
+    for _ in 0..count {
+        let mut overlapped = true;
+        let mut x = 0;
+        let mut y = 0;
+        while overlapped {
+            // advance the random seed
+            rand = Random::from_seed(rand.seed());
+            x = rand.u32() % MAP_SIZE;
+            // advance the random seed again for y
+            rand = Random::from_seed(rand.seed());
+            y = rand.u32() % MAP_SIZE;
+            // check for overlaps in existing additins
+            overlapped = {
+                let mut ret = false;
+                for &pos in positions.iter() {
+                    if x == pos.0 || y == pos.1 {
+                        ret = true;
+                        break;
+                    }
+                }
+                ret
+            };
+        }
+        // add the new position that has no overlaps to the position list
+        positions.push((x,y));
+    }
+    positions
+}
 
 pub fn fire_bullets(
     mut commands: Commands,

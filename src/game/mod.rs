@@ -44,16 +44,19 @@ enum RollbackState {
 #[reflect(Resource)]
 struct RoundEndTimer(Timer);
 
-#[derive(Resource, Reflect, Default, Debug)]
-#[reflect(Resource)]
-struct Scores(u32, u32);
-
 impl Default for RoundEndTimer {
     fn default() -> Self {
         RoundEndTimer(Timer::from_seconds(1.0, TimerMode::Repeating))
     }
 }
 
+#[derive(Resource, Reflect, Default, Debug)]
+#[reflect(Resource)]
+struct Scores(u32, u32);
+
+#[derive(Resource, Reflect, Default, Debug)]
+#[reflect(Resource)]
+pub struct GameSeed(u64);
 
 pub fn run() {
     App::new()
@@ -83,6 +86,7 @@ pub fn run() {
             .register_roll_state::<RollbackState>()
             .register_rollback_resource::<RoundEndTimer>()
             .register_rollback_resource::<Scores>()
+            // .register_rollback_resource::<GameSeed>()
             .register_rollback_component::<Transform>()
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<MoveDir>()
