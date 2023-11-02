@@ -90,6 +90,7 @@ pub fn run() {
             .register_rollback_component::<Transform>()
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<MoveDir>()
+            .register_rollback_component::<LookTowardsParentMove>()
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .init_resource::<RoundEndTimer>()

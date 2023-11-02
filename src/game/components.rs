@@ -15,5 +15,5 @@ pub struct Bullet;
 #[derive(Component, Reflect, Default, Clone, Copy)]
 pub struct MoveDir(pub Vec2);
 
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
 pub struct LookTowardsParentMove;
