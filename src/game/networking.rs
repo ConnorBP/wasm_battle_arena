@@ -25,12 +25,13 @@ impl ggrs::Config for GgrsConfig {
 pub fn start_matchbox_socket(mut commands: Commands) {
     let secure = crate::interface::is_secure();
     #[cfg(not(feature="local"))]
-    let room_url = if secure {
-        info!("Website is secure, connecting with Secure Web Socket.");
-        "wss://matchbox-secure.segfault.site/battle?next=2"
-    } else {
-        "ws://matchbox.segfault.site:3536/battle?next=2"
-    };
+    let room_url = "wss://matchbox-secure.segfault.site/battle?next=2";
+    // let room_url = if secure {
+    //     info!("Website is secure, connecting with Secure Web Socket.");
+    //     "wss://matchbox-secure.segfault.site/battle?next=2"
+    // } else {
+    //     "ws://matchbox.segfault.site:3536/battle?next=2"
+    // };
     
     #[cfg(feature="local")]
     let room_url = "ws://127.0.0.1:3536/battle?next=2";
