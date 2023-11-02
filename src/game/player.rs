@@ -105,11 +105,11 @@ pub fn spawn_players(
     seed.0 = Random::from_seed(Seed::unsafe_new(seed.0)).gen();
 
     // p1
-    spawn_player(&mut commands, &images, 0, -Vec2::X, grid_to_world(positions[0]).extend(100.));
+    spawn_player(&mut commands, &images, 0, -Vec2::X, grid_to_world(positions[0]).extend(100.), Color::rgb(0.8, 0.2, 0.2));
     // spawn_player(&mut commands, &images, 0, -Vec2::X, grid_to_world((MAP_SIZE-1,MAP_SIZE-1)).extend(100.));
 
     // p2
-    spawn_player(&mut commands, &images, 1, Vec2::X, grid_to_world(positions[1]).extend(100.));
+    spawn_player(&mut commands, &images, 1, Vec2::X, grid_to_world(positions[1]).extend(100.), Color::rgb(0.15, 0.25, 0.8));
     // spawn_player(&mut commands, &images, 1, Vec2::X, grid_to_world((0,0)).extend(100.));
 
 
@@ -121,6 +121,7 @@ fn spawn_player(
     handle: usize,
     move_dir: Vec2,
     translation: Vec3,
+    color: Color,
 ) {
     let parent = commands.spawn((
         Player { handle },
@@ -130,7 +131,7 @@ fn spawn_player(
             texture: images.ghost.clone(),
             transform: Transform::from_translation(translation),
             sprite: Sprite {
-                // color: Color::rgb(0.3, 1., 0.1),
+                color,
                 custom_size: Some(Vec2::new(1.,1.)),
                 ..default()
             },
@@ -251,6 +252,7 @@ pub fn move_bullets(mut bullets: Query<(&mut Transform, &MoveDir), With<Bullet>>
     }
 }
 
+// TODO: Sometimes player death events don't restart the game for one or both clients...
 const PLAYER_RADIUS: f32 = 0.5;
 const BULLET_RADIUS: f32 = 0.025;
 pub fn kill_players(

@@ -1,8 +1,9 @@
-# ![pac ghost](assets/ghost.png "Blinku") PAC BATTLE ![pac ghost](assets/ghost.png "Blinku")
+# ![ghost](assets/ghost.png "Sleepy") GHOST BATTLE ![ghost](assets/ghost.png "Wheepy")
 
 A one versus one ghost battling game to the (extra?)death.
 
-Designed in Bevy game engine based on the following game design tutorial series: https://johanhelsing.studio/posts/extreme-bevy
+Designed in Bevy game engine initially based on the following game design tutorial series: https://johanhelsing.studio/posts/extreme-bevy
+Project for me to learn the basics of the bevy ecs system as well as: peer2peer deterministic synchronized game states utilizing ggrs rollback, wave function map generation, deterministic random generation, and other novel game design concepts.
 
 ## Building
 ### Setup
