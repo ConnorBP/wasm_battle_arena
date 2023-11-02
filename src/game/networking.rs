@@ -23,7 +23,7 @@ impl ggrs::Config for GgrsConfig {
 }
 
 pub fn start_matchbox_socket(mut commands: Commands) {
-    let secure = crate::interface::is_secure();
+    // let secure = crate::interface::is_secure();
     #[cfg(not(feature="local"))]
     let room_url = "wss://matchbox-secure.segfault.site/battle?next=2";
     // let room_url = if secure {
