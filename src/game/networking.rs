@@ -27,7 +27,7 @@ pub fn start_matchbox_socket(mut commands: Commands) {
     #[cfg(not(feature="local"))]
     let room_url = if secure {
         info!("Website is secure, connecting with Secure Web Socket.");
-        "wss://matchbox.segfault.site:3536/battle?next=2"
+        "wss://matchbox-secure.segfault.site/battle?next=2"
     } else {
         "ws://matchbox.segfault.site:3536/battle?next=2"
     };
