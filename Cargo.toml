@@ -23,3 +23,6 @@ seeded-random = "0.6"
 bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 #bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", features=["bevy_reflect"]}
 bevy_matchbox = { git = "https://github.com/johanhelsing/matchbox", branch = "main"}
+
+[features]
+local = []
