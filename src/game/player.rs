@@ -4,7 +4,7 @@ use bevy::{prelude::*,math::Vec3Swizzles};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use seeded_random::{Random, Seed};
 
-use super::{components::*, MAP_SIZE, textures::ImageAssets, RollbackState, Scores, GameSeed};
+use super::{components::*, MAP_SIZE, textures::{ImageAssets, spawn_explosion}, RollbackState, Scores, GameSeed};
 use super::networking::GgrsConfig;
 use super::input;
 
@@ -255,6 +255,7 @@ pub fn move_bullets(mut bullets: Query<(&mut Transform, &MoveDir), With<Bullet>>
 const PLAYER_RADIUS: f32 = 0.5;
 const BULLET_RADIUS: f32 = 0.025;
 pub fn kill_players(
+    images: Res<ImageAssets>,
     mut commands: Commands,
     players: Query<(Entity, &Transform), (Without<Bullet>,(With<Player>,Without<MarkedForDeath>))>,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
@@ -266,7 +267,11 @@ pub fn kill_players(
                 bullet_transform.translation.xy(),
             );
             if distance < PLAYER_RADIUS + BULLET_RADIUS {
+                // spawn a hit animation
+                spawn_explosion(&mut commands, &images, *bullet_transform);
+                // mark player for death (despawn in half a second if not rolled back)
                 commands.entity(player_entity).insert(MarkedForDeath::default());
+                // remove the bullet from the game
                 commands.entity(bullet_entity).despawn_recursive();
             }
         }
@@ -290,7 +295,7 @@ pub fn process_deaths(
             } else {
                 scores.0 += 1;
             }
-    
+
             commands.entity(player_entity).despawn_recursive();
             next_state.set(RollbackState::RoundEnd);
             info!("player died: {scores:?}");

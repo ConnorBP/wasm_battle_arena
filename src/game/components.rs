@@ -18,9 +18,17 @@ pub struct MoveDir(pub Vec2);
 #[derive(Component, Reflect, Default)]
 pub struct LookTowardsParentMove;
 
-
 #[derive(Component, Reflect)]
 pub struct MarkedForDeath(pub(crate) Timer);
+
+// non synced for animation only
+
+/// When paired with a TextureAtlasSprite and an AnimationTimer it will animate once through the frame count
+#[derive(Component)]
+pub struct AnimateOnce(pub(crate) usize);
+
+#[derive(Component, Deref, DerefMut)]
+pub struct AnimationTimer(pub(crate) Timer);
 
 impl Default for MarkedForDeath {
     fn default() -> Self {

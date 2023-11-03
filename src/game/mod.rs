@@ -104,7 +104,7 @@ pub fn run() {
         Update,
         (
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
-            (player_look, camera_follow, update_score_ui).run_if(in_state(GameState::InGame)),
+            (player_look, camera_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
             update_respawn_ui.run_if(in_state(RollbackState::RoundEnd)),
         ),

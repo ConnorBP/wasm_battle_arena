@@ -23,7 +23,7 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
         .anchor(Align2::CENTER_TOP, (0., 25.))
         .show(contexts.ctx_mut(), |ui| {
             ui.label(
-                RichText::new(format!("GHOSTIES"))
+                RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
                     .color(Color32::LIGHT_BLUE)
                     .font(FontId::proportional(68.0)),
             );
