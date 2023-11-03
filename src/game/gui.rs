@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
 
-use super::{Scores, RoundEndTimer};
+use super::Scores;
 
 pub fn update_score_ui(mut contexts: EguiContexts, scores: Res<Scores>) {
     let Scores(p1_score, p2_score) = *scores;
@@ -23,7 +23,7 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
         .anchor(Align2::CENTER_TOP, (0., 25.))
         .show(contexts.ctx_mut(), |ui| {
             ui.label(
-                RichText::new(format!("PAC BATTLE"))
+                RichText::new(format!("GHOSTIES"))
                     .color(Color32::LIGHT_BLUE)
                     .font(FontId::proportional(68.0)),
             );
@@ -40,7 +40,7 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
         });
 }
 
-pub fn update_respawn_ui(mut contexts: EguiContexts, timer: Res<RoundEndTimer>) {
+pub fn update_respawn_ui(mut contexts: EguiContexts) {
 
     Area::new("matchmaking info")
         .anchor(Align2::CENTER_CENTER, (0., 25.))

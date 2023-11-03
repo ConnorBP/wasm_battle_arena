@@ -86,11 +86,12 @@ pub fn run() {
             .register_roll_state::<RollbackState>()
             .register_rollback_resource::<RoundEndTimer>()
             .register_rollback_resource::<Scores>()
-            // .register_rollback_resource::<GameSeed>()
+            .register_rollback_resource::<GameSeed>()
             .register_rollback_component::<Transform>()
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<MoveDir>()
             .register_rollback_component::<LookTowardsParentMove>()
+            .register_rollback_component::<MarkedForDeath>()
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .init_resource::<RoundEndTimer>()
@@ -99,7 +100,6 @@ pub fn run() {
         OnEnter(GameState::Matchmaking),
         (setup, start_matchbox_socket),
     )
-    // .add_systems(OnEnter(GameState::InGame), spawn_players)
     .add_systems(
         Update,
         (
@@ -119,6 +119,7 @@ pub fn run() {
             fire_bullets.after(move_players).after(reload_bullet),
             move_bullets.after(fire_bullets),
             kill_players.after(move_bullets).after(move_players),
+            process_deaths.after(kill_players),
         )
             .after(apply_state_transition::<RollbackState>)
             .distributive_run_if(in_state(RollbackState::InRound)),
@@ -126,7 +127,7 @@ pub fn run() {
     .add_systems(
         GgrsSchedule,
         round_end_timeout
-            .ambiguous_with(kill_players)
+            .ambiguous_with(process_deaths)
             .distributive_run_if(in_state(RollbackState::RoundEnd))
             .after(apply_state_transition::<RollbackState>),
     )
@@ -201,7 +202,7 @@ fn round_end_timeout(
     mut timer: ResMut<RoundEndTimer>,
     mut state: ResMut<NextState<RollbackState>>
 ) {
-    timer.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60
+    timer.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
 
     if timer.just_finished() {
         state.set(RollbackState::InRound);

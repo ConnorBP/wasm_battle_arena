@@ -1,4 +1,6 @@
-use bevy::{prelude::*,math::{Vec2Swizzles, Vec3Swizzles}};
+use std::time::Duration;
+
+use bevy::{prelude::*,math::Vec3Swizzles};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use seeded_random::{Random, Seed};
 
@@ -34,10 +36,8 @@ pub fn move_players(
 }
 
 pub fn player_look(
-    // inputs: Res<PlayerInputs<GgrsConfig>>,
-    // players: Query<(&Player, &Children)>,
-    players: Query<(&MoveDir, &Children), With<Player>>,
-
+    // maybe it's better to use PlayerInput instead of MoveDir but this will do for now
+    players: Query<(&MoveDir, &Children), With<Player>>, 
     mut eyes_sprite: Query<&mut TextureAtlasSprite, With<LookTowardsParentMove>>,
 ) {
     for (move_dir, children) in players.iter() {
@@ -169,7 +169,6 @@ fn grid_to_world(grid_pos: (u32,u32)) -> Vec2 {
 }
 
 fn generate_random_positions(count: usize, base_seed: u64) -> Vec<(u32,u32)> {
-    use seeded_random::{Random,Seed};
     let mut rand = Random::from_seed(Seed::unsafe_new(base_seed));
     let mut positions: Vec<(u32,u32)> = vec![];
     // // generate a position and then check each position for collisions
@@ -206,7 +205,7 @@ pub fn fire_bullets(
     mut commands: Commands,
     inputs: Res<PlayerInputs<GgrsConfig>>,
     images: Res<ImageAssets>,
-    mut players: Query<(&Transform, &Player, &mut BulletReady, &MoveDir)>,
+    mut players: Query<(&Transform, &Player, &mut BulletReady, &MoveDir), Without<MarkedForDeath>>,
 ) {
     for (transform, player, mut bullet_ready, move_dir) in &mut players {
         let (input, _) = inputs[player.handle];
@@ -257,29 +256,44 @@ const PLAYER_RADIUS: f32 = 0.5;
 const BULLET_RADIUS: f32 = 0.025;
 pub fn kill_players(
     mut commands: Commands,
-    players: Query<(Entity, &Transform, &Player), Without<Bullet>>,
-    bullets: Query<&Transform, With<Bullet>>,
-    mut next_state: ResMut<NextState<RollbackState>>,
-    mut scores: ResMut<Scores>,
+    players: Query<(Entity, &Transform), (Without<Bullet>,(With<Player>,Without<MarkedForDeath>))>,
+    bullets: Query<(Entity, &Transform), With<Bullet>>,
 ) {
-    for (player_entity, player_transform, player) in &players {
-        for bullet_transform in &bullets {
+    for (player_entity, player_transform) in &players {
+        for (bullet_entity, bullet_transform) in &bullets {
             let distance = Vec2::distance(
                 player_transform.translation.xy(),
                 bullet_transform.translation.xy(),
             );
             if distance < PLAYER_RADIUS + BULLET_RADIUS {
-                commands.entity(player_entity).despawn_recursive();
-                next_state.set(RollbackState::RoundEnd);
-
-                // new
-                if player.handle == 0 {
-                    scores.1 += 1;
-                } else {
-                    scores.0 += 1;
-                }
-                info!("player died: {scores:?}")
+                commands.entity(player_entity).insert(MarkedForDeath::default());
+                commands.entity(bullet_entity).despawn_recursive();
             }
+        }
+    }
+}
+
+// we despawn the players after a timer delay in case the network messed up the bullet hit registration
+pub fn process_deaths(
+    mut commands: Commands,
+    mut players: Query<(Entity, &Player, &mut MarkedForDeath)>,
+    mut next_state: ResMut<NextState<RollbackState>>,
+    mut scores: ResMut<Scores>,
+) {
+    for (player_entity, player_component, mut marked) in &mut players {
+
+        marked.0.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
+
+        if marked.0.just_finished() {
+            if player_component.handle == 0 {
+                scores.1 += 1;
+            } else {
+                scores.0 += 1;
+            }
+    
+            commands.entity(player_entity).despawn_recursive();
+            next_state.set(RollbackState::RoundEnd);
+            info!("player died: {scores:?}");
         }
     }
 }
