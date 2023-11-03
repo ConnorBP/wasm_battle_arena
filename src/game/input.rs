@@ -59,11 +59,16 @@ const INPUT_FIRE: u8 = 1<< 4;
 //     }
 // }
 
+/// Local state for keeping track of which touch id is the current movement touchid
+#[derive(Default)]
+pub struct TouchMap(pub(crate) Option<u64>);
+
 pub fn input(
     _: In<ggrs::PlayerHandle>,
     keys: Res<Input<KeyCode>>,
     // mut touch_evr: EventReader<TouchInput>,
     touches: Res<Touches>,
+    mut touch_map: Local<TouchMap>,
 ) -> u8 {
     let mut input = 0u8;
 
@@ -83,12 +88,66 @@ pub fn input(
         input |= INPUT_FIRE;
     }
 
-    // handle touchscreens
-    for finger in touches.iter() {
-        if touches.just_pressed(finger.id()) {
-            info!("[InSys] The touch {} just started.", finger.id());
+    
+
+    // check if we should clear the touchmap
+    if let Some(tm) = touch_map.0 {
+        for released in touches.iter_just_released() {
+            if released.id() == tm {
+                touch_map.0 = None;
+                break;
+                info!("[InSys] Touch {} just un-mapped (released).", released.id());
+            }
         }
+        for released in touches.iter_just_canceled() {
+            if released.id() == tm {
+                touch_map.0 = None;
+                break;
+                info!("[InSys] Touch {} just un-mapped (canceled).", released.id());
+            }
+        }
+
+        // if no touches on screen reset touchmap
+        // catch all in case unmap event is missed
+        if touches.iter().count() == 0 {
+            touch_map.0 = None;
+        }
+    }
+
+    // handle touchscreen inputs
+    for finger in touches.iter() {
+
+        match *touch_map {
+            TouchMap(None) => {
+                info!("[InSys] The touch {} just mapped.", finger.id());
+                touch_map.0 = Some(finger.id());
+
+            },
+            TouchMap(Some(tm)) => {
+                if tm == finger.id() {
+                    // we are in the current registered move finger so apply input
+                    let direction =
+                        (finger.start_position() - finger.position());
+                    // let direction = finger.delta().normalize_or_zero();
+
+                    info!("delta {} direction {}", finger.delta(), direction);
+
+                    input |= input_from_vec(direction);
+
+                } else {
+                    // not the move finger so we can check for taps to fire
+                    if touches.just_pressed(finger.id()) {
+                        input |= INPUT_FIRE;
+                    }
+                }
+            },
+        }
+
         
+
+        
+        
+
     }
 
 
@@ -130,26 +189,72 @@ pub fn direction(input: u8) -> Vec2 {
     direction.normalize_or_zero()
 }
 
+// const fn const_norm(vec: Vec2) -> Vec2 {
+//     let dot = vec.x * vec.x + vec.y * vec.y;
+//     let len = f32::sqrt(dot);
+//     let rcp = 1.0 / len;
+//     let norm = Vec2 { x: vec.x * rcp, y: vec.y * rcp };
+//     norm
+// }
+
 /// takes a vectorized input from a joystick or touchscreen and crush it down into our binary input format
-const DEADZONE: f32 = 0.2;
+const DEADZONE: f32 = 15.0;
+const AXIS_DEADZONE: f32 = 0.2;
+// magic pre calulated normalized variable for when x and y are both 1
+const DIAGONAL_NORMALIZED: f32 = 0.707107;
+const UNIT_TL: Vec2 = Vec2 { x: DIAGONAL_NORMALIZED,  y:  DIAGONAL_NORMALIZED };
+const UNIT_TR: Vec2 = Vec2 { x: -DIAGONAL_NORMALIZED, y:  DIAGONAL_NORMALIZED };
+const UNIT_BL: Vec2 = Vec2 { x: DIAGONAL_NORMALIZED,  y: -DIAGONAL_NORMALIZED };
+const UNIT_BR: Vec2 = Vec2 { x: -DIAGONAL_NORMALIZED, y: -DIAGONAL_NORMALIZED };
 pub fn input_from_vec(dir: Vec2) -> u8 {
     let mut input = 0;
 
-    // LR
-    if dir.x > DEADZONE {
-        input |= INPUT_RIGHT;
-    }
-    if dir.x < -DEADZONE {
-        input |= INPUT_LEFT;
-    }
+    let magnitude = dir.length();
 
-    // UD
+    // only apply input when magnitude is greater than the deadzone value
+    if magnitude > DEADZONE {
 
-    if dir.y > DEADZONE {
-        input |= INPUT_UP;
-    }
-    if dir.y < -DEADZONE {
-        input |= INPUT_DOWN;
+        let dir = dir.normalize_or_zero();
+
+        let left = dir.distance_squared(Vec2::X);
+        let topleft = dir.distance_squared(UNIT_TL);
+        let top = dir.distance_squared(Vec2::Y);
+        let topright = dir.distance_squared(UNIT_TR);
+        let right = dir.distance_squared(-Vec2::X);
+
+        let bottomleft = dir.distance_squared(UNIT_BL);
+        let bottom = dir.distance_squared(-Vec2::Y);
+        let bottomright = dir.distance_squared(UNIT_BR);
+
+
+        
+        if top < AXIS_DEADZONE {
+            return INPUT_UP;
+        } else if bottom < AXIS_DEADZONE {
+            return INPUT_DOWN;
+        }
+        
+        if left < right {
+            if left < AXIS_DEADZONE {
+                // we are in the vertical axis deadzone so move straight left
+                input |= INPUT_LEFT;
+            } else if topleft < left {
+                input |= INPUT_LEFT | INPUT_UP;
+            } else if bottomleft < left {
+                input |= INPUT_LEFT | INPUT_DOWN;
+            }
+        } else {
+            if right < AXIS_DEADZONE {
+                // we are in the vertical axis deadzone so move straight left
+                input |= INPUT_RIGHT;
+            } else if topright < right {
+                input |= INPUT_RIGHT | INPUT_UP;
+            } else if bottomright < right {
+                input |= INPUT_RIGHT | INPUT_DOWN;
+            }
+        }
+        
+        
     }
     
     input
