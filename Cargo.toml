@@ -6,6 +6,11 @@ edition = "2021"
 [profile.release]
 opt-level = 's'
 lto = "thin"
+#strip = "debuginfo"
+
+# optimizes only included packages on first build to help debug file size and speed
+[profile.dev.package."*"]
+opt-level = 3
 
 [dependencies]
 bevy = "0.11"
@@ -16,13 +21,16 @@ bevy_asset_loader = { version = "0.17", features=["2d"]}
 bevy_roll_safe = { git = "https://github.com/johanhelsing/bevy_roll_safe" }
 bevy_egui = "0.22"
 egui_plot = "0.23"
-wasm-bindgen = "0.2.87"
+wasm-bindgen = { version = "0.2.88", optional = true }
 seeded-random = "0.6"
 
 [patch.crates-io]
-bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy = { git = "https://github.com/ConnorBP/bevy", branch = "reflect-states-0.11" }
 #bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", features=["bevy_reflect"]}
 bevy_matchbox = { git = "https://github.com/johanhelsing/matchbox", branch = "main"}
 
 [features]
+default = []
 local = []
+bindgen = ["dep:wasm-bindgen"]
+dev = ["local", "bindgen"]

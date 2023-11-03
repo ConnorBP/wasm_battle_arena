@@ -3,3 +3,7 @@ target = "wasm32-unknown-unknown"
 
 [target.wasm32-unknown-unknown]
 runner = "wasm-server-runner"
+
+[env]
+# make wasm-server-runner allow non local host connections so i can test on my phone
+WASM_SERVER_RUNNER_ADDRESS = "0.0.0.0"

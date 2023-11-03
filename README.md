@@ -23,6 +23,7 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 ## Deploying
 
 - Requires wasm-bindgen-cli `cargo install wasm-bindgen-cli`
+- optional wasm-opt: `cargo install wasm-opt --locked`
 - then run the commands from deploy.bat
 
 
