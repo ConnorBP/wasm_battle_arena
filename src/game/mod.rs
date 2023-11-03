@@ -114,8 +114,8 @@ pub fn run() {
     .add_systems(
         GgrsSchedule,
         (
-            touch_test,
-            touch_ev_test,
+            // touch_test,
+            // touch_ev_test,
             move_players,
             reload_bullet,
             fire_bullets.after(move_players).after(reload_bullet),
