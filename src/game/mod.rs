@@ -32,7 +32,7 @@ pub enum GameState {
 }
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default, Reflect)]
-enum RollbackState {
+pub enum RollbackState {
     /// When the characters running and gunning
     #[default]
     InRound,
@@ -42,7 +42,7 @@ enum RollbackState {
 
 #[derive(Resource, Reflect, Deref, DerefMut)]
 #[reflect(Resource)]
-struct RoundEndTimer(Timer);
+pub struct RoundEndTimer(Timer);
 
 impl Default for RoundEndTimer {
     fn default() -> Self {
@@ -52,7 +52,7 @@ impl Default for RoundEndTimer {
 
 #[derive(Resource, Reflect, Default, Debug)]
 #[reflect(Resource)]
-struct Scores(u32, u32);
+pub struct Scores(u32, u32);
 
 #[derive(Resource, Reflect, Default, Debug)]
 #[reflect(Resource)]
