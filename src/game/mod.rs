@@ -92,6 +92,14 @@ pub fn run() {
             .register_rollback_component::<MoveDir>()
             .register_rollback_component::<LookTowardsParentMove>()
             .register_rollback_component::<MarkedForDeath>()
+
+            // register sprite bundle as rollback components
+            // Temp fix until bevy_ggrs fixes rollback
+            .register_rollback_component::<Sprite>()
+            .register_rollback_component::<GlobalTransform>()
+            .register_rollback_component::<Handle<Image>>()
+            .register_rollback_component::<Visibility>()
+            .register_rollback_component::<ComputedVisibility>()            
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .init_resource::<RoundEndTimer>()
