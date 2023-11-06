@@ -57,6 +57,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 
 - [x] Add a block based map to the grid
 - [x] Add collision detection to map using a simple calculation (coordinates / MAP_SIZE).floor() as index into array of blocktype at position
+- [ ] fix literal corner case on collision detection which freezes movement on corners
 - [ ] auto generate the map with wave collapse or perlin noise
 - [x] update player spawn function with random locaion with no overlap
 - [ ] check player spawn location generation with collision to not spawn in wall
