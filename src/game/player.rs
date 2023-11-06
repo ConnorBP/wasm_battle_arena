@@ -191,6 +191,7 @@ pub fn spawn_players(
     mut commands: Commands,
     images: Res<ImageAssets>,
     mut seed: ResMut<GameSeed>,
+    map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
     players: Query<Entity, With<Player>>,
     bullets: Query<Entity, With<Bullet>>,
 ) {
@@ -208,7 +209,7 @@ pub fn spawn_players(
     }
 
     // generate new spawn positions
-    let positions = generate_random_positions(2, seed.0);
+    let positions = generate_random_positions(2, seed.0, map_data);
 
     // now advance the seed for next spawn
     seed.0 = Random::from_seed(Seed::unsafe_new(seed.0)).gen();
@@ -291,7 +292,11 @@ pub fn world_to_grid(world_pos: Vec2) -> Option<(u32,u32)> {
         }
 }
 
-fn generate_random_positions(count: usize, base_seed: u64) -> Vec<(u32,u32)> {
+fn generate_random_positions
+(count: usize,
+    base_seed: u64,
+    map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
+) -> Vec<(u32,u32)> {
     let mut rand = Random::from_seed(Seed::unsafe_new(base_seed));
     let mut positions: Vec<(u32,u32)> = vec![];
     // // generate a position and then check each position for collisions
@@ -309,12 +314,24 @@ fn generate_random_positions(count: usize, base_seed: u64) -> Vec<(u32,u32)> {
             // check for overlaps in existing additins
             overlapped = {
                 let mut ret = false;
-                for &pos in positions.iter() {
-                    if x == pos.0 || y == pos.1 {
+                // don't spawn players in walls
+                match map_data.cells[x as usize][y as usize] {
+                    CellType::WallBlock => {
+                        // mark cell as taken and generate a new position for this player
                         ret = true;
-                        break;
+                    },
+                    _=> {
+                        // if not in a wall then check that another player has not been spawned here
+                        for &pos in positions.iter() {
+                            // check for player overlaps
+                            if x == pos.0 || y == pos.1 {
+                                ret = true;
+                                break;
+                            }
+                        }
                     }
                 }
+                // set overlapped var
                 ret
             };
         }
