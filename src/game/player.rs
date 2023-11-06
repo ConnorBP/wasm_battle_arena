@@ -384,10 +384,34 @@ pub fn reload_bullet(
     }
 }
 
-pub fn move_bullets(mut bullets: Query<(&mut Transform, &MoveDir), With<Bullet>>) {
-    for (mut transform, dir) in &mut bullets {
+pub fn move_bullets(
+    mut commands: Commands,
+    map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
+    mut bullets: Query<(Entity, &mut Transform, &MoveDir), With<Bullet>>
+) {
+    // map limit for bullet is exactly half map in any direction since the map is centered
+    let limit = Vec2::splat(MAP_SIZE as f32 / 2.);
+    for (entity, mut transform, dir) in &mut bullets {
         let delta = (dir.0 * 0.35).extend(0.);
         transform.translation += delta;
+
+        // check if bullet is out of map bounds
+        let absolute_pos = transform.translation.xy().abs();
+        if absolute_pos.x > limit.x || absolute_pos.y > limit.y {
+            // bullet out of bounds, despawn it
+            commands.entity(entity).despawn_recursive();
+        }  
+        // check for block hits
+        if let Some((x,y)) = world_to_grid(transform.translation.xy()) {
+            // if coords are inside of a wall then its a hit
+            match map_data.cells[x as usize][y as usize] {
+                CellType::WallBlock => {
+                    // bullet in a block, despawn it
+                    commands.entity(entity).despawn_recursive();
+                },
+                _ => {},
+            }
+        }
     }
 }
 
