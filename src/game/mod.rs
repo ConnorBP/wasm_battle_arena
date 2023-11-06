@@ -101,6 +101,7 @@ pub fn run() {
             .register_rollback_resource::<Scores>()
             .register_rollback_resource::<GameSeed>()
             .register_rollback_component::<Transform>()
+            .register_rollback_component::<Bullet>()
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<MoveDir>()
             .register_rollback_component::<LookTowardsParentMove>()
