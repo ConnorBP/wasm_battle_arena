@@ -523,77 +523,50 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 [[package]]
 name = "bevy"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "bevy_internal",
- "bevy_winit 0.11.3",
 ]
 
 [[package]]
 name = "bevy_a11y"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "accesskit",
- "bevy_app 0.11.2",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
-]
-
-[[package]]
-name = "bevy_a11y"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "accesskit",
- "bevy_app 0.11.3",
- "bevy_derive 0.11.3",
- "bevy_ecs 0.11.3",
+ "bevy_app",
+ "bevy_derive",
+ "bevy_ecs",
 ]
 
 [[package]]
 name = "bevy_animation"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_core 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_hierarchy 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_core",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_render",
  "bevy_time",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
 ]
 
 [[package]]
 name = "bevy_app"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_tasks 0.11.2",
- "bevy_utils 0.11.2",
- "downcast-rs",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "bevy_app"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_derive 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_reflect 0.11.3",
- "bevy_tasks 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_reflect",
+ "bevy_tasks",
+ "bevy_utils",
  "downcast-rs",
  "wasm-bindgen",
  "web-sys",
@@ -602,18 +575,18 @@ dependencies = [
 [[package]]
 name = "bevy_asset"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "anyhow",
  "async-channel",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_diagnostic",
- "bevy_ecs 0.11.2",
- "bevy_log 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_tasks 0.11.2",
- "bevy_utils 0.11.2",
- "bevy_winit 0.11.2",
+ "bevy_ecs",
+ "bevy_log",
+ "bevy_reflect",
+ "bevy_tasks",
+ "bevy_utils",
+ "bevy_winit",
  "crossbeam-channel",
  "downcast-rs",
  "fastrand 1.9.0",
@@ -653,17 +626,17 @@ dependencies = [
 [[package]]
 name = "bevy_audio"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "anyhow",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "oboe",
  "parking_lot 0.12.1",
  "rodio",
@@ -672,46 +645,32 @@ dependencies = [
 [[package]]
 name = "bevy_core"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_tasks 0.11.2",
- "bevy_utils 0.11.2",
- "bytemuck",
-]
-
-[[package]]
-name = "bevy_core"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_app 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_math 0.11.3",
- "bevy_reflect 0.11.3",
- "bevy_tasks 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_reflect",
+ "bevy_tasks",
+ "bevy_utils",
  "bytemuck",
 ]
 
 [[package]]
 name = "bevy_core_pipeline"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_core 0.11.2",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_core",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_render",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "bitflags 2.4.1",
  "radsort",
  "serde",
@@ -720,19 +679,9 @@ dependencies = [
 [[package]]
 name = "bevy_derive"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_macro_utils 0.11.2",
- "quote",
- "syn 2.0.38",
-]
-
-[[package]]
-name = "bevy_derive"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_macro_utils 0.11.3",
+ "bevy_macro_utils",
  "quote",
  "syn 2.0.38",
 ]
@@ -740,48 +689,28 @@ dependencies = [
 [[package]]
 name = "bevy_diagnostic"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_core 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_log 0.11.2",
+ "bevy_app",
+ "bevy_core",
+ "bevy_ecs",
+ "bevy_log",
  "bevy_time",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "sysinfo",
 ]
 
 [[package]]
 name = "bevy_ecs"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "async-channel",
- "bevy_ecs_macros 0.11.2",
- "bevy_ptr 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_tasks 0.11.2",
- "bevy_utils 0.11.2",
- "downcast-rs",
- "event-listener",
- "fixedbitset",
- "rustc-hash",
- "serde",
- "thiserror",
- "thread_local",
-]
-
-[[package]]
-name = "bevy_ecs"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "async-channel",
- "bevy_ecs_macros 0.11.3",
- "bevy_ptr 0.11.3",
- "bevy_reflect 0.11.3",
- "bevy_tasks 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_ecs_macros",
+ "bevy_ptr",
+ "bevy_reflect",
+ "bevy_tasks",
+ "bevy_utils",
  "downcast-rs",
  "event-listener",
  "fixedbitset",
@@ -794,20 +723,9 @@ dependencies = [
 [[package]]
 name = "bevy_ecs_macros"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_macro_utils 0.11.2",
- "proc-macro2",
- "quote",
- "syn 2.0.38",
-]
-
-[[package]]
-name = "bevy_ecs_macros"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_macro_utils 0.11.3",
+ "bevy_macro_utils",
  "proc-macro2",
  "quote",
  "syn 2.0.38",
@@ -829,9 +747,9 @@ dependencies = [
 [[package]]
 name = "bevy_encase_derive"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_macro_utils 0.11.2",
+ "bevy_macro_utils",
  "encase_derive_impl",
 ]
 
@@ -852,14 +770,14 @@ dependencies = [
 [[package]]
 name = "bevy_gilrs"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_input 0.11.2",
- "bevy_log 0.11.2",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_log",
  "bevy_time",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "gilrs",
  "thiserror",
 ]
@@ -867,45 +785,45 @@ dependencies = [
 [[package]]
 name = "bevy_gizmos"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_core 0.11.2",
+ "bevy_core",
  "bevy_core_pipeline",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
+ "bevy_ecs",
+ "bevy_math",
  "bevy_pbr",
- "bevy_reflect 0.11.2",
+ "bevy_reflect",
  "bevy_render",
  "bevy_sprite",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
 ]
 
 [[package]]
 name = "bevy_gltf"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "anyhow",
  "base64 0.13.1",
  "bevy_animation",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_core 0.11.2",
+ "bevy_core",
  "bevy_core_pipeline",
- "bevy_ecs 0.11.2",
- "bevy_hierarchy 0.11.2",
- "bevy_log 0.11.2",
- "bevy_math 0.11.2",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_log",
+ "bevy_math",
  "bevy_pbr",
- "bevy_reflect 0.11.2",
+ "bevy_reflect",
  "bevy_render",
  "bevy_scene",
- "bevy_tasks 0.11.2",
+ "bevy_tasks",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "gltf",
  "percent-encoding",
  "serde",
@@ -916,119 +834,77 @@ dependencies = [
 [[package]]
 name = "bevy_hierarchy"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_core 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_log 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_utils 0.11.2",
- "smallvec",
-]
-
-[[package]]
-name = "bevy_hierarchy"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_app 0.11.3",
- "bevy_core 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_log 0.11.3",
- "bevy_reflect 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_app",
+ "bevy_core",
+ "bevy_ecs",
+ "bevy_log",
+ "bevy_reflect",
+ "bevy_utils",
  "smallvec",
 ]
 
 [[package]]
 name = "bevy_input"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_utils 0.11.2",
- "thiserror",
-]
-
-[[package]]
-name = "bevy_input"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_app 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_math 0.11.3",
- "bevy_reflect 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_reflect",
+ "bevy_utils",
  "thiserror",
 ]
 
 [[package]]
 name = "bevy_internal"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_a11y 0.11.2",
+ "bevy_a11y",
  "bevy_animation",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
  "bevy_audio",
- "bevy_core 0.11.2",
+ "bevy_core",
  "bevy_core_pipeline",
- "bevy_derive 0.11.2",
+ "bevy_derive",
  "bevy_diagnostic",
- "bevy_ecs 0.11.2",
+ "bevy_ecs",
  "bevy_gilrs",
  "bevy_gizmos",
  "bevy_gltf",
- "bevy_hierarchy 0.11.2",
- "bevy_input 0.11.2",
- "bevy_log 0.11.2",
- "bevy_math 0.11.2",
+ "bevy_hierarchy",
+ "bevy_input",
+ "bevy_log",
+ "bevy_math",
  "bevy_pbr",
- "bevy_ptr 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_ptr",
+ "bevy_reflect",
  "bevy_render",
  "bevy_scene",
  "bevy_sprite",
- "bevy_tasks 0.11.2",
+ "bevy_tasks",
  "bevy_text",
  "bevy_time",
  "bevy_transform",
  "bevy_ui",
- "bevy_utils 0.11.2",
- "bevy_window 0.11.2",
- "bevy_winit 0.11.2",
+ "bevy_utils",
+ "bevy_window",
+ "bevy_winit",
 ]
 
 [[package]]
 name = "bevy_log"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "android_log-sys",
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_utils 0.11.2",
- "console_error_panic_hook",
- "tracing-log",
- "tracing-subscriber",
- "tracing-wasm",
-]
-
-[[package]]
-name = "bevy_log"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "android_log-sys",
- "bevy_app 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_utils",
  "console_error_panic_hook",
  "tracing-log",
  "tracing-subscriber",
@@ -1038,18 +914,7 @@ dependencies = [
 [[package]]
 name = "bevy_macro_utils"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
-dependencies = [
- "quote",
- "rustc-hash",
- "syn 2.0.38",
- "toml_edit",
-]
-
-[[package]]
-name = "bevy_macro_utils"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "quote",
  "rustc-hash",
@@ -1070,16 +935,7 @@ dependencies = [
 [[package]]
 name = "bevy_math"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
-dependencies = [
- "glam",
- "serde",
-]
-
-[[package]]
-name = "bevy_math"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "glam",
  "serde",
@@ -1088,7 +944,7 @@ dependencies = [
 [[package]]
 name = "bevy_mikktspace"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "glam",
 ]
@@ -1096,19 +952,19 @@ dependencies = [
 [[package]]
 name = "bevy_pbr"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
  "bevy_core_pipeline",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_render",
  "bevy_transform",
- "bevy_utils 0.11.2",
- "bevy_window 0.11.2",
+ "bevy_utils",
+ "bevy_window",
  "bitflags 2.4.1",
  "bytemuck",
  "naga_oil",
@@ -1118,42 +974,17 @@ dependencies = [
 [[package]]
 name = "bevy_ptr"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
-
-[[package]]
-name = "bevy_ptr"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 
 [[package]]
 name = "bevy_reflect"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_math 0.11.2",
- "bevy_ptr 0.11.2",
- "bevy_reflect_derive 0.11.2",
- "bevy_utils 0.11.2",
- "downcast-rs",
- "erased-serde",
- "glam",
- "once_cell",
- "parking_lot 0.12.1",
- "serde",
- "smallvec",
- "smol_str",
- "thiserror",
-]
-
-[[package]]
-name = "bevy_reflect"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_math 0.11.3",
- "bevy_ptr 0.11.3",
- "bevy_reflect_derive 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_math",
+ "bevy_ptr",
+ "bevy_reflect_derive",
+ "bevy_utils",
  "downcast-rs",
  "erased-serde",
  "glam",
@@ -1168,22 +999,9 @@ dependencies = [
 [[package]]
 name = "bevy_reflect_derive"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_macro_utils 0.11.2",
- "bit-set",
- "proc-macro2",
- "quote",
- "syn 2.0.38",
- "uuid",
-]
-
-[[package]]
-name = "bevy_reflect_derive"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_macro_utils 0.11.3",
+ "bevy_macro_utils",
  "bit-set",
  "proc-macro2",
  "quote",
@@ -1194,27 +1012,27 @@ dependencies = [
 [[package]]
 name = "bevy_render"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "anyhow",
  "async-channel",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_core 0.11.2",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
+ "bevy_core",
+ "bevy_derive",
+ "bevy_ecs",
  "bevy_encase_derive",
- "bevy_hierarchy 0.11.2",
- "bevy_log 0.11.2",
- "bevy_math 0.11.2",
+ "bevy_hierarchy",
+ "bevy_log",
+ "bevy_math",
  "bevy_mikktspace",
- "bevy_reflect 0.11.2",
+ "bevy_reflect",
  "bevy_render_macros",
- "bevy_tasks 0.11.2",
+ "bevy_tasks",
  "bevy_time",
  "bevy_transform",
- "bevy_utils 0.11.2",
- "bevy_window 0.11.2",
+ "bevy_utils",
+ "bevy_window",
  "bitflags 2.4.1",
  "bytemuck",
  "codespan-reporting",
@@ -1243,9 +1061,9 @@ dependencies = [
 [[package]]
 name = "bevy_render_macros"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_macro_utils 0.11.2",
+ "bevy_macro_utils",
  "proc-macro2",
  "quote",
  "syn 2.0.38",
@@ -1264,18 +1082,18 @@ dependencies = [
 [[package]]
 name = "bevy_scene"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "anyhow",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_hierarchy 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_reflect",
  "bevy_render",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "ron",
  "serde",
  "thiserror",
@@ -1285,19 +1103,19 @@ dependencies = [
 [[package]]
 name = "bevy_sprite"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
  "bevy_core_pipeline",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_log 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_log",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_render",
  "bevy_transform",
- "bevy_utils 0.11.2",
+ "bevy_utils",
  "bitflags 2.4.1",
  "bytemuck",
  "fixedbitset",
@@ -1309,20 +1127,7 @@ dependencies = [
 [[package]]
 name = "bevy_tasks"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
-dependencies = [
- "async-channel",
- "async-executor",
- "async-task",
- "concurrent-queue",
- "futures-lite",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "bevy_tasks"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -1335,20 +1140,20 @@ dependencies = [
 [[package]]
 name = "bevy_text"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "ab_glyph",
  "anyhow",
- "bevy_app 0.11.2",
+ "bevy_app",
  "bevy_asset",
- "bevy_ecs 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_render",
  "bevy_sprite",
  "bevy_transform",
- "bevy_utils 0.11.2",
- "bevy_window 0.11.2",
+ "bevy_utils",
+ "bevy_window",
  "glyph_brush_layout",
  "serde",
  "thiserror",
@@ -1357,12 +1162,12 @@ dependencies = [
 [[package]]
 name = "bevy_time"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_utils 0.11.2",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_reflect",
+ "bevy_utils",
  "crossbeam-channel",
  "thiserror",
 ]
@@ -1370,37 +1175,37 @@ dependencies = [
 [[package]]
 name = "bevy_transform"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_hierarchy 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_math",
+ "bevy_reflect",
 ]
 
 [[package]]
 name = "bevy_ui"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_a11y 0.11.2",
- "bevy_app 0.11.2",
+ "bevy_a11y",
+ "bevy_app",
  "bevy_asset",
  "bevy_core_pipeline",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_hierarchy 0.11.2",
- "bevy_input 0.11.2",
- "bevy_log 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_input",
+ "bevy_log",
+ "bevy_math",
+ "bevy_reflect",
  "bevy_render",
  "bevy_sprite",
  "bevy_text",
  "bevy_transform",
- "bevy_utils 0.11.2",
- "bevy_window 0.11.2",
+ "bevy_utils",
+ "bevy_window",
  "bytemuck",
  "serde",
  "smallvec",
@@ -1411,26 +1216,10 @@ dependencies = [
 [[package]]
 name = "bevy_utils"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "ahash",
- "bevy_utils_proc_macros 0.11.2",
- "getrandom",
- "hashbrown 0.14.2",
- "instant",
- "petgraph",
- "thiserror",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "bevy_utils"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "ahash",
- "bevy_utils_proc_macros 0.11.3",
+ "bevy_utils_proc_macros",
  "getrandom",
  "hashbrown 0.14.2",
  "instant",
@@ -1443,17 +1232,7 @@ dependencies = [
 [[package]]
 name = "bevy_utils_proc_macros"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.38",
-]
-
-[[package]]
-name = "bevy_utils_proc_macros"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1463,72 +1242,34 @@ dependencies = [
 [[package]]
 name = "bevy_window"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
- "bevy_app 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_input 0.11.2",
- "bevy_math 0.11.2",
- "bevy_reflect 0.11.2",
- "bevy_utils 0.11.2",
- "raw-window-handle",
-]
-
-[[package]]
-name = "bevy_window"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "bevy_app 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_input 0.11.3",
- "bevy_math 0.11.3",
- "bevy_reflect 0.11.3",
- "bevy_utils 0.11.3",
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_math",
+ "bevy_reflect",
+ "bevy_utils",
  "raw-window-handle",
 ]
 
 [[package]]
 name = "bevy_winit"
 version = "0.11.2"
-source = "git+https://github.com/ConnorBP/bevy?branch=reflect-states-0.11#57fd371831f3720ef83d985f0e604bb3b4d922e8"
+source = "git+https://github.com/johanhelsing/bevy?branch=reflect-states-0.11#fccd3f1ba45963fea0dc07c861c0b12c22527a60"
 dependencies = [
  "accesskit_winit",
  "approx",
- "bevy_a11y 0.11.2",
- "bevy_app 0.11.2",
- "bevy_derive 0.11.2",
- "bevy_ecs 0.11.2",
- "bevy_hierarchy 0.11.2",
- "bevy_input 0.11.2",
- "bevy_math 0.11.2",
- "bevy_tasks 0.11.2",
- "bevy_utils 0.11.2",
- "bevy_window 0.11.2",
- "crossbeam-channel",
- "raw-window-handle",
- "wasm-bindgen",
- "web-sys",
- "winit",
-]
-
-[[package]]
-name = "bevy_winit"
-version = "0.11.3"
-source = "git+https://github.com/bevyengine/bevy?branch=release-0.11.3#0d23d71c19c784ceb1acfbb134dda9ce0c2adc61"
-dependencies = [
- "accesskit_winit",
- "approx",
- "bevy_a11y 0.11.3",
- "bevy_app 0.11.3",
- "bevy_derive 0.11.3",
- "bevy_ecs 0.11.3",
- "bevy_hierarchy 0.11.3",
- "bevy_input 0.11.3",
- "bevy_math 0.11.3",
- "bevy_tasks 0.11.3",
- "bevy_utils 0.11.3",
- "bevy_window 0.11.3",
+ "bevy_a11y",
+ "bevy_app",
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_input",
+ "bevy_math",
+ "bevy_tasks",
+ "bevy_utils",
+ "bevy_window",
  "crossbeam-channel",
  "raw-window-handle",
  "wasm-bindgen",
@@ -1981,9 +1722,9 @@ dependencies = [
 
 [[package]]
 name = "crc-catalog"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4939f9ed1444bd8c896d37f3090012fa6e7834fe84ef8c9daa166109515732f9"
+checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
 
 [[package]]
 name = "crc32fast"
@@ -2209,15 +1950,6 @@ dependencies = [
  "ahash",
  "epaint",
  "nohash-hasher",
-]
-
-[[package]]
-name = "egui_plot"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f33a00fe8eb1ba56535b3dbacdecc7a1365a328908a97c5f3c81bb466be72b"
-dependencies = [
- "egui",
 ]
 
 [[package]]
@@ -3284,6 +3016,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
+name = "libredox"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3af92c55d7d839293953fcd0fda5ecfe93297cfde6ffbdec13b41d99c0ba6607"
+dependencies = [
+ "bitflags 2.4.1",
+ "libc",
+ "redox_syscall 0.4.1",
+]
+
+[[package]]
 name = "libudev-sys"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3846,11 +3589,11 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "orbclient"
-version = "0.3.46"
+version = "0.3.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8378ac0dfbd4e7895f2d2c1f1345cab3836910baf3a300b000d04250f0c8428f"
+checksum = "52f0d54bde9774d3a51dcf281a5def240c71996bc6ca05d2c847ec8b2b216166"
 dependencies = [
- "redox_syscall 0.3.5",
+ "libredox",
 ]
 
 [[package]]
@@ -5382,7 +5125,7 @@ checksum = "0d046c5d029ba91a1ed14da14dca44b68bf2f124cfbaf741c54151fdb3e0750b"
 
 [[package]]
 name = "wasm_battle_arena"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bevy_asset_loader",
@@ -5390,7 +5133,6 @@ dependencies = [
  "bevy_ggrs",
  "bevy_matchbox",
  "bevy_roll_safe",
- "egui_plot",
  "ggrs",
  "seeded-random",
  "wasm-bindgen",
@@ -6043,9 +5785,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.5.18"
+version = "0.5.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176b6138793677221d420fd2f0aeeced263f197688b36484660da767bca2fa32"
+checksum = "829846f3e3db426d4cee4510841b71a8e58aa2a76b1132579487ae430ccd9c7b"
 dependencies = [
  "memchr",
 ]
@@ -6155,18 +5897,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.7.24"
+version = "0.7.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092cd76b01a033a9965b9097da258689d9e17c69ded5dcf41bca001dd20ebc6d"
+checksum = "8cd369a67c0edfef15010f980c3cbe45d7f651deac2cd67ce097cd801de16557"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.7.24"
+version = "0.7.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13a20a7c6a90e2034bcc65495799da92efcec6a8dd4f3fcb6f7a48988637ead"
+checksum = "c2f140bda219a26ccc0cdb03dba58af72590c53b22642577d88a927bc5c87d6b"
 dependencies = [
  "proc-macro2",
  "quote",

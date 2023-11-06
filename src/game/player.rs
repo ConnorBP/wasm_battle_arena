@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use bevy::{prelude::*,math::Vec3Swizzles};
+use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use seeded_random::{Random, Seed};
 
-use super::{components::*, MAP_SIZE, textures::{ImageAssets, spawn_explosion}, RollbackState, Scores, GameSeed};
+use super::{components::*, MAP_SIZE, textures::{ImageAssets, spawn_explosion}, RollbackState, Scores, GameSeed, map::{CellType, Map}};
 use super::networking::GgrsConfig;
 use super::input;
 
@@ -12,6 +12,7 @@ use super::input;
 pub fn move_players(
     inputs: Res<PlayerInputs<GgrsConfig>>,
     mut players: Query<(&mut Transform, &mut MoveDir, &Player)>,
+    map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
 ) {
     for (mut transform, mut move_dir, player) in &mut players {
         let (input, _) = inputs[player.handle];
@@ -24,15 +25,117 @@ pub fn move_players(
         move_dir.0 = direction;
 
         let move_speed = 0.13;
-        let move_delta = direction * move_speed;
-
         let old_pos = transform.translation.xy();
+        let mut move_delta = direction * move_speed;
+
+        
+        // check the cells in the horizontal, vertical, and forward directions
+        let h_block = world_to_grid(old_pos + Vec2::new(direction.x.signum(), 0.0));
+        let v_block = world_to_grid(old_pos + Vec2::new(0.0, direction.y.signum()));
+        let hv_block = world_to_grid(old_pos + Vec2::new(direction.x.signum(), direction.y.signum()));
+        let h2_block = world_to_grid(old_pos + Vec2::new(direction.x.signum(), -direction.y.signum()));
+        let v2_block = world_to_grid(old_pos + Vec2::new(-direction.x.signum(), direction.y.signum()));
+        
+        // run check if cell is in valid range
+        if let Some(cell) = h_block {
+            // now perform finite collision check on cell
+            if cell_collide(&map_data, old_pos + Vec2::new(move_delta.x, 0.0), cell) {
+                    move_delta.x = 0.0;
+
+            }
+        }
+        
+        // extend horizontal check down by one block
+        if let Some(cell) = h2_block {
+            // now perform finite collision check on cell
+            if cell_collide(&map_data, old_pos + Vec2::new(move_delta.x, 0.0), cell) {
+                    move_delta.x = 0.0;
+
+            }
+        }
+
+        // run check if cell is in valid range
+        if let Some(cell) = v_block {
+            // now perform finite collision check on cell
+            if cell_collide(&map_data, old_pos + Vec2::new(0.0, move_delta.y), cell) {
+                    move_delta.y = 0.0;
+
+            }
+        }
+
+        // extend vertical check by one block
+        if let Some(cell) = v2_block {
+            // now perform finite collision check on cell
+            if cell_collide(&map_data, old_pos + Vec2::new(0.0, move_delta.y), cell) {
+                    move_delta.y = 0.0;
+
+            }
+        }
+
+
+        // run check if cell is in valid range
+        if let Some(cell) = hv_block {
+            // now perform finite collision check on cell
+            if cell_collide(&map_data, old_pos + Vec2::new(move_delta.x, move_delta.y), cell) {
+                    move_delta.x = 0.0;
+                    move_delta.y = 0.0;
+
+            }
+        }
+
         let limit = Vec2::splat(MAP_SIZE as f32 / 2. - 0.5);
         let new_pos = (old_pos + move_delta).clamp(-limit, limit);
+
+
+
+
+
+        // let (x,y) = world_to_grid(new_pos);
+        // match map_data.cells[x as usize][y as usize] {
+        //     CellType::WallBlock => {
+        //         let block_pos = grid_to_world((x,y));
+        //         // let u = f32::max(block_pos.x.abs(), block_pos.y.abs());
+        //         // let p = Vec2::new(block_pos.x / u, block_pos.y / u);
+                
+                
+        //         // new_pos = new_pos.clamp(
+        //         //     block_pos + 1.0,
+        //         //     block_pos - 1.0
+        //         // );
+        //     },
+        //     _=> {}
+        // }
 
         transform.translation.x = new_pos.x;
         transform.translation.y = new_pos.y;
     }
+}
+
+/// returns true if cell at index collides with player position
+fn cell_collide(
+    map_data: &Res<Map<CellType,MAP_SIZE, MAP_SIZE>>,
+    player_pos: Vec2,
+    cell: (u32, u32)
+) -> bool {
+    match map_data.cells[cell.0 as usize][cell.1 as usize] {
+        CellType::WallBlock => {
+            wall_check(player_pos, grid_to_world(cell))
+        },
+        _=> {
+            false
+        }
+    }
+}
+
+/// Checks if two squares of size 1,1 overlap from two 2D coordinates
+fn wall_check(player: Vec2, wall: Vec2) -> bool{
+    let col = collide(
+        player.extend(0.),
+        Vec2::splat(1.0),
+        wall.extend(0.0),
+        Vec2::splat(1.0)
+    );
+    col.is_some()
 }
 
 pub fn player_look(
@@ -161,11 +264,25 @@ fn spawn_player(
 }
 
 // takes in a grid position from 0 to map_size and outputs a world coordinate
-fn grid_to_world(grid_pos: (u32,u32)) -> Vec2 {
+pub fn grid_to_world(grid_pos: (u32,u32)) -> Vec2 {
     Vec2::new(
         (grid_pos.0 as f32 - MAP_SIZE as f32 / 2.)+0.5,
         (grid_pos.1 as f32 - MAP_SIZE as f32 / 2.)+0.5,
     )
+}
+
+pub fn world_to_grid(world_pos: Vec2) -> Option<(u32,u32)> {
+    
+        let x = ((world_pos.x) + MAP_SIZE as f32 / 2.) as i32;
+        let y = ((world_pos.y) + MAP_SIZE as f32 / 2.) as i32;
+
+        // return in bounds result or None
+        if x < 0 || x >= MAP_SIZE as i32
+        || y < 0 || y >= MAP_SIZE as i32 {
+            return None;
+        } else {
+            return Some((x as u32, y as u32))
+        }
 }
 
 fn generate_random_positions(count: usize, base_seed: u64) -> Vec<(u32,u32)> {
@@ -179,10 +296,10 @@ fn generate_random_positions(count: usize, base_seed: u64) -> Vec<(u32,u32)> {
         while overlapped {
             // advance the random seed
             rand = Random::from_seed(rand.seed());
-            x = rand.u32() % MAP_SIZE;
+            x = rand.u32() % MAP_SIZE as u32;
             // advance the random seed again for y
             rand = Random::from_seed(rand.seed());
-            y = rand.u32() % MAP_SIZE;
+            y = rand.u32() % MAP_SIZE as u32;
             // check for overlaps in existing additins
             overlapped = {
                 let mut ret = false;

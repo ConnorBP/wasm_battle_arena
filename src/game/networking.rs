@@ -25,8 +25,16 @@ impl ggrs::Config for GgrsConfig {
 pub fn start_matchbox_socket(mut commands: Commands) {
     // let secure = crate::interface::is_secure();
     // prevent version clashing in lobies from causing non determinism
+    #[cfg(not(feature="dev"))]
     let room_name = format!(
         "battle-{}-{}-{}",
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        env!("CARGO_PKG_VERSION_MINOR"),
+        env!("CARGO_PKG_VERSION_PATCH")
+    );
+    #[cfg(feature="dev")]
+    let room_name = format!(
+        "devbattle-{}-{}-{}",
         env!("CARGO_PKG_VERSION_MAJOR"),
         env!("CARGO_PKG_VERSION_MINOR"),
         env!("CARGO_PKG_VERSION_PATCH")
@@ -90,10 +98,16 @@ pub fn wait_for_players(
 
     info!("All peers have joined, going in-game");
 
+    #[cfg(feature="no_delay")]
+    let input_delay = 0;
+    #[cfg(not(feature="no_delay"))]
+    let input_delay = 2;
+
     // create ggrs p2p session
     let mut session_builder = ggrs::SessionBuilder::<GgrsConfig>::new()
         .with_num_players(min_players)
-        .with_input_delay(2);
+        .with_input_delay(input_delay);
+        
 
     for (i, player) in players.into_iter().enumerate() {
         if player == PlayerType::Local {

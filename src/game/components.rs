@@ -21,6 +21,11 @@ pub struct LookTowardsParentMove;
 #[derive(Component, Reflect)]
 pub struct MarkedForDeath(pub(crate) Timer);
 
+// marker component for map blocks
+#[derive(Component)]
+pub struct MapBlock;
+
+
 // non synced for animation only
 
 /// When paired with a TextureAtlasSprite and an AnimationTimer it will animate once through the frame count

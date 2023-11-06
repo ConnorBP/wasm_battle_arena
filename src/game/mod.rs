@@ -5,23 +5,29 @@ use bevy_ggrs::{GgrsAppExtension, GgrsPlugin, GgrsSchedule};
 use bevy_asset_loader::prelude::*;
 use bevy_roll_safe::prelude::*;
 use bevy_egui::EguiPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod components;
+mod map;
 mod player;
 mod input;
 mod networking;
 mod textures;
 mod gui;
 
+#[cfg(feature="debug_render")]
+mod debug_render;
+
 use components::*;
+use map::*;
 use player::*;
 use input::*;
 use networking::*;
 use textures::*;
 use gui::*;
 
-const MAP_SIZE: u32 = 41;
-const GRID_WIDTH: f32 = 0.05;
+pub const MAP_SIZE: usize = 41;
+pub const GRID_WIDTH: f32 = 0.05;
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub enum GameState {
@@ -33,8 +39,10 @@ pub enum GameState {
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default, Reflect)]
 pub enum RollbackState {
-    /// When the characters running and gunning
+    /// When the map generation or other setup is running before the round starts
     #[default]
+    PreRound,
+    /// When the characters running and gunning
     InRound,
     /// When one character is dead, and we're transitioning to the next round
     RoundEnd,
@@ -59,8 +67,12 @@ pub struct Scores(u32, u32);
 pub struct GameSeed(u64);
 
 pub fn run() {
-    App::new()
-    .add_state::<GameState>()
+    let mut app = App::new();
+
+    #[cfg(feature="debug_render")]
+    app.add_systems(Update, debug_render::spawn_debug_sprites);
+
+    app.add_state::<GameState>()
     .add_loading_state(
         LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::Matchmaking)
     )
@@ -79,6 +91,7 @@ pub fn run() {
         })
         .set(ImagePlugin::default_nearest()),// set pixel art render mode
         EguiPlugin,
+        // WorldInspectorPlugin::new(),
     ))
     .add_ggrs_plugin(
         GgrsPlugin::<networking::GgrsConfig>::new()
@@ -118,7 +131,26 @@ pub fn run() {
         ),
     )
     .add_roll_state::<RollbackState>(GgrsSchedule)
-    .add_systems(OnEnter(RollbackState::InRound), spawn_players)
+    .add_systems(
+        OnEnter(RollbackState::PreRound),
+        (
+            clear_map_sprites,        )
+    )
+    .add_systems(
+        GgrsSchedule,
+        generate_map
+            .ambiguous_with(round_end_timeout)
+            .ambiguous_with(process_deaths)
+            .distributive_run_if(in_state(RollbackState::PreRound))
+            .after(apply_state_transition::<RollbackState>),
+    )
+    .add_systems(
+        OnEnter(RollbackState::InRound),
+        (
+            spawn_map_sprites,
+            spawn_players,
+        )
+    )
     .add_systems(
         GgrsSchedule,
         (
@@ -140,8 +172,7 @@ pub fn run() {
             .ambiguous_with(process_deaths)
             .distributive_run_if(in_state(RollbackState::RoundEnd))
             .after(apply_state_transition::<RollbackState>),
-    )
-    .run();
+    ).run();
 }
 
 fn setup(mut commands: Commands) {
@@ -215,6 +246,6 @@ fn round_end_timeout(
     timer.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
 
     if timer.just_finished() {
-        state.set(RollbackState::InRound);
+        state.set(RollbackState::PreRound);
     }
 }

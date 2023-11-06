@@ -1,6 +1,6 @@
 [package]
 name = "wasm_battle_arena"
-version = "0.1.7"
+version = "0.2.0"
 edition = "2021"
 
 [profile.release]
@@ -20,17 +20,20 @@ bevy_matchbox = { version = "0.7", features = ["ggrs"]}
 bevy_asset_loader = { version = "0.17", features=["2d"]}
 bevy_roll_safe = { git = "https://github.com/johanhelsing/bevy_roll_safe" }
 bevy_egui = "0.22"
-egui_plot = "0.23"
 wasm-bindgen = { version = "0.2.88", optional = true }
 seeded-random = "0.6"
+#bevy-inspector-egui = "0.20"
 
 [patch.crates-io]
-bevy = { git = "https://github.com/ConnorBP/bevy", branch = "reflect-states-0.11" }
+bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 #bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", features=["bevy_reflect"]}
 bevy_matchbox = { git = "https://github.com/johanhelsing/matchbox", branch = "main"}
 
 [features]
 default = []
 local = []
+# disables rollback input delay for testing
+no_delay = []
+debug_render = []
 bindgen = ["dep:wasm-bindgen"]
-dev = ["local", "bindgen"]
+dev = ["no_delay", "debug_render"]
