@@ -67,19 +67,25 @@ pub fn move_players(
         if let Some(cell) = v2_block {
             // now perform finite collision check on cell
             if cell_collide(&map_data, old_pos + Vec2::new(0.0, move_delta.y), cell) {
+
                     move_delta.y = 0.0;
 
             }
         }
 
 
-        // run check if cell is in valid range
         if let Some(cell) = hv_block {
-            // now perform finite collision check on cell
-            if cell_collide(&map_data, old_pos + Vec2::new(move_delta.x, move_delta.y), cell) {
+            // fine detail collision check with the vertical direction cell
+            let player_pos = old_pos + Vec2::new(move_delta.x, move_delta.y);
+            if cell_collide(&map_data, player_pos, cell) {
+                // check which axis is closest to the square corner (same as center pos) to decide which way to slide
+                // this is the solution for the "corner case"
+                let diff = player_pos - grid_to_world(cell);
+                if diff.x.abs() > diff.y.abs() {   
                     move_delta.x = 0.0;
+                } else {
                     move_delta.y = 0.0;
-
+                }
             }
         }
 
