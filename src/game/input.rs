@@ -130,7 +130,7 @@ pub fn input(
                         (finger.start_position() - finger.position());
                     // let direction = finger.delta().normalize_or_zero();
 
-                    info!("delta {} direction {}", finger.delta(), direction);
+                    //info!("delta {} direction {}", finger.delta(), direction);
 
                     input |= input_from_vec(direction);
 
