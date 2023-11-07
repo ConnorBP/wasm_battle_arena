@@ -198,7 +198,7 @@ pub fn direction(input: u8) -> Vec2 {
 // }
 
 /// takes a vectorized input from a joystick or touchscreen and crush it down into our binary input format
-const DEADZONE: f32 = 15.0;
+const DEADZONE: f32 = 50.0;
 const AXIS_DEADZONE: f32 = 0.2;
 // magic pre calulated normalized variable for when x and y are both 1
 const DIAGONAL_NORMALIZED: f32 = 0.707107;
