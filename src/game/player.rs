@@ -444,25 +444,34 @@ pub fn kill_players(
 
 // we despawn the players after a timer delay in case the network messed up the bullet hit registration
 pub fn process_deaths(
-    mut commands: Commands,
-    mut players: Query<(Entity, &Player, &mut MarkedForDeath)>,
+    mut marks: Query<&mut MarkedForDeath, With<Player>>,
     mut next_state: ResMut<NextState<RollbackState>>,
-    mut scores: ResMut<Scores>,
 ) {
-    for (player_entity, player_component, mut marked) in &mut players {
+    for mut marked in &mut marks {
 
         marked.0.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
 
         if marked.0.just_finished() {
-            if player_component.handle == 0 {
-                scores.1 += 1;
-            } else {
-                scores.0 += 1;
-            }
-
-            commands.entity(player_entity).despawn_recursive();
             next_state.set(RollbackState::RoundEnd);
-            info!("player died: {scores:?}");
         }
+    }
+}
+
+/// when the round ends, kill and score every player currently marked for death regardless of who shot first
+pub fn count_points_and_despawn(
+    mut commands: Commands,
+    players: Query<(Entity, &Player), With<MarkedForDeath>>,
+    mut scores: ResMut<Scores>,
+) {
+    for (player_entity, player_component) in &players {
+        if player_component.handle == 0 {
+            scores.1 += 1;
+        } else {
+            scores.0 += 1;
+        }
+
+        info!("player died: {scores:?}");
+
+        commands.entity(player_entity).despawn_recursive();
     }
 }

@@ -113,7 +113,11 @@ pub fn run() {
             .register_rollback_component::<GlobalTransform>()
             .register_rollback_component::<Handle<Image>>()
             .register_rollback_component::<Visibility>()
-            .register_rollback_component::<ComputedVisibility>()            
+            .register_rollback_component::<ComputedVisibility>()
+            .register_rollback_component::<Handle<TextureAtlas>>()       
+            .register_rollback_component::<TextureAtlasSprite>()
+
+            
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .init_resource::<RoundEndTimer>()
@@ -166,6 +170,12 @@ pub fn run() {
         )
             .after(apply_state_transition::<RollbackState>)
             .distributive_run_if(in_state(RollbackState::InRound)),
+    )
+    .add_systems(
+        OnExit(RollbackState::InRound),
+        (
+            count_points_and_despawn,
+        )
     )
     .add_systems(
         GgrsSchedule,
