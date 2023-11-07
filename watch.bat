@@ -1,1 +1,1 @@
-cargo watch -cx "run --release --target wasm32-unknown-unknown"
+cargo watch -cx "run --release --features "dev" --target wasm32-unknown-unknown"
