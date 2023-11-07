@@ -12,7 +12,7 @@ mod map;
 mod player;
 mod input;
 mod networking;
-mod textures;
+mod assets;
 mod gui;
 
 #[cfg(feature="debug_render")]
@@ -23,7 +23,8 @@ use map::*;
 use player::*;
 use input::*;
 use networking::*;
-use textures::*;
+use assets::textures::*;
+use assets::sounds::*;
 use gui::*;
 
 pub const MAP_SIZE: usize = 41;

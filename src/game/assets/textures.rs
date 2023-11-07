@@ -1,19 +1,19 @@
 use bevy::prelude::*;
 use bevy_asset_loader::prelude::*;
 
-use super::components::{AnimateOnce, AnimationTimer};
+use crate::game::components::{AnimateOnce, AnimationTimer};
 
 #[derive(AssetCollection, Resource)]
 pub struct ImageAssets {
-    #[asset(path = "bullet.png")]
+    #[asset(path = "textures/objects/bullet.png")]
     pub bullet: Handle<Image>,
-    #[asset(path = "ghost_base.png")]
+    #[asset(path = "textures/character/ghost_base.png")]
     pub ghost: Handle<Image>,
     #[asset(texture_atlas(tile_size_x = 16., tile_size_y = 16., columns = 8, rows = 1, padding_x = 0., padding_y = 0., offset_x = 0., offset_y = 0.))]
-    #[asset(path = "eyes.png")]
+    #[asset(path = "textures/character/eyes.png")]
     pub eyes: Handle<TextureAtlas>,
     #[asset(texture_atlas(tile_size_x = 16., tile_size_y = 16., columns = 3, rows = 1, padding_x = 0., padding_y = 0., offset_x = 0., offset_y = 0.))]
-    #[asset(path = "boom.png")]
+    #[asset(path = "textures/fx/boom.png")]
     pub explosion: Handle<TextureAtlas>,
 }
 

@@ -4,7 +4,7 @@ use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use seeded_random::{Random, Seed};
 
-use super::{components::*, MAP_SIZE, textures::{ImageAssets, spawn_explosion}, RollbackState, Scores, GameSeed, map::{CellType, Map}};
+use super::{components::*, MAP_SIZE, assets::textures::{ImageAssets, spawn_explosion}, RollbackState, Scores, GameSeed, map::{CellType, Map}};
 use super::networking::GgrsConfig;
 use super::input;
 
