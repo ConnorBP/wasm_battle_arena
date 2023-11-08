@@ -127,7 +127,7 @@ pub fn input(
                 if tm == finger.id() {
                     // we are in the current registered move finger so apply input
                     let direction =
-                        (finger.start_position() - finger.position());
+                        finger.start_position() - finger.position();
                     // let direction = finger.delta().normalize_or_zero();
 
                     //info!("delta {} direction {}", finger.delta(), direction);
