@@ -52,11 +52,12 @@ export function wgpu_render_pass_set_index_buffer(a: number, b: number, c: numbe
 export function __wbindgen_malloc(a: number, b: number): number;
 export function __wbindgen_realloc(a: number, b: number, c: number, d: number): number;
 export const __wbindgen_export_2: WebAssembly.Table;
-export function _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h33091d902b5ef0dd(a: number, b: number): void;
-export function _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h01dfaadd421d7206(a: number, b: number, c: number): void;
+export function _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h57738025fd347640(a: number, b: number): void;
+export function _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h2cc88f308bc9c288(a: number, b: number, c: number): void;
 export function _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__ha98abd26404eef04(a: number, b: number): void;
+export function wasm_bindgen__convert__closures__invoke0_mut__h4e60d83bc34c980f(a: number, b: number): void;
 export function _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h85e317b54a5a9175(a: number, b: number, c: number): void;
-export function wasm_bindgen__convert__closures__invoke0_mut__hf29e7fe5f4e4b462(a: number, b: number): void;
+export function wasm_bindgen__convert__closures__invoke0_mut__he975313a9c794b2c(a: number, b: number): void;
 export function _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h411737efc00a51d5(a: number, b: number, c: number): void;
 export function _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__hc0bf0ae928115c3a(a: number, b: number, c: number): void;
 export function wasm_bindgen__convert__closures__invoke1_mut__he6a648256f7ad3b8(a: number, b: number, c: number): void;
