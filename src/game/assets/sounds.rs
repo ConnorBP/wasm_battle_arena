@@ -26,6 +26,6 @@ pub fn start_main_music(
 ) {
     audio.play(sounds.menu_music.clone())
         .looped()
-        .with_volume(0.5)
+        .with_volume(0.3)
         .fade_in(AudioTween::linear(std::time::Duration::from_secs(4)).with_easing(AudioEasing::InOutPowf(2.4)));
 }

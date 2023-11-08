@@ -183,7 +183,7 @@ pub fn run() {
             .register_rollback_component::<TextureAtlasSprite>() 
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
-    .insert_resource(SpacialAudio { max_distance: 10. })
+    .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<RoundEndTimer>()
     .init_resource::<Scores>()
     .init_resource::<GGFrameCount>()
