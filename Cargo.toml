@@ -48,7 +48,7 @@ bevy_render = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-
 
 
 [features]
-default = ["debug_render"]
+default = []
 local = []
 # disables rollback input delay for testing
 no_delay = []
