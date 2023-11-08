@@ -6,10 +6,14 @@ use bevy_matchbox::{
 };
 use bevy_ggrs::{*, ggrs::PlayerType};
 
-use crate::game::GameSeed;
+use crate::game::{GameSeed, SoundIdSeed, SoundSeed};
 
 use super::GameState;
 // use matchbox_socket::{WebRtcSocket, PeerId};
+
+
+pub const ROLLBACK_FPS: usize = 60;
+
 pub struct GgrsConfig;
 
 #[derive(Resource)]
@@ -105,8 +109,11 @@ pub fn wait_for_players(
 
     // create ggrs p2p session
     let mut session_builder = ggrs::SessionBuilder::<GgrsConfig>::new()
+        .with_fps(ROLLBACK_FPS).unwrap()
         .with_num_players(min_players)
-        .with_input_delay(input_delay);
+        .with_input_delay(input_delay)
+        .with_max_prediction_window(40)
+        .with_max_frames_behind(42).unwrap();
         
 
     for (i, player) in players.into_iter().enumerate() {
@@ -131,5 +138,7 @@ pub fn wait_for_players(
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
     // insert session hash to seed our psudo rng
     commands.insert_resource(GameSeed(session_hash));
+    // insert sound event id seeds for player 1 and two
+    commands.insert_resource(SoundIdSeed((SoundSeed(session_hash.wrapping_add(1)),SoundSeed(session_hash.wrapping_add(2)))));
     next_state.set(GameState::InGame);
 }

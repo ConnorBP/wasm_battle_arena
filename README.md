@@ -62,4 +62,10 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] update player spawn function with random locaion with no overlap
 - [X] check player spawn location generation with collision to not spawn in wall
 - [X] add touch screen / mobile controls and functionality
-- [ ] add sound effects and subtle music
+- [x] add sound effects and subtle music
+    - [ ] polish sound effects and music.\
+    - [ ] add more sfx
+    - [ ] add more music (battle theme)
+- [ ] add a main menu and settings gui
+- [ ] polish and bug fix network issues and determinsm
+- [ ] optomize performance

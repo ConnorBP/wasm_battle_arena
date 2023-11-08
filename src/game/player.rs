@@ -2,9 +2,12 @@ use std::time::Duration;
 
 use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
+use bevy_kira_audio::prelude::*;
 use seeded_random::{Random, Seed};
 
-use super::{components::*, MAP_SIZE, assets::textures::{ImageAssets, spawn_explosion}, RollbackState, Scores, GameSeed, map::{CellType, Map}};
+use crate::game::rollback_audio::RollbackSoundBundle;
+
+use super::{components::*, MAP_SIZE, assets::{textures::{ImageAssets, spawn_explosion}, sounds::SoundAssets}, RollbackState, Scores, GameSeed, map::{CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
 use super::networking::GgrsConfig;
 use super::input;
 
@@ -293,7 +296,8 @@ pub fn world_to_grid(world_pos: Vec2) -> Option<(u32,u32)> {
 }
 
 fn generate_random_positions
-(count: usize,
+(
+    count: usize,
     base_seed: u64,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
 ) -> Vec<(u32,u32)> {
@@ -343,8 +347,11 @@ fn generate_random_positions
 
 pub fn fire_bullets(
     mut commands: Commands,
+    frame: Res<GGFrameCount>,
     inputs: Res<PlayerInputs<GgrsConfig>>,
     images: Res<ImageAssets>,
+    sounds: Res<SoundAssets>,
+    mut sound_id: ResMut<SoundIdSeed>,
     mut players: Query<(&Transform, &Player, &mut BulletReady, &MoveDir), Without<MarkedForDeath>>,
 ) {
     for (transform, player, mut bullet_ready, move_dir) in &mut players {
@@ -352,6 +359,7 @@ pub fn fire_bullets(
         if input::fire(input) && bullet_ready.0 {
             let player_pos = transform.translation.xy();
             let pos = player_pos + move_dir.0 * PLAYER_RADIUS + BULLET_RADIUS;
+            // spawn bullet entity
             commands.spawn((
                 Bullet,
                 *move_dir,
@@ -367,6 +375,25 @@ pub fn fire_bullets(
                 }
             ))
             .add_rollback();
+
+            let snd = sound_id.next_us(player.handle);
+            debug!("firing bullet snd {snd:#00x}");
+            commands.spawn(
+                (
+                    RollbackSoundBundle {
+                        sound: RollbackSound {
+                            clip: sounds.laser_shoot.clone(),
+                            start_frame: frame.frame,
+                            sub_key: snd,
+                        },
+                        transform: Transform::from_translation(transform.translation),
+                        ..default()
+                    },
+                )
+            )
+            .add_rollback();
+            
+
             bullet_ready.0 = false;
         }
     }
@@ -420,11 +447,14 @@ const PLAYER_RADIUS: f32 = 0.5;
 const BULLET_RADIUS: f32 = 0.025;
 pub fn kill_players(
     images: Res<ImageAssets>,
+    sounds: Res<SoundAssets>,
+    frame: Res<GGFrameCount>,
+    mut sound_id: ResMut<SoundIdSeed>,
     mut commands: Commands,
-    players: Query<(Entity, &Transform), (Without<Bullet>,(With<Player>,Without<MarkedForDeath>))>,
+    players: Query<(Entity, &Player, &Transform), (Without<Bullet>,(Without<MarkedForDeath>))>,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
 ) {
-    for (player_entity, player_transform) in &players {
+    for (player_entity, player, player_transform) in &players {
         for (bullet_entity, bullet_transform) in &bullets {
             let distance = Vec2::distance(
                 player_transform.translation.xy(),
@@ -433,6 +463,24 @@ pub fn kill_players(
             if distance < PLAYER_RADIUS + BULLET_RADIUS {
                 // spawn a hit animation
                 spawn_explosion(&mut commands, &images, *bullet_transform);
+
+                let snd = sound_id.next_us(player.handle);
+                debug!("explosion snd {snd:#00x}");
+                commands.spawn(
+                    (
+                        RollbackSoundBundle {
+                            sound: RollbackSound {
+                                clip: sounds.swoosh_death.clone(),
+                                start_frame: frame.frame,
+                                sub_key: snd,
+                            },
+                            transform: Transform::from_translation(player_transform.translation),
+                            ..default()
+                        },
+                    )
+                )
+                .add_rollback();
+
                 // mark player for death (despawn in half a second if not rolled back)
                 commands.entity(player_entity).insert(MarkedForDeath::default());
                 // remove the bullet from the game
