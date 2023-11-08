@@ -386,7 +386,7 @@ pub fn fire_bullets(
                             start_frame: frame.frame,
                             sub_key: snd,
                         },
-                        transform: Transform::from_translation(transform.translation),
+                        transform: Transform::from_translation(transform.translation + move_dir.0.extend(0.)),
                         ..default()
                     },
                 )
@@ -474,7 +474,7 @@ pub fn kill_players(
                                 start_frame: frame.frame,
                                 sub_key: snd,
                             },
-                            transform: Transform::from_translation(player_transform.translation),
+                            transform: Transform::from_translation(bullet_transform.translation),
                             ..default()
                         },
                     )
