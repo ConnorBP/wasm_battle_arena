@@ -1,6 +1,6 @@
 [package]
 name = "wasm_battle_arena"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 
 [profile.release]
@@ -13,13 +13,14 @@ lto = "thin"
 opt-level = 3
 
 [dependencies]
-bevy = "0.11"
+bevy = { version = "0.11", default-features = false, features = ["animation","bevy_asset","bevy_gilrs","bevy_scene","bevy_winit","bevy_core_pipeline","bevy_pbr","bevy_gltf","bevy_render","bevy_sprite","bevy_text","bevy_ui","multi-threaded","png","hdr","ktx2","zstd","x11","filesystem_watcher","bevy_gizmos","android_shared_stdcxx","tonemapping_luts","default_font","webgl2"]}
 bevy_ggrs = { version = "0.13", features = ["wasm-bindgen"]}
 ggrs = "0.9"
 bevy_matchbox = { version = "0.7", features = ["ggrs"]}
 bevy_asset_loader = { version = "0.17", features=["2d"]}
 bevy_roll_safe = { git = "https://github.com/johanhelsing/bevy_roll_safe" }
 bevy_egui = "0.22"
+bevy_kira_audio = { version = "0.17", features=["ogg"] }
 wasm-bindgen = { version = "0.2.88", optional = true }
 seeded-random = "0.6"
 #bevy-inspector-egui = "0.20"
