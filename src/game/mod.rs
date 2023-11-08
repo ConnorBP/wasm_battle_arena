@@ -159,8 +159,7 @@ pub fn run() {
             .register_rollback_resource::<SoundIdSeed>()
             // .rollback_resource_with_copy::<FrameCount>()
             .register_rollback_resource::<GGFrameCount>()
-
-
+            .register_rollback_component::<Player>()
             .register_rollback_component::<Transform>()
             .register_rollback_component::<Bullet>()
             .register_rollback_component::<BulletReady>()
