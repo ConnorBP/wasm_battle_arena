@@ -1,7 +1,7 @@
 
 use bevy::prelude::*;
 
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
 pub struct Player {
     pub handle: usize,
 }
@@ -19,6 +19,7 @@ pub struct MoveDir(pub Vec2);
 pub struct LookTowardsParentMove;
 
 #[derive(Component, Reflect)]
+// #[reflect(Component, Hash)]
 pub struct MarkedForDeath(pub(crate) Timer);
 
 // marker component for map blocks

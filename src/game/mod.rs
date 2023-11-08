@@ -7,7 +7,6 @@ use bevy_asset_loader::prelude::*;
 use bevy_kira_audio::prelude::*;
 use bevy_roll_safe::prelude::*;
 use bevy_egui::EguiPlugin;
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod components;
 mod map;
@@ -124,7 +123,11 @@ pub fn run() {
     let mut app = App::new();
 
     #[cfg(feature="debug_render")]
-    app.add_systems(Update, debug_render::spawn_debug_sprites);
+    {
+        app.add_systems(Startup, debug_render::spawn_debug_sprites);
+        app.add_systems(Update, debug_render::update_debug_sprites);
+        app.init_resource::<debug_render::DebugEntitiesList>();
+    }
 
     app.add_state::<GameState>()
     .add_loading_state(
@@ -147,9 +150,79 @@ pub fn run() {
         .set(ImagePlugin::default_nearest()),// set pixel art render mode
         EguiPlugin,
         AudioPlugin,
-        // WorldInspectorPlugin::new(),
-    ))
-    .add_ggrs_plugin(
+    ));
+
+    #[cfg(feature="debug_render")]
+    {
+        use bevy_inspector_egui::{
+            prelude::*,
+            quick::WorldInspectorPlugin,
+        };
+        use bevy_egui::{egui, EguiPlugin, EguiContexts};
+        // add the inspector plugin after default plugins are added
+        // app.add_plugins((WorldInspectorPlugin::new()));
+
+        /// A group of related system sets, used for controlling the order of systems. Systems can be
+        /// added to any number of sets.
+        #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+        enum DebugSet {
+            BeforeRound,
+            Round,
+            AfterRound,
+        }
+
+
+        app.add_plugins((
+            bevy_inspector_egui::DefaultInspectorConfigPlugin,
+        ))
+        .configure_sets(Update,
+            (DebugSet::BeforeRound, DebugSet::Round, DebugSet::AfterRound).chain(),
+        )
+        .add_systems(Update, (
+            inspector_ui.in_set(DebugSet::BeforeRound),
+        ));
+        
+
+        fn inspector_ui(world: &mut World) {
+            let egui_context = {
+                let mut query = world.query::<&mut bevy_egui::EguiContext>();
+
+                query
+                .get_single_mut(world)
+                .expect("getting EGUI context for inspector")
+                .get_mut()
+                .clone()
+            };
+        
+            
+
+            egui::Window::new("DEBUG")
+            .show(&egui_context, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // equivalent to `WorldInspectorPlugin`
+                    // bevy_inspector_egui::bevy_inspector::ui_for_world(world, ui);
+        
+                    // egui::CollapsingHeader::new("Materials").show(ui, |ui| {
+                    //     bevy_inspector_egui::bevy_inspector::ui_for_assets::<StandardMaterial>(world, ui);
+                    // });
+
+                    ui.heading("Players");
+                    bevy_inspector_egui::bevy_inspector::ui_for_world_entities_filtered
+                    ::<With<Player>>
+                    (
+                        world,
+                        ui,
+                        true
+                    );
+        
+                    ui.heading("Entities");
+                    bevy_inspector_egui::bevy_inspector::ui_for_world_entities(world, ui);
+                });
+            });
+        }
+    }
+
+    app.add_ggrs_plugin(
         GgrsPlugin::<networking::GgrsConfig>::new()
             .with_input_system(input)
             .register_roll_state::<RollbackState>()
@@ -170,6 +243,9 @@ pub fn run() {
             // for rollback audio
             .register_rollback_component::<RollbackSound>()
             // .register_rollback_component::<AudioEmitter>()
+
+            // rollback names of entities
+            .register_rollback_component::<Name>()
 
             // register sprite bundle as rollback components
             // Temp fix until bevy_ggrs fixes rollback

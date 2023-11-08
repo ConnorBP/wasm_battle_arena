@@ -23,18 +23,35 @@ bevy_egui = "0.22"
 bevy_kira_audio = { version = "0.17", features=["ogg"] }
 wasm-bindgen = { version = "0.2.88", optional = true }
 seeded-random = "0.6"
-#bevy-inspector-egui = "0.20"
+bevy-inspector-egui = { version = "0.20", optional = true }
 
 [patch.crates-io]
 bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 #bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", features=["bevy_reflect"]}
 bevy_matchbox = { git = "https://github.com/johanhelsing/matchbox", branch = "main"}
 
+# patch the dependencies of bevy-inspector-gui to the rollsafe versions
+bevy_app  = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_asset = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_core = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_ecs = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_hierarchy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_log = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_math = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_reflect = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_utils = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_window = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+
+bevy_core_pipeline = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_pbr = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+bevy_render = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
+
+
 [features]
-default = []
+default = ["debug_render"]
 local = []
 # disables rollback input delay for testing
 no_delay = []
-debug_render = []
+debug_render = ["dep:bevy-inspector-egui"]
 bindgen = ["dep:wasm-bindgen"]
 dev = ["no_delay", "debug_render"]

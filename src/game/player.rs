@@ -249,7 +249,8 @@ fn spawn_player(
                 ..default()
             },
             ..default()
-        }
+        },
+        Name::new(format!("Player{}", handle)),
     ))
     .add_rollback()
     .id();
