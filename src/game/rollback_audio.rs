@@ -162,7 +162,7 @@ pub fn remove_finished_sounds(
     for (entity, rollback_sound) in query.iter() {
         // perf: cache frames_to_play instead of checking audio_sources every frame?
         if let Some(audio_source) = audio_sources.get(&rollback_sound.clip) {
-            let frames_played = frame.frame - rollback_sound.start_frame;
+            let frames_played = frame.frame.wrapping_sub(rollback_sound.start_frame);
             let seconds_to_play = audio_source.sound.duration().as_secs_f64();
             let frames_to_play = (seconds_to_play * ROLLBACK_FPS as f64) as u32;
 
