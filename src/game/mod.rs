@@ -41,6 +41,7 @@ pub const GRID_WIDTH: f32 = 0.05;
 pub enum GameState {
     #[default]
     AssetLoading,
+    MainMenu,
     Matchmaking,
     InGame,
 }
@@ -131,7 +132,7 @@ pub fn run() {
 
     app.add_state::<GameState>()
     .add_loading_state(
-        LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::Matchmaking)
+        LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::MainMenu)
     )
     .add_collection_to_loading_state::<_, ImageAssets>(GameState::AssetLoading)
     .add_collection_to_loading_state::<_, SoundAssets>(GameState::AssetLoading)
@@ -263,14 +264,19 @@ pub fn run() {
     .init_resource::<Scores>()
     .init_resource::<GGFrameCount>()
     .init_resource::<PlaybackStates>()
+    .add_systems(OnEnter(GameState::MainMenu),
+    (
+        start_main_music
+    )
+    )
     .add_systems(
         OnEnter(GameState::Matchmaking),
-        (setup, start_matchbox_socket, start_main_music),
+        (setup, start_matchbox_socket),
     )
     .add_systems(
         Update,
         (
-            // sync_rollback_sounds.run_if(in_state(GameState::InGame)),
+            update_main_menu.run_if(in_state(GameState::MainMenu)),
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             (player_look, camera_follow, ears_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
@@ -281,7 +287,8 @@ pub fn run() {
     .add_systems(
         OnEnter(RollbackState::PreRound),
         (
-            clear_map_sprites,        )
+            clear_map_sprites,
+        )
     )
     .add_systems(
         GgrsSchedule,

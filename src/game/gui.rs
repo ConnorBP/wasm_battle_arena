@@ -1,7 +1,33 @@
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
 
-use super::Scores;
+use super::{Scores, GameState};
+
+pub fn update_main_menu(mut contexts: EguiContexts, mut next_state: ResMut<NextState<GameState>>,) {
+
+
+    TopBottomPanel::top("main menu top")
+    .show(contexts.ctx_mut(), |ui| {
+        ui.label(
+            RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
+                .color(Color32::LIGHT_BLUE)
+                .font(FontId::proportional(68.0)),
+        );
+        ui.label(
+            RichText::new(format!("Game by Connor Postma 2023"))
+                .color(Color32::GRAY)
+                .font(FontId::monospace(24.0)),
+        );
+    });
+        
+
+    bevy_egui::egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
+        if ui.button("Start Matchmaking").clicked() {
+            next_state.set(GameState::Matchmaking);
+        }
+    });
+}
+
 
 pub fn update_score_ui(mut contexts: EguiContexts, scores: Res<Scores>) {
     let Scores(p1_score, p2_score) = *scores;
