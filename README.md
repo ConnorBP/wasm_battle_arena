@@ -55,17 +55,54 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 
 ### TODO
 
-- [x] Add a block based map to the grid
-- [x] Add collision detection to map using a simple calculation (coordinates / MAP_SIZE).floor() as index into array of blocktype at position
-- [x] fix literal corner case on collision detection which freezes movement on corners
+- [ ] apply more aggressive size reduction techniques to bevy
+    - [x] wasm-opt on deploy
+    - [x] LTO and opt-level in cargo
+    - [x] prune some bevy features
+    - [x] apply aggressive wasm-opt profile
+        - [ ] add more optimize options
+    - [ ] profile un used big functions and hit them with the `wasm-snip` tool
+    - [x] tried wee_alloc and it ends up adding to file size funny enough
+    - [ ] serve compressed with brotli or gzip
+
+- [ ] add a main menu and settings gui
+    - [ ] default matchmaking mode button 
+    - [ ] manual ip connect mode
+    - [ ] sync test option on dev build
+    - [ ] player settings such as:
+        - [ ] name
+        - [ ] color
+        - [ ] cosmetics
+        - [ ] sfx and music volume control
 - [ ] auto generate the map with wave collapse or perlin noise
-- [x] update player spawn function with random locaion with no overlap
-- [X] check player spawn location generation with collision to not spawn in wall
-- [X] add touch screen / mobile controls and functionality
-- [x] add sound effects and subtle music
-    - [ ] polish sound effects and music.\
+- [ ] add more map tile types
+    - [ ] create a pretty asset for the basic wall type and all of it's corners
+    - [ ] make a pretty ground texture
+    - [ ] some kind of out of bounds area texture to make it less boring. Or just make it black.
+    - [ ] special block types such as: traps, or items pickups as tile types
+- [ ] polish sound effects and music.
     - [ ] add more sfx
     - [ ] add more music (battle theme)
-- [ ] add a main menu and settings gui
-- [ ] polish and bug fix network issues and determinsm
-- [ ] optomize performance
+    - [ ] tweak death sound effect
+- [x] fix literal corner case on collision detection which freezes movement on corners
+    - [ ] it is possible to further improve this logic if i'm feeling bored
+- [X] add touch screen / mobile controls and functionality
+    - [ ] controls need some polishing. Make fire work while not moving.
+- [x] polish and bug fix network issues and determinsm
+    - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
+    - [ ] Improve Rollback Audio system robustness
+- [ ] optimize performance
+
+### Complete
+
+- [x] add sound effects and subtle music
+- [x] Add a block based map to the grid
+- [x] Add collision detection to map using a simple calculation (coordinates / MAP_SIZE).floor() as index into array of blocktype at position
+- [x] update player spawn function with random locaion with no overlap
+- [X] check player spawn location generation with collision to not spawn in wall
+
+### Additional Fun Features
+- [ ] Cosmetics
+- [ ] 
+- [ ] 
+- [ ] 
