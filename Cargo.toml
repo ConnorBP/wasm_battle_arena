@@ -5,15 +5,16 @@ edition = "2021"
 
 [profile.release]
 opt-level = 's'
-lto = "thin"
-#strip = "debuginfo"
+lto = "fat"
+strip = "debuginfo"
+debug = false
 
 # optimizes only included packages on first build to help debug file size and speed
 [profile.dev.package."*"]
 opt-level = 3
 
 [dependencies]
-bevy = { version = "0.11", default-features = false, features = ["animation","bevy_asset","bevy_gilrs","bevy_scene","bevy_winit","bevy_core_pipeline","bevy_pbr","bevy_gltf","bevy_render","bevy_sprite","bevy_text","bevy_ui","multi-threaded","png","hdr","ktx2","zstd","x11","filesystem_watcher","bevy_gizmos","android_shared_stdcxx","tonemapping_luts","default_font","webgl2"]}
+bevy = { version = "0.11", default-features = false, features = ["bevy_asset","bevy_winit","bevy_core_pipeline","bevy_render","bevy_sprite","multi-threaded","png","ktx2","zstd","tonemapping_luts","default_font","webgl2"]}
 bevy_ggrs = { version = "0.13", features = ["wasm-bindgen"]}
 ggrs = "0.9"
 bevy_matchbox = { version = "0.7", features = ["ggrs"]}
@@ -24,6 +25,9 @@ bevy_kira_audio = { version = "0.17", features=["ogg"] }
 wasm-bindgen = { version = "0.2.88", optional = true }
 seeded-random = "0.6"
 bevy-inspector-egui = { version = "0.20", optional = true }
+
+wee_alloc = { version = "0.4", optional = true }
+cfg-if = "1.0"
 
 [patch.crates-io]
 bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
@@ -54,4 +58,5 @@ local = []
 no_delay = []
 debug_render = ["dep:bevy-inspector-egui"]
 bindgen = ["dep:wasm-bindgen"]
+wee_alloc = ["dep:wee_alloc"]
 dev = ["no_delay", "debug_render"]
