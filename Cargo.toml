@@ -8,6 +8,12 @@ opt-level = 's'
 lto = "fat"
 strip = "debuginfo"
 debug = false
+panic = "abort"
+
+[profile.dev]
+# set limited debug info
+debug = 1
+incremental = true
 
 # optimizes only included packages on first build to help debug file size and speed
 [profile.dev.package."*"]
@@ -57,6 +63,7 @@ local = []
 # disables rollback input delay for testing
 no_delay = []
 debug_render = ["dep:bevy-inspector-egui"]
+sync_test = []
 bindgen = ["dep:wasm-bindgen"]
 wee_alloc = ["dep:wee_alloc"]
-dev = ["no_delay", "debug_render"]
+dev = ["no_delay", "debug_render", "sync_test"]

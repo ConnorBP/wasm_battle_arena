@@ -66,7 +66,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [ ] serve compressed with brotli or gzip
 
 - [ ] add a main menu and settings gui
-    - [ ] default matchmaking mode button 
+    - [x] default matchmaking mode button 
     - [ ] manual ip connect mode
     - [ ] sync test option on dev build
     - [ ] player settings such as:

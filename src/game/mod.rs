@@ -130,7 +130,9 @@ pub fn run() {
         app.init_resource::<debug_render::DebugEntitiesList>();
     }
 
-    app.add_state::<GameState>()
+    app
+    .add_state::<GameState>()
+    .add_state::<MenuState>()
     .add_loading_state(
         LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::MainMenu)
     )
