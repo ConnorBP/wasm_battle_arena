@@ -221,8 +221,19 @@ pub fn run() {
                         true
                     );
         
-                    ui.heading("Entities");
-                    bevy_inspector_egui::bevy_inspector::ui_for_world_entities(world, ui);
+                    // ui.heading("Other Entities");
+                    egui::CollapsingHeader::new("Other Entities")
+                    .show(ui, |ui| {
+                        ui.label("Body");
+                        bevy_inspector_egui::bevy_inspector::ui_for_world_entities_filtered
+                        ::<Without<Player>>
+                        (
+                            world,
+                            ui,
+                            true
+                        );
+                    });
+                    
                 });
             });
         }
