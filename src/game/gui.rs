@@ -65,7 +65,7 @@ pub fn update_main_menu(
     bevy_egui::egui::CentralPanel::default()
     .frame(
         Frame::none()
-        .inner_margin(Margin::symmetric(100., 10.))
+        .inner_margin(Margin::symmetric(100., 200.))
         .fill(Color32::from_rgb(66, 69, 73))
     )
     .show(contexts.ctx_mut(), |ui| {
