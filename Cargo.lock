@@ -888,7 +888,6 @@ dependencies = [
 [[package]]
 name = "bevy_matchbox"
 version = "0.7.0"
-source = "git+https://github.com/johanhelsing/matchbox?branch=main#6791f923ee4fb4faeecce2676eef8635297a9aec"
 dependencies = [
  "bevy",
  "cfg-if 1.0.0",
@@ -1893,6 +1892,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-toast"
+version = "0.9.0"
+source = "git+https://github.com/ConnorBP/egui-toast?branch=toast-sync#dabf3e2e84badacf3b3493293b3041932ee28824"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "elliptic-curve"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2874,7 +2881,6 @@ dependencies = [
 [[package]]
 name = "matchbox_protocol"
 version = "0.7.0"
-source = "git+https://github.com/johanhelsing/matchbox?branch=main#6791f923ee4fb4faeecce2676eef8635297a9aec"
 dependencies = [
  "cfg-if 1.0.0",
  "derive_more",
@@ -2885,7 +2891,6 @@ dependencies = [
 [[package]]
 name = "matchbox_socket"
 version = "0.7.0"
-source = "git+https://github.com/johanhelsing/matchbox?branch=main#6791f923ee4fb4faeecce2676eef8635297a9aec"
 dependencies = [
  "async-compat",
  "async-trait",
@@ -4969,6 +4974,7 @@ dependencies = [
  "bevy_matchbox",
  "bevy_roll_safe",
  "cfg-if 1.0.0",
+ "egui-toast",
  "ggrs",
  "seeded-random",
  "wasm-bindgen",

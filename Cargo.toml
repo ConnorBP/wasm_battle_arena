@@ -31,6 +31,7 @@ bevy_kira_audio = { version = "0.17", features=["ogg"] }
 wasm-bindgen = { version = "0.2.88", optional = true }
 seeded-random = "0.6"
 bevy-inspector-egui = { version = "0.20", optional = true }
+egui-toast = "0.9"
 
 wee_alloc = { version = "0.4", optional = true }
 cfg-if = "1.0"
@@ -38,7 +39,8 @@ cfg-if = "1.0"
 [patch.crates-io]
 bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 #bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", features=["bevy_reflect"]}
-bevy_matchbox = { git = "https://github.com/johanhelsing/matchbox", branch = "main"}
+#bevy_matchbox = { git = "https://github.com/johanhelsing/matchbox", branch = "main"}
+bevy_matchbox = { path= "../matchbox/bevy_matchbox"}
 
 # patch the dependencies of bevy-inspector-gui to the rollsafe versions
 bevy_app  = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
@@ -56,6 +58,8 @@ bevy_core_pipeline = { git = "https://github.com/johanhelsing/bevy", branch = "r
 bevy_pbr = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 bevy_render = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 
+egui-toast = { git = "https://github.com/ConnorBP/egui-toast", branch="toast-sync" }
+#egui-toast = { path = '../egui-toast' }
 
 [features]
 default = []
@@ -66,4 +70,6 @@ debug_render = ["dep:bevy-inspector-egui"]
 sync_test = []
 bindgen = ["dep:wasm-bindgen"]
 wee_alloc = ["dep:wee_alloc"]
-dev = ["no_delay", "debug_render", "sync_test"]
+# connects to a different matchbox id than the public game
+dev_net = []
+dev = ["no_delay", "debug_render", "sync_test", "dev_net"]

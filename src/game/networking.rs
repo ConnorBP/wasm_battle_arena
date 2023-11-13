@@ -5,15 +5,18 @@ use bevy_matchbox::{
     // matchbox_socket::{WebRtcSocket, PeerId}
 };
 use bevy_ggrs::{*, ggrs::PlayerType};
+use egui_toast::Toast;
+use ggrs::GGRSEvent;
 
 use crate::game::{GameSeed, SoundIdSeed, SoundSeed};
 
-use super::GameState;
+use super::{GameState, toasts::Toasts};
 // use matchbox_socket::{WebRtcSocket, PeerId};
 
 
 pub const ROLLBACK_FPS: usize = 60;
 
+#[derive(Debug)]
 pub struct GgrsConfig;
 
 #[derive(Resource)]
@@ -29,14 +32,14 @@ impl ggrs::Config for GgrsConfig {
 pub fn start_matchbox_socket(mut commands: Commands) {
     // let secure = crate::interface::is_secure();
     // prevent version clashing in lobies from causing non determinism
-    #[cfg(not(feature="dev"))]
+    #[cfg(not(feature="dev_net"))]
     let room_name = format!(
         "battle-{}-{}-{}",
         env!("CARGO_PKG_VERSION_MAJOR"),
         env!("CARGO_PKG_VERSION_MINOR"),
         env!("CARGO_PKG_VERSION_PATCH")
     );
-    #[cfg(feature="dev")]
+    #[cfg(feature="dev_net")]
     let room_name = format!(
         "devbattle-{}-{}-{}",
         env!("CARGO_PKG_VERSION_MAJOR"),
@@ -125,14 +128,19 @@ pub fn wait_for_players(
             .expect("adding player to session");
     }
 
+    info!("taking channel");
+
     // move the channel out of the socket (required because GGRS takes ownership of it)
     let channel = socket.take_channel(0).unwrap();
+
+    info!("Trying to start ggrs session");
 
     // start the ggrs session
     let ggrs_session = session_builder
         .start_p2p_session(channel)
         .expect("starting ggrs p2p session");
 
+    // sometimes while pairing peers this is never reached
     info!("Started new session {session_hash:#02x}");
 
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
@@ -141,4 +149,25 @@ pub fn wait_for_players(
     // insert sound event id seeds for player 1 and two
     commands.insert_resource(SoundIdSeed((SoundSeed(session_hash.wrapping_add(1)),SoundSeed(session_hash.wrapping_add(2)))));
     next_state.set(GameState::InGame);
+}
+
+pub fn log_ggrs_events(
+    mut session: ResMut<Session<GgrsConfig>>,
+    mut toasts: ResMut<Toasts>,
+) {
+    match session.as_mut() {
+        Session::P2P(s) => {
+            for event in s.events() {
+                match event {
+                    GGRSEvent::Disconnected { addr } => {
+                        toasts.error(format!("Peer {addr} disconnected.").into());
+                    },
+                    x=> {
+                        info!("GGRS Event: {x:?}");
+                    }
+                }
+            }
+        }
+        _ => {},//panic!("This example focuses on p2p."),
+    }
 }

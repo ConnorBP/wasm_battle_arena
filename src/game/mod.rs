@@ -16,6 +16,7 @@ mod networking;
 mod rollback_audio;
 mod assets;
 mod gui;
+mod toasts;
 mod ggrs_framecount;
 
 #[cfg(feature="debug_render")]
@@ -30,7 +31,9 @@ use rollback_audio::*;
 use assets::textures::*;
 use assets::sounds::*;
 use gui::*;
+use toasts::*;
 use ggrs_framecount::*;
+
 use seeded_random::Random;
 use seeded_random::Seed;
 
@@ -262,13 +265,14 @@ pub fn run() {
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .insert_resource(SpacialAudio { max_distance: 20. })
+    .init_resource::<toasts::Toasts>()
     .init_resource::<RoundEndTimer>()
     .init_resource::<Scores>()
     .init_resource::<GGFrameCount>()
     .init_resource::<PlaybackStates>()
     .add_systems(OnEnter(GameState::MainMenu),
     (
-        start_main_music
+        start_main_music,
     )
     )
     .add_systems(
@@ -278,6 +282,8 @@ pub fn run() {
     .add_systems(
         Update,
         (
+            display_toasts,
+            log_ggrs_events.run_if(in_state(GameState::InGame)),
             update_main_menu.run_if(in_state(GameState::MainMenu)),
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             (player_look, camera_follow, ears_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
@@ -354,7 +360,7 @@ pub fn run() {
                 .after(process_deaths)
                 .after(kill_players)
                 .after(move_bullets)
-                .after(fire_bullets)
+                .after(fire_bullets),
         
         ).after(apply_state_transition::<RollbackState>)
         .distributive_run_if(in_state(RollbackState::InRound)),
