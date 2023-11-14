@@ -387,7 +387,8 @@ pub fn fire_bullets(
                             start_frame: frame.frame,
                             sub_key: snd,
                         },
-                        transform: Transform::from_translation(transform.translation + move_dir.0.extend(0.)),
+                        transform: Transform::from_translation(pos.extend(200.))
+                            .with_rotation(Quat::from_rotation_arc_2d(Vec2::X, move_dir.0)),
                         ..default()
                     },
                 )

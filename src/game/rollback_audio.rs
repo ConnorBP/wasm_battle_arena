@@ -161,7 +161,7 @@ pub fn remove_finished_sounds(
     mut commands: Commands,
     audio_sources: Res<Assets<AudioSource>>,
 ) {
-    for (entity, rollback_sound) in query.iter() {
+    for (entity, rollback_sound) in &query {
         // perf: cache frames_to_play instead of checking audio_sources every frame?
         if let Some(audio_source) = audio_sources.get(&rollback_sound.clip) {
             let frames_played = frame.frame.wrapping_sub(rollback_sound.start_frame);
