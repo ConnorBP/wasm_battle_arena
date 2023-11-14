@@ -19,13 +19,59 @@ pub struct SoundAssets {
     pub menu_music: Handle<bevy_kira_audio::AudioSource>,
 }
 
+// custom audio channels
 
+#[derive(Resource)]
+pub struct MusicChannel;
+#[derive(Resource)]
+pub struct SfxChannel;
+
+#[derive(Resource)]
+pub struct AudioConfig {
+    pub master_volume: f64,
+    pub music_volume: f64,
+    pub sfx_volume: f64,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self { 
+            master_volume: 100.0,
+            music_volume: 100.0,
+            sfx_volume: 100.0,
+        }
+    }
+}
+
+pub fn update_volume(
+    conf: Res<AudioConfig>,
+    // master: Res<Audio>,
+    music: Res<AudioChannel<MusicChannel>>,
+    sfx: Res<AudioChannel<SfxChannel>>,
+) {
+    if conf.is_changed() {
+        // other chanels do not seem to route through this just yet
+        // master.set_volume(conf.master_volume / 100.);
+
+        // scale every channel by master value
+        let master_scale = conf.master_volume / 100.;
+
+        music.set_volume((conf.music_volume / 100.) * MAX_MUSIC_VOL * master_scale);
+        sfx.set_volume((conf.sfx_volume / 100.) * master_scale);
+    }
+}
+
+const MAX_MUSIC_VOL: f64 = 0.3;
 pub fn start_main_music(
     sounds: Res<SoundAssets>,
-    audio: Res<Audio>,
+    // audio: Res<Audio>,
+    audio: Res<AudioChannel<MusicChannel>>,
+    mut cfg: ResMut<AudioConfig>,
 ) {
     audio.play(sounds.menu_music.clone())
-        .looped()
-        .with_volume(0.3)
-        .fade_in(AudioTween::linear(std::time::Duration::from_secs(4)).with_easing(AudioEasing::InOutPowf(2.4)));
+        .looped();
+        //.with_volume(MAX_MUSIC_VOL);
+        // .fade_in(AudioTween::linear(std::time::Duration::from_secs(4)).with_easing(AudioEasing::InOutPowf(2.4)));
+        // set the music volume to default. This triggers the update_volume system
+        cfg.music_volume = 100.0;
 }

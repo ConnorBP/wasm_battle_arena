@@ -27,7 +27,6 @@ impl Default for Toasts {
 pub fn display_toasts(
     mut contexts: EguiContexts, 
     mut toasts: ResMut<Toasts>,
-
 ) {
     toasts.0.show(contexts.ctx_mut())
 }

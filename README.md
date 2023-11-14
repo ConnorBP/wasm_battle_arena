@@ -65,15 +65,15 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [x] tried wee_alloc and it ends up adding to file size funny enough
     - [ ] serve compressed with brotli or gzip
 
-- [ ] add a main menu and settings gui
+- [x] add a main menu and settings gui
     - [x] default matchmaking mode button 
     - [ ] manual ip connect mode
     - [ ] sync test option on dev build
-    - [ ] player settings such as:
+    - [x] player settings such as:
         - [ ] name
         - [ ] color
         - [ ] cosmetics
-        - [ ] sfx and music volume control
+        - [x] sfx and music volume control
 - [ ] auto generate the map with wave collapse or perlin noise
 - [ ] add more map tile types
     - [ ] create a pretty asset for the basic wall type and all of it's corners

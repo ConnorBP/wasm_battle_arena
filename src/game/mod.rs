@@ -276,11 +276,15 @@ pub fn run() {
     )
     .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
     .insert_resource(SpacialAudio { max_distance: 20. })
+    .init_resource::<AudioConfig>()
     .init_resource::<toasts::Toasts>()
     .init_resource::<RoundEndTimer>()
     .init_resource::<Scores>()
     .init_resource::<GGFrameCount>()
     .init_resource::<PlaybackStates>()
+    // add custom audio channels
+    .add_audio_channel::<MusicChannel>()
+    .add_audio_channel::<SfxChannel>()
     .add_systems(OnEnter(GameState::MainMenu),
     (
         start_main_music,
@@ -293,9 +297,20 @@ pub fn run() {
     .add_systems(
         Update,
         (
+            // logging output
             display_toasts,
             log_ggrs_events.run_if(in_state(GameState::InGame)),
-            update_main_menu.run_if(in_state(GameState::MainMenu)),
+            // menu system
+            handle_menu_input,
+            update_main_menu
+                .run_if(in_state(GameState::MainMenu))
+                .run_if(in_state(MenuState::Main)),
+            update_settings_ui
+                .run_if(in_state(MenuState::Settings)),
+
+            // audio volume update in response to ui
+            update_volume,
+
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             (player_look, camera_follow, ears_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),

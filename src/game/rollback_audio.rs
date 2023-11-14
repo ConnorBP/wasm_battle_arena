@@ -7,6 +7,7 @@ use bevy_ggrs::prelude::*;
 use bevy_kira_audio::prelude::*;
 use bevy_kira_audio::AudioSource;
 
+use super::assets::sounds::SfxChannel;
 use super::ggrs_framecount::GGFrameCount;
 use super::networking::ROLLBACK_FPS;
 
@@ -57,7 +58,8 @@ pub fn sync_rollback_sounds(
     mut current_state: ResMut<PlaybackStates>,
     mut audio_instances: ResMut<Assets<AudioInstance>>,
     mut sounds_query: Query<(&RollbackSound, &mut AudioEmitter)>,
-    audio: Res<Audio>,
+    // audio: Res<Audio>,
+    sfx_audio: Res<AudioChannel<SfxChannel>>,
     frame: Res<GGFrameCount>,
 ) {
     // remove any finished sound effects
@@ -92,7 +94,7 @@ pub fn sync_rollback_sounds(
                     );
                 }
                 // start the sound
-                let instance_handle = audio.play(rollback_sound.clip.clone()).handle();
+                let instance_handle = sfx_audio.play(rollback_sound.clip.clone()).handle();
                 // insert the sound into our emitter (for positional output)
                 emitter.instances.push(instance_handle);
             }
