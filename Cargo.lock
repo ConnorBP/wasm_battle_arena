@@ -4963,7 +4963,7 @@ checksum = "0d046c5d029ba91a1ed14da14dca44b68bf2f124cfbaf741c54151fdb3e0750b"
 
 [[package]]
 name = "wasm_battle_arena"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
