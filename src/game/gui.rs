@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
-use bevy_kira_audio::Audio;
 
 use super::{Scores, GameState, assets::sounds::AudioConfig};
 
@@ -29,7 +28,7 @@ pub fn handle_menu_input(
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match current_game_state.get() {
-            GameState::InGame => {
+            GameState::InGame | GameState::Matchmaking => {
                 // check for settings toggle key while  in game
                 match current_menu_state.get() {
                     MenuState::Main => {
@@ -91,7 +90,7 @@ pub fn update_main_menu(
     bevy_egui::egui::CentralPanel::default()
     .frame(
         Frame::none()
-        .inner_margin(Margin::symmetric(100., 200.))
+        .inner_margin(Margin::symmetric(100., 150.))
         .fill(Color32::from_rgb(66, 69, 73))
     )
     .show(contexts.ctx_mut(), |ui| {
@@ -104,9 +103,9 @@ pub fn update_main_menu(
         ui.vertical_centered_justified(|ui| {
             // set button style
         if let Some(button_style) = ui.style_mut().text_styles.get_mut(&TextStyle::Button) {
-            *button_style = FontId::new(24.0, FontFamily::Proportional);
+            *button_style = FontId::new(32.0, FontFamily::Proportional);
         }
-        if ui.button("Start Matchmaking").clicked() {
+        if ui.button("▶ Start Matchmaking").clicked() {
             next_menu_state.set(MenuState::Main);
             next_game_state.set(GameState::Matchmaking);
         }
@@ -117,10 +116,28 @@ pub fn update_main_menu(
         if ui.button("SyncTest").clicked() {
             next_menu_state.set(MenuState::SyncTest);
         }
-        if ui.button("Settings").clicked() {
+        if ui.button("⚙ Settings").clicked() {
             next_menu_state.set(MenuState::Settings);
         }
         });
+    });
+}
+
+pub fn update_in_game_controls_ui(
+    mut contexts: EguiContexts,
+    mut next_menu_state: ResMut<NextState<MenuState>>,
+) {
+    Area::new("controls menu")
+    .anchor(Align2::LEFT_TOP, (25., 25.))
+    .show(contexts.ctx_mut(), |ui| {
+
+        if let Some(button_style) = ui.style_mut().text_styles.get_mut(&TextStyle::Button) {
+            *button_style = FontId::new(48.0, FontFamily::Proportional);
+        }
+
+        if ui.button("⚙").clicked() {
+            next_menu_state.set(MenuState::Settings);
+        }
     });
 }
 
@@ -141,14 +158,24 @@ pub fn update_settings_ui(
         ui.style_mut().spacing.indent = 16.0;
         ui.style_mut().spacing.item_spacing = vec2(16.0, 16.0);
 
+        let wide = ui.available_height() < ui.available_width();
+
         ui.vertical_centered_justified(|ui| {
             // set button style
             if let Some(button_style) = ui.style_mut().text_styles.get_mut(&TextStyle::Button) {
-                *button_style = FontId::new(24.0, FontFamily::Proportional);
+                *button_style = FontId::new(32.0, FontFamily::Proportional);
             }
 
+            let extra_slider_widget_size = {
+                if wide {
+                    200.
+                } else {
+                    0.
+                }
+            };
+
             // justify the sliders (- 200 for extra display value and text size)
-            ui.style_mut().spacing.slider_width = ui.max_rect().width() - 200.;
+            ui.style_mut().spacing.slider_width = ui.max_rect().width() - extra_slider_widget_size;
 
             ui.heading("Player Settings");
 
@@ -158,23 +185,44 @@ pub fn update_settings_ui(
 
             ui.heading("Volume Settings");
             
+            if !wide {
+                ui.label("🔊 Master Volume");
+            }
             ui.add(
-                Slider::new(&mut audio_config.master_volume, 0.0..=100.0)
-                .text("Master Volume")
-                .trailing_fill(true)
+                {
+                    let mut slider= Slider::new(&mut audio_config.master_volume, 0.0..=100.0)
+                        .show_value(wide)
+                        .trailing_fill(true);
+                    if wide {slider = slider.text("🔊 Master Volume");}
+                    slider
+                }
+                
+            );
+            
+            if !wide {
+                ui.label("🎵 Music Volume");
+            }
+            ui.add(
+                {
+                    let mut slider = Slider::new(&mut audio_config.music_volume, 0.0..=100.0)
+                        .show_value(wide)
+                        .trailing_fill(true);
+                    if wide {slider = slider.text("🎵 Music Volume");}
+                    slider
+                }
             );
 
-            ui.spacing();
-            
+            if !wide {
+                ui.label("💥 SFX Volume");
+            }
             ui.add(
-                Slider::new(&mut audio_config.music_volume, 0.0..=100.0)
-                .text("Music Volume")
-                .trailing_fill(true)
-            );
-            ui.add(
-                Slider::new(&mut audio_config.sfx_volume, 0.0..=100.0)
-                .text("SFX Volume")
-                .trailing_fill(true)
+                {
+                    let mut slider = Slider::new(&mut audio_config.sfx_volume, 0.0..=100.0)
+                        .show_value(wide)
+                        .trailing_fill(true);
+                    if wide {slider = slider.text("💥 SFX Volume");}
+                    slider
+                }
             );
 
             // return to main menu

@@ -307,14 +307,16 @@ pub fn run() {
                 .run_if(in_state(MenuState::Main)),
             update_settings_ui
                 .run_if(in_state(MenuState::Settings)),
+            update_in_game_controls_ui
+                .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
+            update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
+            update_respawn_ui.run_if(in_state(RollbackState::RoundEnd)),
 
             // audio volume update in response to ui
             update_volume,
 
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             (player_look, camera_follow, ears_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
-            update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
-            update_respawn_ui.run_if(in_state(RollbackState::RoundEnd)),
         ),
     )
     .add_roll_state::<RollbackState>(GgrsSchedule)
