@@ -1,4 +1,4 @@
-# ![ghost](assets/ghost.png "Sleepy") GHOST BATTLE ![ghost](assets/ghost.png "Wheepy")
+# ![ghost](assets/textures/character/ghost.png "Sleepy") GHOST BATTLE ![ghost](assets/textures/character/ghost.png "Wheepy")
 
 A one versus one ghost battling game to the (extra?)death.
 
