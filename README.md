@@ -18,9 +18,10 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - retro sound effects
 - fun competitive gameplay
 
-
 ## Building
+
 ### Setup
+
 - first install cargo and rust using [rustup](https://rustup.rs/)
 - then add wasm target: `rustup target add wasm32-unknown-unknown`
 - install wasm server runner `cargo install wasm-server-runner`
@@ -40,7 +41,6 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - optional wasm-opt: `cargo install wasm-opt --locked`
 - then run the commands from deploy.bat
 
-
 ## Matchbox Server config
 
 use the following service definition after installing matchbox_server for user matchbox on ubuntu 20+
@@ -59,8 +59,8 @@ ExecStart=/home/matchbox/.cargo/bin/matchbox_server
 [Install]
 WantedBy=multi-user.target
 ```
-Then run: `sudo systemctl start matchbox.your-domain.tld.service`
 
+Then run: `sudo systemctl start matchbox.your-domain.tld.service`
 
 ```
 cargo build --release --target wasm32-unknown-unknown
@@ -70,41 +70,42 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 ### TODO
 
 - [ ] apply more aggressive size reduction techniques to bevy
-    - [x] wasm-opt on deploy
-    - [x] LTO and opt-level in cargo
-    - [x] prune some bevy features
-    - [x] apply aggressive wasm-opt profile
-        - [ ] add more optimize options
-    - [ ] profile un used big functions and hit them with the `wasm-snip` tool
-    - [x] tried wee_alloc and it ends up adding to file size funny enough
-    - [ ] serve compressed with brotli or gzip
+
+  - [x] wasm-opt on deploy
+  - [x] LTO and opt-level in cargo
+  - [x] prune some bevy features
+  - [x] apply aggressive wasm-opt profile
+    - [ ] add more optimize options
+  - [ ] profile un used big functions and hit them with the `wasm-snip` tool
+  - [x] tried wee_alloc and it ends up adding to file size funny enough
+  - [ ] serve compressed with brotli or gzip
 
 - [x] add a main menu and settings gui
-    - [x] default matchmaking mode button 
-    - [ ] manual ip connect mode
-    - [ ] sync test option on dev build
-    - [x] player settings such as:
-        - [ ] name
-        - [ ] color
-        - [ ] cosmetics
-        - [x] sfx and music volume control
+  - [x] default matchmaking mode button
+  - [ ] manual ip connect mode
+  - [ ] sync test option on dev build
+  - [x] player settings such as:
+    - [ ] name
+    - [ ] color
+    - [ ] cosmetics
+    - [x] sfx and music volume control
 - [ ] auto generate the map with wave collapse or perlin noise
 - [ ] add more map tile types
-    - [ ] create a pretty asset for the basic wall type and all of it's corners
-    - [ ] make a pretty ground texture
-    - [ ] some kind of out of bounds area texture to make it less boring. Or just make it black.
-    - [ ] special block types such as: traps, or items pickups as tile types
+  - [ ] create a pretty asset for the basic wall type and all of it's corners
+  - [ ] make a pretty ground texture
+  - [ ] some kind of out of bounds area texture to make it less boring. Or just make it black.
+  - [ ] special block types such as: traps, or items pickups as tile types
 - [ ] polish sound effects and music.
-    - [ ] add more sfx
-    - [ ] add more music (battle theme)
-    - [ ] tweak death sound effect
+  - [ ] add more sfx
+  - [ ] add more music (battle theme)
+  - [ ] tweak death sound effect
 - [x] fix literal corner case on collision detection which freezes movement on corners
-    - [ ] it is possible to further improve this logic if i'm feeling bored
-- [X] add touch screen / mobile controls and functionality
-    - [ ] controls need some polishing. Make fire work while not moving.
+  - [ ] it is possible to further improve this logic if i'm feeling bored
+- [x] add touch screen / mobile controls and functionality
+  - [ ] controls need some polishing. Make fire work while not moving.
 - [x] polish and bug fix network issues and determinsm
-    - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
-    - [ ] Improve Rollback Audio system robustness
+  - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
+  - [ ] Improve Rollback Audio system robustness
 - [ ] optimize performance
 
 ### Complete
@@ -113,10 +114,11 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] Add a block based map to the grid
 - [x] Add collision detection to map using a simple calculation (coordinates / MAP_SIZE).floor() as index into array of blocktype at position
 - [x] update player spawn function with random locaion with no overlap
-- [X] check player spawn location generation with collision to not spawn in wall
+- [x] check player spawn location generation with collision to not spawn in wall
 
 ### Additional Fun Features
+
 - [ ] Cosmetics
-- [ ] 
-- [ ] 
-- [ ] 
+- [ ]
+- [ ]
+- [ ]
