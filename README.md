@@ -5,6 +5,20 @@ A one versus one ghost battling game to the (extra?)death.
 Designed in Bevy game engine initially based on the following game design tutorial series: https://johanhelsing.studio/posts/extreme-bevy
 Project for me to learn the basics of the bevy ecs system as well as: peer2peer deterministic synchronized game states utilizing ggrs rollback, wave function map generation, deterministic random generation, and other novel game design concepts.
 
+![example gameplay](/ghosties.gif)
+
+## Features
+
+- peer to peer networking
+- non authoritative deterministic net code and game logic
+- desktop, mobile, and web (wasm) support
+- two player versus mode
+- deterministic pseudo-random map generation (WIP)
+- game music
+- retro sound effects
+- fun competitive gameplay
+
+
 ## Building
 ### Setup
 - first install cargo and rust using [rustup](https://rustup.rs/)
