@@ -61,7 +61,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [x] apply aggressive wasm-opt profile
         - [ ] add more optimize options
     - [ ] profile un used big functions and hit them with the `wasm-snip` tool
-    - [x] tried wee_alloc and it ends up adding to file size funny enough
+    - [x] removed wee_alloc after it increased file size and became unmaintained
     - [ ] serve compressed with brotli or gzip
 
 - [x] add a main menu and settings gui
