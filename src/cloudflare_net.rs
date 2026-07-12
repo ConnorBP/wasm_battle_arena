@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use bincode::Options;
 use ggrs::{Message, NonBlockingSocket};
 
+#[cfg(target_arch = "wasm32")]
 const MAX_PACKET_BYTES: usize = 64 * 1024;
 
 pub struct CloudflareNetPlugin;
@@ -21,6 +23,7 @@ pub struct MatchInfo {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConnectionState {
     Disconnected,
+    #[allow(dead_code)]
     Connecting,
     Ready,
     Failed(String),
@@ -172,6 +175,7 @@ impl NonBlockingSocket<u8> for CloudflareSocket {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
         .with_fixint_encoding()

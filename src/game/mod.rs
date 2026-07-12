@@ -114,6 +114,7 @@ pub struct SoundSeed(u64);
 struct CommandFlush;
 
 impl SoundSeed {
+    #[cfg(test)]
     pub fn from_seed(seed: u64) -> Self {
         Self(seed)
     }
@@ -124,12 +125,6 @@ impl SoundSeed {
         // use previous output as seed for the next to "chain" them
         self.0 = Random::from_seed(Seed::unsafe_new(self.0)).gen();
         self.0
-    }
-    /// same as next but returns as usize for code cleanliness
-    pub fn next_us(&mut self) -> usize {
-        // use previous output as seed for the next to "chain" them
-        self.0 = Random::from_seed(Seed::unsafe_new(self.0)).gen();
-        self.0 as usize
     }
 }
 
