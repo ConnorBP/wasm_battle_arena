@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
@@ -339,7 +339,7 @@ pub fn fire_bullets(
             let pos = player_pos + move_dir.0 * PLAYER_RADIUS + BULLET_RADIUS;
             // spawn bullet entity
             commands.spawn((
-                Bullet,
+                Bullet { id: frame.frame as u64, owner: player.handle, active: true },
                 *move_dir,
                 SpriteBundle {
                     transform: Transform::from_translation(pos.extend(200.))
@@ -446,6 +446,44 @@ pub fn collect_speed_pickups(
     }
 }
 
+pub fn collect_shield_pickups(
+    mut commands: Commands,
+    frame: Res<GGFrameCount>,
+    sounds: Res<SoundAssets>,
+    mut sound_id: ResMut<SoundIdSeed>,
+    players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
+    pickups: Query<(Entity, &ShieldPickup)>,
+) {
+    let mut players: Vec<_> = players
+        .iter()
+        .filter_map(|(entity, player, transform)| {
+            world_to_grid(transform.translation.xy())
+                .map(|cell| (player.handle, entity, cell, transform.translation))
+        })
+        .collect();
+    players.sort_by_key(|player| player.0);
+
+    let mut pickups: Vec<_> = pickups.iter().collect();
+    pickups.sort_by_key(|(_, pickup)| pickup.cell);
+    for (pickup_entity, pickup) in pickups {
+        let pickup_cell = (pickup.cell.0 as u32, pickup.cell.1 as u32);
+        let Some((handle, player_entity, _, position)) = players.iter().find(|player| player.2 == pickup_cell).copied() else {
+            continue;
+        };
+        commands.entity(player_entity).insert(ShieldCharges(1));
+        commands.entity(pickup_entity).despawn_recursive();
+        commands.spawn((RollbackSoundBundle {
+            sound: RollbackSound {
+                clip: sounds.ray.clone(),
+                start_frame: frame.frame,
+                sub_key: sound_id.next_us(handle),
+            },
+            transform: Transform::from_translation(position),
+            ..default()
+        },)).add_rollback();
+    }
+}
+
 pub fn trigger_traps(
     mut commands: Commands,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
@@ -464,11 +502,11 @@ pub fn trigger_traps(
 pub fn move_bullets(
     mut commands: Commands,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
-    mut bullets: Query<(Entity, &mut Transform, &MoveDir), With<Bullet>>
+    mut bullets: Query<(Entity, &mut Bullet, &mut Transform, &MoveDir)>
 ) {
     // map limit for bullet is exactly half map in any direction since the map is centered
     let limit = Vec2::splat(MAP_SIZE as f32 / 2.);
-    for (entity, mut transform, dir) in &mut bullets {
+    for (entity, mut bullet, mut transform, dir) in &mut bullets {
         let delta = (dir.0 * 0.35).extend(0.);
         transform.translation += delta;
 
@@ -476,6 +514,7 @@ pub fn move_bullets(
         let absolute_pos = transform.translation.xy().abs();
         if absolute_pos.x > limit.x || absolute_pos.y > limit.y {
             // bullet out of bounds, despawn it
+            bullet.active = false;
             commands.entity(entity).despawn_recursive();
         }  
         // check for block hits
@@ -484,6 +523,7 @@ pub fn move_bullets(
             match map_data.cells[x as usize][y as usize] {
                 CellType::WallBlock => {
                     // bullet in a block, despawn it
+                    bullet.active = false;
                     commands.entity(entity).despawn_recursive();
                 },
                 _ => {},
@@ -502,40 +542,69 @@ pub fn kill_players(
     mut sound_id: ResMut<SoundIdSeed>,
     mut commands: Commands,
     players: Query<(Entity, &Player, &Transform), (Without<Bullet>, Without<MarkedForDeath>)>,
-    bullets: Query<(Entity, &Transform), With<Bullet>>,
+    bullets: Query<(Entity, &Bullet, &Transform)>,
+    mut shields: Query<&mut ShieldCharges>,
 ) {
-    for (player_entity, player, player_transform) in &players {
-        for (bullet_entity, bullet_transform) in &bullets {
-            let distance = Vec2::distance(
-                player_transform.translation.xy(),
-                bullet_transform.translation.xy(),
-            );
-            if distance < PLAYER_RADIUS + BULLET_RADIUS {
-                // spawn a hit animation
-                spawn_explosion(&mut commands, &images, *bullet_transform);
+    let mut players: Vec<_> = players
+        .iter()
+        .map(|(entity, player, transform)| (player.handle, entity, transform.translation))
+        .collect();
+    players.sort_by_key(|player| player.0);
+    let mut bullets: Vec<_> = bullets
+        .iter()
+        .filter(|(_, bullet, _)| bullet.active)
+        .map(|(entity, bullet, transform)| (bullet.owner, bullet.id, entity, transform.translation))
+        .collect();
+    bullets.sort_by_key(|bullet| (bullet.0, bullet.1));
+    let mut consumed = HashSet::new();
 
-                let snd = sound_id.next_us(player.handle);
-                debug!("explosion snd {snd:#00x}");
-                commands.spawn(
-                    (
-                        RollbackSoundBundle {
-                            sound: RollbackSound {
-                                clip: sounds.swoosh_death.clone(),
-                                start_frame: frame.frame,
-                                sub_key: snd,
-                            },
-                            transform: Transform::from_translation(bullet_transform.translation),
-                            ..default()
-                        },
-                    )
-                )
-                .add_rollback();
+    for (handle, player_entity, player_position) in players {
+        let mut shield_available = shields
+            .get_mut(player_entity)
+            .map(|shield| shield.0 > 0)
+            .unwrap_or(false);
 
-                // mark player for death (despawn in half a second if not rolled back)
-                commands.entity(player_entity).insert(MarkedForDeath::default());
-                // remove the bullet from the game
-                commands.entity(bullet_entity).despawn_recursive();
+        for (_, _, bullet_entity, bullet_position) in bullets.iter().copied() {
+            if consumed.contains(&bullet_entity)
+                || Vec2::distance(player_position.xy(), bullet_position.xy()) >= PLAYER_RADIUS + BULLET_RADIUS
+            {
+                continue;
             }
+            consumed.insert(bullet_entity);
+            commands.entity(bullet_entity).despawn_recursive();
+
+            if shield_available {
+                shield_available = false;
+                if let Ok(mut shield) = shields.get_mut(player_entity) {
+                    shield.0 = shield.0.saturating_sub(1);
+                    if shield.0 == 0 {
+                        commands.entity(player_entity).remove::<ShieldCharges>();
+                    }
+                }
+                commands.spawn((RollbackSoundBundle {
+                    sound: RollbackSound {
+                        clip: sounds.ray.clone(),
+                        start_frame: frame.frame,
+                        sub_key: sound_id.next_us(handle),
+                    },
+                    transform: Transform::from_translation(bullet_position),
+                    ..default()
+                },)).add_rollback();
+                continue;
+            }
+
+            spawn_explosion(&mut commands, &images, Transform::from_translation(bullet_position));
+            commands.spawn((RollbackSoundBundle {
+                sound: RollbackSound {
+                    clip: sounds.swoosh_death.clone(),
+                    start_frame: frame.frame,
+                    sub_key: sound_id.next_us(handle),
+                },
+                transform: Transform::from_translation(bullet_position),
+                ..default()
+            },)).add_rollback();
+            commands.entity(player_entity).insert(MarkedForDeath::default());
+            break;
         }
     }
 }

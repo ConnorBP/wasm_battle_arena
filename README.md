@@ -101,6 +101,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [ ] add focused networking, rollback, determinism, reconnect, and matchmaking audits
 - [ ] add power-ups and advanced gameplay systems
     - [x] rollback-safe deterministic speed pickups
+    - [x] rollback-safe one-hit shield pickups
 
 ### Complete
 

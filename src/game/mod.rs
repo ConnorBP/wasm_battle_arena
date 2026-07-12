@@ -257,6 +257,8 @@ pub fn run() {
             .register_rollback_component::<BulletReady>()
             .register_rollback_component::<SpeedPickup>()
             .register_rollback_component::<SpeedBoost>()
+            .register_rollback_component::<ShieldPickup>()
+            .register_rollback_component::<ShieldCharges>()
             .register_rollback_component::<MoveDir>()
             .register_rollback_component::<LookTowardsParentMove>()
             .register_rollback_component::<MarkedForDeath>()
@@ -356,6 +358,9 @@ pub fn run() {
             collect_speed_pickups
                 .after(move_players)
                 .before(CommandFlush),
+            collect_shield_pickups
+                .after(move_players)
+                .before(CommandFlush),
             trigger_traps
                 .after(move_players)
                 .before(CommandFlush),
@@ -390,6 +395,7 @@ pub fn run() {
                 .after(CommandFlush)
                 .after(remove_finished_sounds)
                 .after(collect_speed_pickups)
+                .after(collect_shield_pickups)
                 // run after any system that spawns a sound
                 .after(move_bullets)
                 .after(fire_bullets),
@@ -399,6 +405,7 @@ pub fn run() {
                 .after(remove_finished_sounds)
                 .after(process_deaths)
                 .after(collect_speed_pickups)
+                .after(collect_shield_pickups)
                 .after(trigger_traps)
                 .after(kill_players)
                 .after(move_bullets)

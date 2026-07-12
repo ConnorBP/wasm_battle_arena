@@ -9,8 +9,12 @@ pub struct Player {
 #[derive(Component, Reflect, Default)]
 pub struct BulletReady(pub bool);
 
-#[derive(Component, Reflect, Default)]
-pub struct Bullet;
+#[derive(Component, Reflect, Default, Clone, Copy)]
+pub struct Bullet {
+    pub id: u64,
+    pub owner: usize,
+    pub active: bool,
+}
 
 #[derive(Component, Reflect, Default, Clone, Copy)]
 pub struct SpeedPickup {
@@ -21,6 +25,14 @@ pub struct SpeedPickup {
 pub struct SpeedBoost {
     pub frames_left: u16,
 }
+
+#[derive(Component, Reflect, Default, Clone, Copy)]
+pub struct ShieldPickup {
+    pub cell: (u16, u16),
+}
+
+#[derive(Component, Reflect, Default, Clone, Copy)]
+pub struct ShieldCharges(pub u8);
 
 #[derive(Component, Reflect, Default, Clone, Copy)]
 pub struct MoveDir(pub Vec2);

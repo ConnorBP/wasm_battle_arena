@@ -62,7 +62,10 @@ pub fn cleanup_network_session(
     bullets: Query<Entity, With<super::components::Bullet>>,
     blocks: Query<Entity, With<super::components::MapBlock>>,
     effects: Query<Entity, With<super::components::AnimateOnce>>,
-    pickups: Query<Entity, With<super::components::SpeedPickup>>,
+    pickups: Query<Entity, Or<(
+        With<super::components::SpeedPickup>,
+        With<super::components::ShieldPickup>,
+    )>>,
 ) {
     commands.remove_resource::<Session<GgrsConfig>>();
     commands.remove_resource::<LocalPlayerHandle>();
