@@ -133,11 +133,12 @@ fn cell_collide(
     }
 }
 
-/// Checks if two squares of size 1,1 overlap from two 2D coordinates
+/// Checks the slightly inset player collider against a full map cell.
 fn wall_check(player: Vec2, wall: Vec2) -> bool{
+    const PLAYER_COLLIDER_SIZE: f32 = 0.8;
     let col = collide(
         player.extend(0.),
-        Vec2::splat(1.0),
+        Vec2::splat(PLAYER_COLLIDER_SIZE),
         wall.extend(0.0),
         Vec2::splat(1.0)
     );

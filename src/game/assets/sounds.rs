@@ -64,12 +64,16 @@ pub fn update_volume(
 const MAX_MUSIC_VOL: f64 = 0.3;
 pub fn start_main_music(
     sounds: Res<SoundAssets>,
-    // audio: Res<Audio>,
     audio: Res<AudioChannel<MusicChannel>>,
     mut cfg: ResMut<AudioConfig>,
+    mut started: Local<bool>,
 ) {
+    if *started {
+        return;
+    }
     audio.play(sounds.menu_music.clone())
         .looped();
+    *started = true;
         //.with_volume(MAX_MUSIC_VOL);
         // .fade_in(AudioTween::linear(std::time::Duration::from_secs(4)).with_easing(AudioEasing::InOutPowf(2.4)));
         // set the music volume to default. This triggers the update_volume system
