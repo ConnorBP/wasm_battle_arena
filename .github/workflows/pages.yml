@@ -29,14 +29,34 @@ jobs:
       - name: Build game
         env:
           GHOST_BATTLE_SIGNALING_URL: wss://ghost-battle-signaling.connor-postma.workers.dev/match
+          BINARYEN_VERSION: "130"
+          BINARYEN_SHA256: 0a18362361ad05465118cd8eeb72edaeec89de6894bc283576ef4e07aa3babcc
         run: |
           cargo install wasm-bindgen-cli --version 0.2.88 --locked
           cargo build --release --target wasm32-unknown-unknown
           mkdir -p site/out
           wasm-bindgen --out-dir site/out --target web target/wasm32-unknown-unknown/release/wasm_battle_arena.wasm
+
+          curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          echo "${BINARYEN_SHA256}  binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | sha256sum -c -
+          tar -xzf "binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          "binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt" -Oz --strip-debug \
+            site/out/wasm_battle_arena_bg.wasm -o site/out/wasm_battle_arena_bg.optimized.wasm
+          mv site/out/wasm_battle_arena_bg.optimized.wasm site/out/wasm_battle_arena_bg.wasm
+
           cp index.html site/
-          cp -r assets site/
+          cd assets
+          find . -type f \( -name '*.png' -o -name '*.ogg' \) \
+            -exec install -D '{}' "../site/assets/{}" \;
+          cd ..
           echo ghost.segfault.site > site/CNAME
+
+          ! find site -type f \( -name '*.wav' -o -name '*.mp3' -o -name '*.bmp' \) | grep .
+          {
+            echo '### Deployment size'
+            du -h site/out/wasm_battle_arena_bg.wasm
+            find site/assets -type f -printf '%s\n' | awk '{n+=$1} END {print "Runtime assets: " n " bytes"}'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

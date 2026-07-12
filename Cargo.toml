@@ -20,7 +20,7 @@ incremental = true
 opt-level = 3
 
 [dependencies]
-bevy = { version = "0.11", default-features = false, features = ["bevy_asset","bevy_winit","bevy_core_pipeline","bevy_render","bevy_sprite","multi-threaded","png","ktx2","zstd","tonemapping_luts","default_font","webgl2"]}
+bevy = { version = "0.11", default-features = false, features = ["bevy_asset","bevy_winit","bevy_core_pipeline","bevy_render","bevy_sprite","multi-threaded","png","default_font","webgl2"]}
 bevy_ggrs = { version = "0.13", features = ["wasm-bindgen"]}
 ggrs = "0.9"
 bincode = "1.3"
