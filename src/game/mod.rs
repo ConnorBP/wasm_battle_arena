@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use bevy::ecs::system::Command;
 use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_ggrs::{GgrsAppExtension, GgrsPlugin, GgrsSchedule};
 use bevy_asset_loader::prelude::*;
 use bevy_kira_audio::prelude::*;
 use bevy_roll_safe::prelude::*;
 use bevy_egui::EguiPlugin;
+use crate::cloudflare_net::CloudflareNetPlugin;
 
 mod components;
 mod map;
@@ -156,6 +156,7 @@ pub fn run() {
         .set(ImagePlugin::default_nearest()),// set pixel art render mode
         EguiPlugin,
         AudioPlugin,
+        CloudflareNetPlugin,
     ));
 
     #[cfg(feature="debug_render")]
@@ -285,14 +286,13 @@ pub fn run() {
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()
-    .add_systems(OnEnter(GameState::MainMenu),
-    (
-        start_main_music,
-    )
-    )
+    .add_systems(Startup, setup)
+    .add_systems(OnEnter(GameState::MainMenu), start_main_music)
+    .add_systems(OnEnter(GameState::Matchmaking), start_cloudflare_socket)
+    .add_systems(OnExit(GameState::Matchmaking), stop_cloudflare_socket)
     .add_systems(
-        OnEnter(GameState::Matchmaking),
-        (setup, start_matchbox_socket),
+        OnExit(GameState::InGame),
+        (clear_sounds, cleanup_network_session).chain(),
     )
     .add_systems(
         Update,

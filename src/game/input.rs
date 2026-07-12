@@ -1,4 +1,4 @@
-use bevy::{input::touch::*, prelude::*};
+use bevy::{input::touch::*, prelude::*, window::PrimaryWindow};
 use bevy_ggrs::ggrs;
 
 
@@ -68,6 +68,7 @@ pub fn input(
     keys: Res<Input<KeyCode>>,
     // mut touch_evr: EventReader<TouchInput>,
     touches: Res<Touches>,
+    window: Query<&Window, With<PrimaryWindow>>,
     mut touch_map: Local<TouchMap>,
 ) -> u8 {
     let mut input = 0u8;
@@ -90,64 +91,30 @@ pub fn input(
 
     
 
-    // check if we should clear the touchmap
-    if let Some(tm) = touch_map.0 {
-        for released in touches.iter_just_released() {
-            if released.id() == tm {
-                touch_map.0 = None;
-                break;
-                info!("[InSys] Touch {} just un-mapped (released).", released.id());
-            }
-        }
-        for released in touches.iter_just_canceled() {
-            if released.id() == tm {
-                touch_map.0 = None;
-                break;
-                info!("[InSys] Touch {} just un-mapped (canceled).", released.id());
-            }
-        }
+    let Ok(window) = window.get_single() else {
+        return input;
+    };
 
-        // if no touches on screen reset touchmap
-        // catch all in case unmap event is missed
-        if touches.iter().count() == 0 {
-            touch_map.0 = None;
-        }
+    if touch_map
+        .0
+        .is_some_and(|id| !touches.iter().any(|finger| finger.id() == id))
+    {
+        touch_map.0 = None;
     }
 
-    // handle touchscreen inputs
+    let screen_midpoint = window.width() / 2.0;
     for finger in touches.iter() {
-
-        match *touch_map {
-            TouchMap(None) => {
-                info!("[InSys] The touch {} just mapped.", finger.id());
-                touch_map.0 = Some(finger.id());
-
-            },
-            TouchMap(Some(tm)) => {
-                if tm == finger.id() {
-                    // we are in the current registered move finger so apply input
-                    let direction =
-                        finger.start_position() - finger.position();
-                    // let direction = finger.delta().normalize_or_zero();
-
-                    //info!("delta {} direction {}", finger.delta(), direction);
-
-                    input |= input_from_vec(direction);
-
-                } else {
-                    // not the move finger so we can check for taps to fire
-                    if touches.just_pressed(finger.id()) {
-                        input |= INPUT_FIRE;
-                    }
-                }
-            },
+        if finger.start_position().x >= screen_midpoint {
+            input |= INPUT_FIRE;
+            continue;
         }
 
-        
-
-        
-        
-
+        if touch_map.0.is_none() {
+            touch_map.0 = Some(finger.id());
+        }
+        if touch_map.0 == Some(finger.id()) {
+            input |= input_from_vec(finger.start_position() - finger.position());
+        }
     }
 
 

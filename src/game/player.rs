@@ -2,12 +2,9 @@ use std::time::Duration;
 
 use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
-use bevy_kira_audio::prelude::*;
-use seeded_random::{Random, Seed};
-
 use crate::game::rollback_audio::RollbackSoundBundle;
 
-use super::{components::*, MAP_SIZE, assets::{textures::{ImageAssets, spawn_explosion}, sounds::SoundAssets}, RollbackState, Scores, GameSeed, map::{CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
+use super::{components::*, MAP_SIZE, assets::{textures::{ImageAssets, spawn_explosion}, sounds::SoundAssets}, RollbackState, Scores, GameSeed, map::{splitmix64, CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
 use super::networking::GgrsConfig;
 use super::input;
 
@@ -212,10 +209,10 @@ pub fn spawn_players(
     }
 
     // generate new spawn positions
-    let positions = generate_random_positions(2, seed.0, map_data);
+    let positions = generate_spawn_positions(seed.0, map_data);
 
-    // now advance the seed for next spawn
-    seed.0 = Random::from_seed(Seed::unsafe_new(seed.0)).gen();
+    // Domain-separate the next round's map seed from spawn selection.
+    seed.0 = splitmix64(seed.0 ^ 0x7370_6177_6e5f_706f);
 
     // p1
     spawn_player(&mut commands, &images, 0, -Vec2::X, grid_to_world(positions[0]).extend(100.), Color::rgb(0.8, 0.2, 0.2));
@@ -296,54 +293,33 @@ pub fn world_to_grid(world_pos: Vec2) -> Option<(u32,u32)> {
         }
 }
 
-fn generate_random_positions
-(
-    count: usize,
+fn generate_spawn_positions(
     base_seed: u64,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
-) -> Vec<(u32,u32)> {
-    let mut rand = Random::from_seed(Seed::unsafe_new(base_seed));
-    let mut positions: Vec<(u32,u32)> = vec![];
-    // // generate a position and then check each position for collisions
-    for _ in 0..count {
-        let mut overlapped = true;
-        let mut x = 0;
-        let mut y = 0;
-        while overlapped {
-            // advance the random seed
-            rand = Random::from_seed(rand.seed());
-            x = rand.u32() % MAP_SIZE as u32;
-            // advance the random seed again for y
-            rand = Random::from_seed(rand.seed());
-            y = rand.u32() % MAP_SIZE as u32;
-            // check for overlaps in existing additins
-            overlapped = {
-                let mut ret = false;
-                // don't spawn players in walls
-                match map_data.cells[x as usize][y as usize] {
-                    CellType::WallBlock => {
-                        // mark cell as taken and generate a new position for this player
-                        ret = true;
-                    },
-                    _=> {
-                        // if not in a wall then check that another player has not been spawned here
-                        for &pos in positions.iter() {
-                            // check for player overlaps
-                            if x == pos.0 || y == pos.1 {
-                                ret = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                // set overlapped var
-                ret
-            };
+) -> [(u32, u32); 2] {
+    const SPAWN_SELECTION_DOMAIN: u64 = 0x7370_6177_6e5f_7365;
+    let mut candidates = Vec::new();
+
+    for x in 0..MAP_SIZE {
+        for y in 0..MAP_SIZE {
+            let mirror = (MAP_SIZE - 1 - x, MAP_SIZE - 1 - y);
+            if (x, y) >= mirror
+                || x == mirror.0
+                || y == mirror.1
+                || x.abs_diff(mirror.0) + y.abs_diff(mirror.1) < MAP_SIZE / 2
+                || map_data.cells[x][y] != CellType::Empty
+                || map_data.cells[mirror.0][mirror.1] != CellType::Empty
+            {
+                continue;
+            }
+            candidates.push([(x as u32, y as u32), (mirror.0 as u32, mirror.1 as u32)]);
         }
-        // add the new position that has no overlaps to the position list
-        positions.push((x,y));
     }
-    positions
+
+    candidates
+        .get((splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN) as usize) % candidates.len().max(1))
+        .copied()
+        .unwrap_or([(0, 0), ((MAP_SIZE - 1) as u32, (MAP_SIZE - 1) as u32)])
 }
 
 pub fn fire_bullets(
@@ -452,7 +428,7 @@ pub fn kill_players(
     frame: Res<GGFrameCount>,
     mut sound_id: ResMut<SoundIdSeed>,
     mut commands: Commands,
-    players: Query<(Entity, &Player, &Transform), (Without<Bullet>,(Without<MarkedForDeath>))>,
+    players: Query<(Entity, &Player, &Transform), (Without<Bullet>, Without<MarkedForDeath>)>,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
 ) {
     for (player_entity, player, player_transform) in &players {

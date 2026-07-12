@@ -1,23 +1,17 @@
+use std::collections::VecDeque;
+
 use bevy::prelude::*;
 
-use super::{components::MapBlock, MAP_SIZE, player::grid_to_world, RollbackState};
+use super::{components::MapBlock, player::grid_to_world, GameSeed, RollbackState, MAP_SIZE};
 
-#[derive(Default, Copy, Clone)]
+const MAP_DOMAIN: u64 = 0x6d61_705f_726f_756e;
+const WALL_PERCENT: u64 = 23;
+
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 pub enum CellType {
-    // nothing in this cell
     #[default]
     Empty,
-    // filled with a basic collidable block type
     WallBlock,
-}
-
-impl From<u8> for CellType {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => { CellType::Empty },
-            _ => { CellType::WallBlock },
-        }
-    }
 }
 
 #[derive(Resource)]
@@ -25,132 +19,120 @@ pub struct Map<T: Sized, const WIDTH: usize, const HEIGHT: usize> {
     pub cells: [[T; WIDTH]; HEIGHT],
 }
 
-impl<T: Sized + Default + Copy, const WIDTH: usize, const HEIGHT: usize> Map<T, WIDTH, HEIGHT> {
-    fn new() -> Self {
+impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
+    fn generated(seed: u64) -> Self {
+        let mut cells = [[CellType::Empty; SIZE]; SIZE];
+        let center = SIZE / 2;
 
-        Self {
-            cells: [[T::default(); WIDTH];HEIGHT]
-        }
-    }
-}
+        for x in 0..SIZE {
+            for y in 0..SIZE {
+                let mirror = (SIZE - 1 - x, SIZE - 1 - y);
+                if (x, y) > mirror || x == 0 || y == 0 || x + 1 == SIZE || y + 1 == SIZE {
+                    continue;
+                }
+                if x == center || y == center {
+                    continue;
+                }
 
-impl<const WIDTH: usize, const HEIGHT: usize> Map<CellType, WIDTH, HEIGHT> {
-    /// generate some extremely rudementary block layouts based on intervals for testing
-    fn test_map() -> Self {
-        let mut cells = [[CellType::default(); WIDTH];HEIGHT];
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                if ((x+4) % 6 == 0 || (x+4) % 9 == 0) && !(y % 4 == 0 || (y+1)%4 ==0 ) {
+                let coordinate = ((x as u64) << 32) | y as u64;
+                if splitmix64(seed ^ MAP_DOMAIN ^ coordinate) % 100 < WALL_PERCENT {
                     cells[x][y] = CellType::WallBlock;
+                    cells[mirror.0][mirror.1] = CellType::WallBlock;
                 }
             }
         }
 
-        Self {
-            cells
+        keep_center_region(&mut cells, center);
+        let empty_cells = cells
+            .iter()
+            .flatten()
+            .filter(|cell| **cell == CellType::Empty)
+            .count();
+        if empty_cells * 2 < SIZE * SIZE {
+            cells = [[CellType::Empty; SIZE]; SIZE];
+        }
+
+        Self { cells }
+    }
+}
+
+fn keep_center_region<const SIZE: usize>(cells: &mut [[CellType; SIZE]; SIZE], center: usize) {
+    let mut reachable = [[false; SIZE]; SIZE];
+    let mut queue = VecDeque::from([(center, center)]);
+    reachable[center][center] = true;
+
+    while let Some((x, y)) = queue.pop_front() {
+        for (next_x, next_y) in [
+            (x.wrapping_sub(1), y),
+            (x + 1, y),
+            (x, y.wrapping_sub(1)),
+            (x, y + 1),
+        ] {
+            if next_x < SIZE
+                && next_y < SIZE
+                && !reachable[next_x][next_y]
+                && cells[next_x][next_y] == CellType::Empty
+            {
+                reachable[next_x][next_y] = true;
+                queue.push_back((next_x, next_y));
+            }
+        }
+    }
+
+    for x in 0..SIZE {
+        for y in 0..SIZE {
+            if cells[x][y] == CellType::Empty && !reachable[x][y] {
+                cells[x][y] = CellType::WallBlock;
+            }
         }
     }
 }
 
-impl Map<CellType, 41, 41> {
-    fn custom_map() -> Self {
-        let cells: [[CellType; 41]; 41] =
-        [
-            [0u8,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,1,1,0,0,0,0,1,1,0,0],
-            [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0],
-            [0,0,0,1,1,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-            [0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,1,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [1,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0],
-            [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0],
-            [0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0],
-            [0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,1,1,1,1,1,0,0,0,1,0,0,0],
-            [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0],
-            [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
-            [1,1,0,0,1,1,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0],
-            [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0],
-        ].map(|r| r.map(|c| CellType::from(c)));
-        Self {
-            cells
-        }
-    }
+pub(crate) fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
-/// Generate Map system generates the map and inserts it as a resource at the beginning of each round
 pub fn generate_map(
     mut commands: Commands,
+    mut seed: ResMut<GameSeed>,
     mut state: ResMut<NextState<RollbackState>>,
 ) {
-    let map = Map::<CellType, MAP_SIZE, MAP_SIZE>::custom_map();
-
-    commands.insert_resource(map);
+    commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(seed.0));
+    seed.0 = splitmix64(seed.0 ^ MAP_DOMAIN);
     state.set(RollbackState::InRound);
 }
 
-/// creates sprites for the maps block types after map generation is complete
 pub fn spawn_map_sprites(
     mut commands: Commands,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
 ) {
     for x in 0..MAP_SIZE {
         for y in 0..MAP_SIZE {
-            match map_data.cells[x][y] {
-                CellType::WallBlock => {
-                    commands.spawn((
-                        MapBlock,
-                        SpriteBundle {
-                            transform: Transform::from_translation(
-                                grid_to_world((x as u32,y as u32))
-                                .extend(-1.)
-                            ),
-                            sprite: Sprite {
-                                color: Color::rgb(0.2, 0.3, 0.2),
-                                custom_size: Some(Vec2::new(1., 1.)),
-                                ..default()
-                            },
-                            ..default()
-                        }
-                    ));
-                },
-                _=>{},
+            if map_data.cells[x][y] != CellType::WallBlock {
+                continue;
             }
+            commands.spawn((
+                MapBlock,
+                SpriteBundle {
+                    transform: Transform::from_translation(
+                        grid_to_world((x as u32, y as u32)).extend(-1.),
+                    ),
+                    sprite: Sprite {
+                        color: Color::rgb(0.2, 0.3, 0.2),
+                        custom_size: Some(Vec2::ONE),
+                        ..default()
+                    },
+                    ..default()
+                },
+            ));
         }
     }
 }
 
-/// clears the screen of all map sprites
-pub fn clear_map_sprites(
-    mut commands: Commands,
-    blocks: Query<Entity, With<MapBlock>>
-) {
+pub fn clear_map_sprites(mut commands: Commands, blocks: Query<Entity, With<MapBlock>>) {
     for entity in &blocks {
         commands.entity(entity).despawn_recursive();
     }

@@ -15,7 +15,7 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - non authoritative deterministic net code and game logic
 - desktop, mobile, and web (wasm) support
 - two player versus mode
-- deterministic pseudo-random map generation (WIP)
+- deterministic seeded map generation
 - game music
 - retro sound effects
 - fun competitive gameplay
@@ -27,8 +27,8 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - then add wasm target: `rustup target add wasm32-unknown-unknown`
 - install wasm server runner `cargo install wasm-server-runner`
 - install cargo watch `cargo install cargo-watch`
-- install matchbox server `cargo install matchbox_server`
-- run matchbox server in another window for dev testing: `matchbox_server`
+- deploy the signaling Worker in [`cloudflare-worker`](cloudflare-worker/README.md)
+- route the Worker under `/match` on a Cloudflare-proxied game host, or set `GHOST_BATTLE_SIGNALING_URL` at compile time to its `workers.dev` `/match` endpoint
 
 ### Build and run
 
@@ -43,26 +43,9 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - then run the commands from deploy.bat
 
 
-## Matchbox Server config
+## Networking
 
-use the following service definition after installing matchbox_server for user matchbox on ubuntu 20+
-
-`/etc/systemd/system/matchbox.your-domain.tld.service`
-
-```
-[Unit]
-Description=matchbox_server service
-[Service]
-User=matchbox
-Group=matchbox
-WorkingDirectory=/home/matchbox/
-Environment="HOST=0.0.0.0:3536"
-ExecStart=/home/matchbox/.cargo/bin/matchbox_server
-[Install]
-WantedBy=multi-user.target
-```
-Then run: `sudo systemctl start matchbox.your-domain.tld.service`
-
+A Cloudflare Durable Object pairs two browsers and relays WebRTC signaling only; GGRS game traffic remains peer-to-peer. See [`cloudflare-worker/README.md`](cloudflare-worker/README.md). By default the game connects to `/match` on its own origin; set compile-time `GHOST_BATTLE_SIGNALING_URL` when the game host is not Cloudflare-proxied. Browser networking uses STUN without TURN, so restrictive NAT/firewall combinations may fail. Native builds compile, but online play is browser-only.
 
 ```
 cargo build --release --target wasm32-unknown-unknown
@@ -90,12 +73,13 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
         - [ ] color
         - [ ] cosmetics
         - [x] sfx and music volume control
-- [ ] auto generate the map with wave collapse or perlin noise
+- [x] auto generate fair, connected maps from the synchronized match seed
 - [ ] add more map tile types
     - [ ] create a pretty asset for the basic wall type and all of it's corners
     - [ ] make a pretty ground texture
     - [ ] some kind of out of bounds area texture to make it less boring. Or just make it black.
     - [ ] special block types such as: traps, or items pickups as tile types
+- [x] replace dedicated Matchbox server with Cloudflare Worker signaling and a custom Bevy WebRTC plugin
 - [ ] polish sound effects and music.
     - [ ] add more sfx
     - [ ] add more music (battle theme)
@@ -103,11 +87,18 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] fix literal corner case on collision detection which freezes movement on corners
     - [ ] it is possible to further improve this logic if i'm feeling bored
 - [X] add touch screen / mobile controls and functionality
-    - [ ] controls need some polishing. Make fire work while not moving.
+    - [x] support stationary, held, and simultaneous movement/fire touches
 - [x] polish and bug fix network issues and determinsm
     - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
-    - [ ] Improve Rollback Audio system robustness
+    - [x] improve rollback audio deduplication and interrupted-sound cleanup
 - [ ] optimize performance
+- [ ] add multiplayer session modes
+    - [ ] keep the current two-player duel mode
+    - [ ] add multi-player deathmatch mode
+    - [ ] refactor sessions and deterministic seed synchronization for players joining, disconnecting, and reconnecting between rounds
+    - [ ] refactor matchmaking for variable session sizes and late joins
+    - [ ] add focused networking, rollback, determinism, reconnect, and matchmaking audits
+- [ ] add power-ups and advanced gameplay systems
 
 ### Complete
 

@@ -1,0 +1,45 @@
+name: Deploy game
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build game
+        env:
+          GHOST_BATTLE_SIGNALING_URL: wss://ghost-battle-signaling.connor-postma.workers.dev/match
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.88 --locked
+          cargo build --release --target wasm32-unknown-unknown
+          mkdir -p site/out
+          wasm-bindgen --out-dir site/out --target web target/wasm32-unknown-unknown/release/wasm_battle_arena.wasm
+          cp index.html site/
+          cp -r assets site/
+          echo ghost.segfault.site > site/CNAME
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,19 +1,23 @@
 use bevy::prelude::*;
-use bevy_matchbox::{
-    prelude::*,
-    MatchboxSocket, matchbox_socket::WebRtcChannel,
-    // matchbox_socket::{WebRtcSocket, PeerId}
-};
-use bevy_ggrs::{*, ggrs::PlayerType};
+use bevy_ggrs::{ggrs::PlayerType, *};
 use ggrs::GGRSEvent;
 
-use crate::game::{GameSeed, SoundIdSeed, SoundSeed};
+use crate::{
+    cloudflare_net::{CloudflareSocket, ConnectionState},
+    game::{GameSeed, SoundIdSeed, SoundSeed},
+};
 
-use super::{GameState, toasts::Toasts};
-// use matchbox_socket::{WebRtcSocket, PeerId};
-
+use super::{toasts::Toasts, GameState, MAP_SIZE};
 
 pub const ROLLBACK_FPS: usize = 60;
+
+#[cfg(not(feature = "local"))]
+const SIGNALING_URL: &str = match option_env!("GHOST_BATTLE_SIGNALING_URL") {
+    Some(url) => url,
+    None => "",
+};
+#[cfg(feature = "local")]
+const SIGNALING_URL: &str = "ws://127.0.0.1:8787/match";
 
 #[derive(Debug)]
 pub struct GgrsConfig;
@@ -22,151 +26,137 @@ pub struct GgrsConfig;
 pub struct LocalPlayerHandle(pub usize);
 
 impl ggrs::Config for GgrsConfig {
-    // 4-directions + fire fits easily in a single byte
     type Input = u8;
     type State = u8;
-    type Address = PeerId;
+    type Address = u8;
 }
 
-pub fn start_matchbox_socket(mut commands: Commands) {
-    // let secure = crate::interface::is_secure();
-    // prevent version clashing in lobies from causing non determinism
-    #[cfg(not(feature="dev_net"))]
+pub fn start_cloudflare_socket(mut socket: ResMut<CloudflareSocket>) {
+    #[cfg(not(feature = "dev_net"))]
     let room_name = format!(
         "battle-{}-{}-{}",
         env!("CARGO_PKG_VERSION_MAJOR"),
         env!("CARGO_PKG_VERSION_MINOR"),
         env!("CARGO_PKG_VERSION_PATCH")
     );
-    #[cfg(feature="dev_net")]
+    #[cfg(feature = "dev_net")]
     let room_name = format!(
         "devbattle-{}-{}-{}",
         env!("CARGO_PKG_VERSION_MAJOR"),
         env!("CARGO_PKG_VERSION_MINOR"),
         env!("CARGO_PKG_VERSION_PATCH")
     );
-    #[cfg(not(feature="local"))]
-    let room_url = format!("wss://matchbox-secure.segfault.site/{room_name}?next=2");
-    // let room_url = if secure {
-    //     info!("Website is secure, connecting with Secure Web Socket.");
-    //     format!("wss://matchbox-secure.segfault.site/{room_name}?next=2")
-    // } else {
-    //     format!("ws://matchbox.segfault.site:3536/{room_name}?next=2")
-    // };
-    
-    #[cfg(feature="local")]
-    let room_url = "ws://127.0.0.1:3536/battle?next=2";
 
-    // let room_url = "ws://matchbox.segfault.site:3536/battle?next=2";
-    info!("connecting to matchbox server: {room_url}");
-    commands.insert_resource(MatchboxSocket::new_ggrs(room_url));
+    info!("connecting to Cloudflare matchmaking: {SIGNALING_URL}/{room_name}");
+    socket.connect(SIGNALING_URL, &room_name);
+}
+
+pub fn stop_cloudflare_socket(mut socket: ResMut<CloudflareSocket>) {
+    socket.disconnect();
+}
+
+pub fn cleanup_network_session(
+    mut commands: Commands,
+    mut rollback_state: ResMut<NextState<super::RollbackState>>,
+    players: Query<Entity, With<super::components::Player>>,
+    bullets: Query<Entity, With<super::components::Bullet>>,
+    blocks: Query<Entity, With<super::components::MapBlock>>,
+    effects: Query<Entity, With<super::components::AnimateOnce>>,
+) {
+    commands.remove_resource::<Session<GgrsConfig>>();
+    commands.remove_resource::<LocalPlayerHandle>();
+    commands.remove_resource::<super::map::Map<
+        super::map::CellType,
+        MAP_SIZE,
+        MAP_SIZE,
+    >>();
+    commands.insert_resource(super::Scores::default());
+    commands.insert_resource(super::RoundEndTimer::default());
+    commands.insert_resource(super::ggrs_framecount::GGFrameCount::default());
+    rollback_state.set(super::RollbackState::PreRound);
+    for entity in players
+        .iter()
+        .chain(bullets.iter())
+        .chain(blocks.iter())
+        .chain(effects.iter())
+    {
+        commands.entity(entity).despawn_recursive();
+    }
 }
 
 pub fn wait_for_players(
     mut commands: Commands,
-    mut socket: ResMut<MatchboxSocket<SingleChannel>>,
+    mut socket: ResMut<CloudflareSocket>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut toasts: ResMut<Toasts>,
 ) {
-    if socket.get_channel(0).is_err() {
-        info!("failed to get socket");
-        return; // we've already started
-    }
-
-    // get local id when assigned to our socket or return from func
-    let local_id = match socket.id() {
-        Some(id) => id.0.as_u128(),
-        _ => return,
-    };
-
-    // Check for new connections and
-    // xor local id and peer ids together to get session hash
-    // should be the same on every client because xor is addative (unordered)
-    let session_hash = {
-        let mut out_id = u128::MAX;
-        out_id ^= local_id;
-        for (id,_) in socket.update_peers().iter() {
-            out_id ^= id.0.as_u128();
+    let match_info = match socket.state() {
+        ConnectionState::Ready => socket.match_info().expect("ready match has assignment"),
+        ConnectionState::Failed(error) => {
+            toasts.error(error.into());
+            next_state.set(GameState::MainMenu);
+            return;
         }
-
-        //shrink down to 64 bits
-        (out_id & u128::MAX >> 8) as u64  ^ (out_id >> 8) as u64
+        ConnectionState::Disconnected | ConnectionState::Connecting => return,
     };
 
-    let players = socket.players();
+    let (local_handle, remote_handle) = match match_info.player_index {
+        0 => (0, 1),
+        1 => (1, 0),
+        _ => {
+            toasts.error("Invalid player assignment.".into());
+            next_state.set(GameState::MainMenu);
+            return;
+        }
+    };
 
-    let min_players = 2;
-    if players.len() < min_players {
-        // info!("not enough players {players:?} {peer_count}");
-        return;
-    }
-
-
-
-    info!("All peers have joined, going in-game");
-
-    #[cfg(feature="no_delay")]
+    #[cfg(feature = "no_delay")]
     let input_delay = 0;
-    #[cfg(not(feature="no_delay"))]
+    #[cfg(not(feature = "no_delay"))]
     let input_delay = 2;
 
-    // create ggrs p2p session
-    let mut session_builder = ggrs::SessionBuilder::<GgrsConfig>::new()
-        .with_fps(ROLLBACK_FPS).unwrap()
-        .with_num_players(min_players)
+    let session_builder = ggrs::SessionBuilder::<GgrsConfig>::new()
+        .with_fps(ROLLBACK_FPS)
+        .unwrap()
+        .with_num_players(2)
         .with_input_delay(input_delay)
         .with_max_prediction_window(40)
-        .with_max_frames_behind(42).unwrap();
-        
+        .with_max_frames_behind(42)
+        .unwrap()
+        .add_player(PlayerType::Local, local_handle)
+        .expect("adding local player")
+        .add_player(PlayerType::Remote(remote_handle as u8), remote_handle)
+        .expect("adding remote player");
 
-    for (i, player) in players.into_iter().enumerate() {
-        if player == PlayerType::Local {
-            commands.insert_resource(LocalPlayerHandle(i));
-        }
-        session_builder = session_builder
-            .add_player(player, i)
-            .expect("adding player to session");
-    }
-
-    info!("taking channel");
-
-    // move the channel out of the socket (required because GGRS takes ownership of it)
-    let channel = socket.take_channel(0).unwrap();
-
-    info!("Trying to start ggrs session");
-
-    // start the ggrs session
     let ggrs_session = session_builder
-        .start_p2p_session(channel)
+        .start_p2p_session(socket.take_transport())
         .expect("starting ggrs p2p session");
 
-    // sometimes while pairing peers this is never reached
-    info!("Started new session {session_hash:#02x}");
-
+    info!("started Cloudflare-signaled session {:#02x}", match_info.seed);
+    commands.insert_resource(LocalPlayerHandle(local_handle));
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
-    // insert session hash to seed our psudo rng
-    commands.insert_resource(GameSeed(session_hash));
-    // insert sound event id seeds for player 1 and two
-    commands.insert_resource(SoundIdSeed((SoundSeed(session_hash.wrapping_add(1)),SoundSeed(session_hash.wrapping_add(2)))));
+    commands.insert_resource(GameSeed(match_info.seed));
+    commands.insert_resource(SoundIdSeed((
+        SoundSeed(match_info.seed.wrapping_add(1)),
+        SoundSeed(match_info.seed.wrapping_add(2)),
+    )));
     next_state.set(GameState::InGame);
 }
 
 pub fn log_ggrs_events(
     mut session: ResMut<Session<GgrsConfig>>,
     mut toasts: ResMut<Toasts>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
-    match session.as_mut() {
-        Session::P2P(s) => {
-            for event in s.events() {
-                match event {
-                    GGRSEvent::Disconnected { addr } => {
-                        toasts.error(format!("Peer {addr} disconnected.").into());
-                    },
-                    x=> {
-                        info!("GGRS Event: {x:?}");
-                    }
+    if let Session::P2P(session) = session.as_mut() {
+        for event in session.events() {
+            match event {
+                GGRSEvent::Disconnected { addr } => {
+                    toasts.error(format!("Peer {addr} disconnected.").into());
+                    next_state.set(GameState::MainMenu);
                 }
+                event => info!("GGRS Event: {event:?}"),
             }
         }
-        _ => {},//panic!("This example focuses on p2p."),
     }
 }
