@@ -75,6 +75,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
         - [x] sfx and music volume control
 - [x] auto generate fair, connected maps from the synchronized match seed
 - [ ] add more map tile types
+    - [x] deterministic symmetric trap tiles
     - [ ] create a pretty asset for the basic wall type and all of it's corners
     - [ ] make a pretty ground texture
     - [ ] some kind of out of bounds area texture to make it less boring. Or just make it black.

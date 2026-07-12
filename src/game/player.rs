@@ -389,6 +389,21 @@ pub fn reload_bullet(
     }
 }
 
+pub fn trigger_traps(
+    mut commands: Commands,
+    map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
+    players: Query<(Entity, &Transform), (With<Player>, Without<MarkedForDeath>)>,
+) {
+    for (entity, transform) in &players {
+        let Some((x, y)) = world_to_grid(transform.translation.xy()) else {
+            continue;
+        };
+        if map_data.cells[x as usize][y as usize] == CellType::Trap {
+            commands.entity(entity).insert(MarkedForDeath::default());
+        }
+    }
+}
+
 pub fn move_bullets(
     mut commands: Commands,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,

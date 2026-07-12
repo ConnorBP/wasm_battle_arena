@@ -349,6 +349,9 @@ pub fn run() {
             // touch_ev_test,
             
             move_players,
+            trigger_traps
+                .after(move_players)
+                .before(CommandFlush),
             reload_bullet,
             fire_bullets
                 .before(CommandFlush)
@@ -366,7 +369,8 @@ pub fn run() {
 
             process_deaths
                 .after(CommandFlush)
-                .after(kill_players),
+                .after(kill_players)
+                .after(trigger_traps),
 
             // remove finished rollback sounds
             remove_finished_sounds.before(CommandFlush),
@@ -386,6 +390,7 @@ pub fn run() {
                 .after(sync_rollback_sounds)
                 .after(remove_finished_sounds)
                 .after(process_deaths)
+                .after(trigger_traps)
                 .after(kill_players)
                 .after(move_bullets)
                 .after(fire_bullets),
