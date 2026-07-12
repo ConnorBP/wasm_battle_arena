@@ -81,25 +81,30 @@ pub struct GameSeed(u64);
 
 #[derive(Resource, Reflect, Default, Debug)]
 #[reflect(Resource)]
-pub struct SoundIdSeed(pub(crate) (SoundSeed,SoundSeed));
+pub struct SoundIdSeed(pub(crate) Vec<SoundSeed>);
 
 impl SoundIdSeed {
-    /// Moves random seed by one and returns value
-    #[allow(dead_code)]
-    pub fn next(&mut self, handle: usize) -> u64 {
-        match handle {
-            0 => {self.0.0.next()},
-            1 => {self.0.1.next()},
-            _ => {0}
-        }
+    pub fn new(match_seed: u64, players: usize) -> Self {
+        Self(
+            (0..players)
+                .map(|handle| SoundSeed(match_seed.wrapping_add(handle as u64 + 1)))
+                .collect(),
+        )
     }
-    /// same as next but returns as usize for code cleanliness
+
+    pub fn next(&mut self, handle: usize) -> u64 {
+        self.0
+            .get_mut(handle)
+            .expect("sound seed exists for every roster handle")
+            .next()
+    }
+
     pub fn next_us(&mut self, handle: usize) -> usize {
         self.next(handle) as usize
     }
 }
 
-#[derive(Reflect,Default,Debug)]
+#[derive(Reflect, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SoundSeed(u64);
 
 
@@ -109,6 +114,10 @@ pub struct SoundSeed(u64);
 struct CommandFlush;
 
 impl SoundSeed {
+    pub fn from_seed(seed: u64) -> Self {
+        Self(seed)
+    }
+
     /// Moves random seed by one and returns value
     #[allow(dead_code)]
     pub fn next(&mut self) -> u64 {

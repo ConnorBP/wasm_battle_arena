@@ -158,6 +158,7 @@ impl RoundBootstrap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::SoundIdSeed;
 
     fn entry(id: u128, handle: usize) -> RosterEntry {
         RosterEntry { player_id: PlayerId(id), handle }
@@ -183,6 +184,20 @@ mod tests {
         assert_eq!(value.handle(0), Ok(0));
         assert_eq!(value.handle(1), Ok(1));
         assert_eq!(value.scores.iter().map(|score| score.player_id).collect::<Vec<_>>(), vec![PlayerId(1), PlayerId(2)]);
+    }
+
+    #[test]
+    fn sound_streams_preserve_duel_seeds_and_advance_independently() {
+        let mut streams = SoundIdSeed::new(10, 4);
+        assert_eq!(streams.0, vec![
+            crate::game::SoundSeed::from_seed(11),
+            crate::game::SoundSeed::from_seed(12),
+            crate::game::SoundSeed::from_seed(13),
+            crate::game::SoundSeed::from_seed(14),
+        ]);
+        let untouched = streams.0[1];
+        streams.next(0);
+        assert_eq!(streams.0[1], untouched);
     }
 
     #[test]

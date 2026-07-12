@@ -4,7 +4,7 @@ use ggrs::GGRSEvent;
 
 use crate::{
     cloudflare_net::{CloudflareSocket, ConnectionState},
-    game::{GameSeed, SoundIdSeed, SoundSeed},
+    game::{GameSeed, SoundIdSeed},
 };
 
 use super::{session::RoundBootstrap, toasts::Toasts, GameState, MAP_SIZE};
@@ -147,13 +147,10 @@ pub fn wait_for_players(
 
     info!("started Cloudflare-signaled session {:#02x}", match_info.seed);
     commands.insert_resource(LocalPlayerHandle(local_handle));
+    commands.insert_resource(SoundIdSeed::new(match_info.seed, bootstrap.roster.len()));
     commands.insert_resource(bootstrap);
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
     commands.insert_resource(GameSeed(match_info.seed));
-    commands.insert_resource(SoundIdSeed((
-        SoundSeed(match_info.seed.wrapping_add(1)),
-        SoundSeed(match_info.seed.wrapping_add(2)),
-    )));
     next_state.set(GameState::InGame);
 }
 

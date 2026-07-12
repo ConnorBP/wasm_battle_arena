@@ -28,7 +28,7 @@ pub struct Map<T: Sized, const WIDTH: usize, const HEIGHT: usize> {
 }
 
 impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
-    fn generated(seed: u64) -> Self {
+    pub(crate) fn generated(seed: u64) -> Self {
         let mut cells = [[CellType::Empty; SIZE]; SIZE];
         let center = SIZE / 2;
 
