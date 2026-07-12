@@ -13,6 +13,7 @@ mod map;
 mod player;
 mod input;
 mod networking;
+mod session;
 mod rollback_audio;
 mod assets;
 mod gui;

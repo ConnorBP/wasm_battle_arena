@@ -7,7 +7,7 @@ use crate::{
     game::{GameSeed, SoundIdSeed, SoundSeed},
 };
 
-use super::{toasts::Toasts, GameState, MAP_SIZE};
+use super::{session::RoundBootstrap, toasts::Toasts, GameState, MAP_SIZE};
 
 pub const ROLLBACK_FPS: usize = 60;
 
@@ -66,6 +66,7 @@ pub fn cleanup_network_session(
 ) {
     commands.remove_resource::<Session<GgrsConfig>>();
     commands.remove_resource::<LocalPlayerHandle>();
+    commands.remove_resource::<RoundBootstrap>();
     commands.remove_resource::<super::map::Map<
         super::map::CellType,
         MAP_SIZE,
@@ -102,6 +103,7 @@ pub fn wait_for_players(
         ConnectionState::Disconnected | ConnectionState::Connecting => return,
     };
 
+    let bootstrap = RoundBootstrap::duel(match_info.seed);
     let (local_handle, remote_handle) = match match_info.player_index {
         0 => (0, 1),
         1 => (1, 0),
@@ -125,9 +127,15 @@ pub fn wait_for_players(
         .with_max_prediction_window(40)
         .with_max_frames_behind(42)
         .unwrap()
-        .add_player(PlayerType::Local, local_handle)
+        .add_player(
+            PlayerType::Local,
+            bootstrap.handle(local_handle).expect("local handle in roster"),
+        )
         .expect("adding local player")
-        .add_player(PlayerType::Remote(remote_handle as u8), remote_handle)
+        .add_player(
+            PlayerType::Remote(remote_handle as u8),
+            bootstrap.handle(remote_handle).expect("remote handle in roster"),
+        )
         .expect("adding remote player");
 
     let ggrs_session = session_builder
@@ -136,6 +144,7 @@ pub fn wait_for_players(
 
     info!("started Cloudflare-signaled session {:#02x}", match_info.seed);
     commands.insert_resource(LocalPlayerHandle(local_handle));
+    commands.insert_resource(bootstrap);
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
     commands.insert_resource(GameSeed(match_info.seed));
     commands.insert_resource(SoundIdSeed((
