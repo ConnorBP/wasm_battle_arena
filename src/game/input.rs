@@ -103,6 +103,7 @@ pub fn input(
     }
 
     let screen_midpoint = window.width() / 2.0;
+    let deadzone = (window.width().min(window.height()) * 0.08).clamp(32.0, 72.0);
     for finger in touches.iter() {
         if finger.start_position().x >= screen_midpoint {
             input |= INPUT_FIRE;
@@ -113,7 +114,7 @@ pub fn input(
             touch_map.0 = Some(finger.id());
         }
         if touch_map.0 == Some(finger.id()) {
-            input |= input_from_vec(finger.start_position() - finger.position());
+            input |= input_from_vec(finger.start_position() - finger.position(), deadzone);
         }
     }
 
@@ -165,7 +166,6 @@ pub fn direction(input: u8) -> Vec2 {
 // }
 
 /// takes a vectorized input from a joystick or touchscreen and crush it down into our binary input format
-const DEADZONE: f32 = 50.0;
 const AXIS_DEADZONE: f32 = 0.2;
 // magic pre calulated normalized variable for when x and y are both 1
 const DIAGONAL_NORMALIZED: f32 = 0.707107;
@@ -173,13 +173,13 @@ const UNIT_TL: Vec2 = Vec2 { x: DIAGONAL_NORMALIZED,  y:  DIAGONAL_NORMALIZED };
 const UNIT_TR: Vec2 = Vec2 { x: -DIAGONAL_NORMALIZED, y:  DIAGONAL_NORMALIZED };
 const UNIT_BL: Vec2 = Vec2 { x: DIAGONAL_NORMALIZED,  y: -DIAGONAL_NORMALIZED };
 const UNIT_BR: Vec2 = Vec2 { x: -DIAGONAL_NORMALIZED, y: -DIAGONAL_NORMALIZED };
-pub fn input_from_vec(dir: Vec2) -> u8 {
+fn input_from_vec(dir: Vec2, deadzone: f32) -> u8 {
     let mut input = 0;
 
     let magnitude = dir.length();
 
     // only apply input when magnitude is greater than the deadzone value
-    if magnitude > DEADZONE {
+    if magnitude > deadzone {
 
         let dir = dir.normalize_or_zero();
 
@@ -229,4 +229,26 @@ pub fn input_from_vec(dir: Vec2) -> u8 {
 
 pub fn fire(input: u8) -> bool {
     input & INPUT_FIRE != 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touch_deadzone_scales_without_changing_directions() {
+        for deadzone in [32.0, 72.0] {
+            assert_eq!(input_from_vec(Vec2::X * deadzone, deadzone), 0);
+            assert_eq!(input_from_vec(Vec2::X * (deadzone + 1.0), deadzone), INPUT_LEFT);
+            assert_eq!(input_from_vec(-Vec2::X * (deadzone + 1.0), deadzone), INPUT_RIGHT);
+            assert_eq!(input_from_vec(Vec2::Y * (deadzone + 1.0), deadzone), INPUT_UP);
+            assert_eq!(input_from_vec(-Vec2::Y * (deadzone + 1.0), deadzone), INPUT_DOWN);
+
+            let diagonal = deadzone + 1.0;
+            assert_eq!(input_from_vec(Vec2::new(diagonal, diagonal), deadzone), INPUT_LEFT | INPUT_UP);
+            assert_eq!(input_from_vec(Vec2::new(-diagonal, diagonal), deadzone), INPUT_RIGHT | INPUT_UP);
+            assert_eq!(input_from_vec(Vec2::new(diagonal, -diagonal), deadzone), INPUT_LEFT | INPUT_DOWN);
+            assert_eq!(input_from_vec(Vec2::new(-diagonal, -diagonal), deadzone), INPUT_RIGHT | INPUT_DOWN);
+        }
+    }
 }
