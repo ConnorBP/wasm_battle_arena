@@ -57,7 +57,7 @@ jobs:
             du -h site/out/wasm_battle_arena_bg.wasm
             find site/assets -type f -printf '%s\n' | awk '{n+=$1} END {print "Runtime assets: " n " bytes"}'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - name: Deploy
