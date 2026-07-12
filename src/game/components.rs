@@ -13,6 +13,16 @@ pub struct BulletReady(pub bool);
 pub struct Bullet;
 
 #[derive(Component, Reflect, Default, Clone, Copy)]
+pub struct SpeedPickup {
+    pub cell: (u16, u16),
+}
+
+#[derive(Component, Reflect, Default, Clone, Copy)]
+pub struct SpeedBoost {
+    pub frames_left: u16,
+}
+
+#[derive(Component, Reflect, Default, Clone, Copy)]
 pub struct MoveDir(pub Vec2);
 
 #[derive(Component, Reflect, Default)]

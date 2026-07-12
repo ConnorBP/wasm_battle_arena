@@ -11,10 +11,10 @@ use super::input;
 
 pub fn move_players(
     inputs: Res<PlayerInputs<GgrsConfig>>,
-    mut players: Query<(&mut Transform, &mut MoveDir, &Player)>,
+    mut players: Query<(&mut Transform, &mut MoveDir, &Player, Option<&SpeedBoost>)>,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
 ) {
-    for (mut transform, mut move_dir, player) in &mut players {
+    for (mut transform, mut move_dir, player, speed_boost) in &mut players {
         let (input, _) = inputs[player.handle];
         let direction = input::direction(input);
 
@@ -24,7 +24,7 @@ pub fn move_players(
 
         move_dir.0 = direction;
 
-        let move_speed = 0.13;
+        let move_speed = if speed_boost.is_some() { 0.13 * 1.35 } else { 0.13 };
         let old_pos = transform.translation.xy();
         let mut move_delta = direction * move_speed;
 
@@ -386,6 +386,63 @@ pub fn reload_bullet(
         if !input::fire(input) {
             can_fire.0 = true;
         }
+    }
+}
+
+pub fn tick_speed_boost(
+    mut commands: Commands,
+    mut players: Query<(Entity, &mut SpeedBoost)>,
+) {
+    for (entity, mut boost) in &mut players {
+        if boost.frames_left <= 1 {
+            commands.entity(entity).remove::<SpeedBoost>();
+        } else {
+            boost.frames_left -= 1;
+        }
+    }
+}
+
+pub fn collect_speed_pickups(
+    mut commands: Commands,
+    frame: Res<GGFrameCount>,
+    sounds: Res<SoundAssets>,
+    mut sound_id: ResMut<SoundIdSeed>,
+    players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
+    pickups: Query<(Entity, &SpeedPickup)>,
+) {
+    let mut players: Vec<_> = players
+        .iter()
+        .filter_map(|(entity, player, transform)| {
+            world_to_grid(transform.translation.xy())
+                .map(|cell| (player.handle, entity, cell, transform.translation))
+        })
+        .collect();
+    players.sort_by_key(|player| player.0);
+
+    let mut pickups: Vec<_> = pickups.iter().collect();
+    pickups.sort_by_key(|(_, pickup)| pickup.cell);
+
+    for (pickup_entity, pickup) in pickups {
+        let pickup_cell = (pickup.cell.0 as u32, pickup.cell.1 as u32);
+        let Some((handle, player_entity, _, position)) = players
+            .iter()
+            .find(|player| player.2 == pickup_cell)
+            .copied()
+        else {
+            continue;
+        };
+
+        commands.entity(player_entity).insert(SpeedBoost { frames_left: 300 });
+        commands.entity(pickup_entity).despawn_recursive();
+        commands.spawn((RollbackSoundBundle {
+            sound: RollbackSound {
+                clip: sounds.ray.clone(),
+                start_frame: frame.frame,
+                sub_key: sound_id.next_us(handle),
+            },
+            transform: Transform::from_translation(position),
+            ..default()
+        },)).add_rollback();
     }
 }
 

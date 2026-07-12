@@ -2,10 +2,13 @@ use std::collections::VecDeque;
 
 use bevy::prelude::*;
 
-use super::{components::MapBlock, player::grid_to_world, GameSeed, RollbackState, MAP_SIZE};
+use bevy_ggrs::AddRollbackCommandExtension;
+
+use super::{components::{MapBlock, SpeedPickup}, player::grid_to_world, GameSeed, RollbackState, MAP_SIZE};
 
 const MAP_DOMAIN: u64 = 0x6d61_705f_726f_756e;
 const TRAP_DOMAIN: u64 = 0x7472_6170_5f70_6169;
+const PICKUP_DOMAIN: u64 = 0x7069_636b_7570_7061;
 const WALL_PERCENT: u64 = 23;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -14,6 +17,7 @@ pub enum CellType {
     Empty,
     WallBlock,
     Trap,
+    SpeedPickup,
 }
 
 #[derive(Resource)]
@@ -54,12 +58,18 @@ impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
             cells = [[CellType::Empty; SIZE]; SIZE];
         }
 
-        place_traps(&mut cells, seed, center);
+        place_feature_pair(&mut cells, seed ^ TRAP_DOMAIN, center, CellType::Trap);
+        place_feature_pair(&mut cells, seed ^ PICKUP_DOMAIN, center, CellType::SpeedPickup);
         Self { cells }
     }
 }
 
-fn place_traps<const SIZE: usize>(cells: &mut [[CellType; SIZE]; SIZE], seed: u64, center: usize) {
+fn place_feature_pair<const SIZE: usize>(
+    cells: &mut [[CellType; SIZE]; SIZE],
+    seed: u64,
+    center: usize,
+    feature: CellType,
+) {
     let mut candidates = Vec::new();
     for x in 1..SIZE.saturating_sub(1) {
         for y in 1..SIZE.saturating_sub(1) {
@@ -73,9 +83,9 @@ fn place_traps<const SIZE: usize>(cells: &mut [[CellType; SIZE]; SIZE], seed: u6
         }
     }
 
-    if let Some(pair) = candidates.get((splitmix64(seed ^ TRAP_DOMAIN) as usize) % candidates.len().max(1)) {
+    if let Some(pair) = candidates.get((splitmix64(seed) as usize) % candidates.len().max(1)) {
         for &(x, y) in pair {
-            cells[x][y] = CellType::Trap;
+            cells[x][y] = feature;
         }
     }
 }
@@ -138,6 +148,23 @@ pub fn spawn_map_sprites(
             let (color, size) = match map_data.cells[x][y] {
                 CellType::WallBlock => (Color::rgb(0.2, 0.3, 0.2), Vec2::ONE),
                 CellType::Trap => (Color::rgb(0.75, 0.12, 0.2), Vec2::splat(0.7)),
+                CellType::SpeedPickup => {
+                    commands.spawn((
+                        SpeedPickup { cell: (x as u16, y as u16) },
+                        SpriteBundle {
+                            transform: Transform::from_translation(
+                                grid_to_world((x as u32, y as u32)).extend(0.),
+                            ),
+                            sprite: Sprite {
+                                color: Color::rgb(0.15, 0.85, 0.95),
+                                custom_size: Some(Vec2::splat(0.55)),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                    )).add_rollback();
+                    continue;
+                }
                 CellType::Empty => continue,
             };
             commands.spawn((
@@ -158,8 +185,12 @@ pub fn spawn_map_sprites(
     }
 }
 
-pub fn clear_map_sprites(mut commands: Commands, blocks: Query<Entity, With<MapBlock>>) {
-    for entity in &blocks {
+pub fn clear_map_sprites(
+    mut commands: Commands,
+    blocks: Query<Entity, With<MapBlock>>,
+    pickups: Query<Entity, With<SpeedPickup>>,
+) {
+    for entity in blocks.iter().chain(pickups.iter()) {
         commands.entity(entity).despawn_recursive();
     }
 }
@@ -173,21 +204,24 @@ mod tests {
         let first = Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(42);
         let second = Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(42);
         let mut traps = 0;
+        let mut pickups = 0;
 
         for x in 0..MAP_SIZE {
             for y in 0..MAP_SIZE {
                 assert_eq!(first.cells[x][y], second.cells[x][y]);
                 assert_eq!(first.cells[x][y], first.cells[MAP_SIZE - 1 - x][MAP_SIZE - 1 - y]);
-                if first.cells[x][y] == CellType::Trap {
-                    traps += 1;
+                if matches!(first.cells[x][y], CellType::Trap | CellType::SpeedPickup) {
                     assert!(x > 0 && y > 0 && x + 1 < MAP_SIZE && y + 1 < MAP_SIZE);
                     assert_ne!(x, MAP_SIZE / 2);
                     assert_ne!(y, MAP_SIZE / 2);
                 }
+                traps += usize::from(first.cells[x][y] == CellType::Trap);
+                pickups += usize::from(first.cells[x][y] == CellType::SpeedPickup);
             }
         }
 
         assert_eq!(traps, 2);
+        assert_eq!(pickups, 2);
         assert_eq!(first.cells[MAP_SIZE / 2][MAP_SIZE / 2], CellType::Empty);
         assert_eq!(first.cells[0][0], CellType::Empty);
         assert_eq!(first.cells[MAP_SIZE - 1][MAP_SIZE - 1], CellType::Empty);

@@ -100,6 +100,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [ ] refactor matchmaking for variable session sizes and late joins
     - [ ] add focused networking, rollback, determinism, reconnect, and matchmaking audits
 - [ ] add power-ups and advanced gameplay systems
+    - [x] rollback-safe deterministic speed pickups
 
 ### Complete
 

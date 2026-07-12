@@ -62,6 +62,7 @@ pub fn cleanup_network_session(
     bullets: Query<Entity, With<super::components::Bullet>>,
     blocks: Query<Entity, With<super::components::MapBlock>>,
     effects: Query<Entity, With<super::components::AnimateOnce>>,
+    pickups: Query<Entity, With<super::components::SpeedPickup>>,
 ) {
     commands.remove_resource::<Session<GgrsConfig>>();
     commands.remove_resource::<LocalPlayerHandle>();
@@ -79,6 +80,7 @@ pub fn cleanup_network_session(
         .chain(bullets.iter())
         .chain(blocks.iter())
         .chain(effects.iter())
+        .chain(pickups.iter())
     {
         commands.entity(entity).despawn_recursive();
     }
