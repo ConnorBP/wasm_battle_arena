@@ -2,4 +2,6 @@
 /out/**
 /.deploy-site/
 /.wrangler/
+**/.wrangler/
+**/node_modules/
 desktop.ini
