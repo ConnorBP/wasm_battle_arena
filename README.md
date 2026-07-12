@@ -77,8 +77,8 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [ ] add more map tile types
     - [x] deterministic symmetric trap tiles
     - [ ] create a pretty asset for the basic wall type and all of it's corners
-    - [ ] make a pretty ground texture
-    - [ ] some kind of out of bounds area texture to make it less boring. Or just make it black.
+    - [x] add a dark procedural arena ground
+    - [x] make the out-of-bounds area black
     - [ ] special block types such as: traps, or items pickups as tile types
 - [x] replace dedicated Matchbox server with Cloudflare Worker signaling and a custom Bevy WebRTC plugin
 - [ ] polish sound effects and music.

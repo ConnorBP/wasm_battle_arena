@@ -289,7 +289,7 @@ pub fn run() {
             .register_rollback_component::<Handle<TextureAtlas>>()       
             .register_rollback_component::<TextureAtlasSprite>() 
     )
-    .insert_resource(ClearColor(Color::rgb(0.43,0.43,0.63)))
+    .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<AudioConfig>()
     .init_resource::<toasts::Toasts>()
@@ -454,6 +454,16 @@ fn setup(mut commands: Commands) {
             GlobalTransform::default(),
         )
     );
+
+    commands.spawn(SpriteBundle {
+        transform: Transform::from_xyz(0., 0., -2.),
+        sprite: Sprite {
+            color: Color::rgb(0.08, 0.09, 0.12),
+            custom_size: Some(Vec2::splat(MAP_SIZE as f32)),
+            ..default()
+        },
+        ..default()
+    });
 
     // Horizontal lines
     for i in 0..=MAP_SIZE {
