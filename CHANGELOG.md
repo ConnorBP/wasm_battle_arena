@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 - 2026-07-12
+
+- Fixed the Bevy schedule ambiguity panic that occurred when entering a match.
+- Added a regression test that rejects conflicting in-round system schedules.
+
 ## 0.4.0 - 2026-07-12
 
 - Replaced the dedicated Matchbox server with Cloudflare Worker signaling and browser WebRTC transport.

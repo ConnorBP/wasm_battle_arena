@@ -107,12 +107,6 @@ impl SoundIdSeed {
 #[derive(Reflect, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SoundSeed(u64);
 
-
-// custom system sets
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
-struct CommandFlush;
-
 impl SoundSeed {
     #[cfg(test)]
     pub fn from_seed(seed: u64) -> Self {
@@ -354,68 +348,23 @@ pub fn run() {
     .add_systems(
         GgrsSchedule,
         (
-            // touch_test,
-            // touch_ev_test,
-            
-            tick_speed_boost.before(move_players),
+            tick_speed_boost,
             move_players,
-            collect_speed_pickups
-                .after(move_players)
-                .before(CommandFlush),
-            collect_shield_pickups
-                .after(move_players)
-                .before(CommandFlush),
-            trigger_traps
-                .after(move_players)
-                .before(CommandFlush),
             reload_bullet,
-            fire_bullets
-                .before(CommandFlush)
-                .after(move_players)
-                .after(reload_bullet),
-            move_bullets
-                .before(CommandFlush)
-                .after(fire_bullets),
-            kill_players
-                .before(CommandFlush)
-                .after(move_bullets)
-                .after(fire_bullets)
-                .after(move_players),
-
-
-            process_deaths
-                .after(CommandFlush)
-                .after(kill_players)
-                .after(trigger_traps),
-
-            // remove finished rollback sounds
-            remove_finished_sounds.before(CommandFlush),
-            
-
-
-            apply_deferred.in_set(CommandFlush),
-            
-            sync_rollback_sounds
-                .after(CommandFlush)
-                .after(remove_finished_sounds)
-                .after(collect_speed_pickups)
-                .after(collect_shield_pickups)
-                // run after any system that spawns a sound
-                .after(move_bullets)
-                .after(fire_bullets),
-            // increase frame count at the end only during rounds
-            increase_frame_system
-                .after(sync_rollback_sounds)
-                .after(remove_finished_sounds)
-                .after(process_deaths)
-                .after(collect_speed_pickups)
-                .after(collect_shield_pickups)
-                .after(trigger_traps)
-                .after(kill_players)
-                .after(move_bullets)
-                .after(fire_bullets),
-        
-        ).after(apply_state_transition::<RollbackState>)
+            collect_speed_pickups,
+            collect_shield_pickups,
+            trigger_traps,
+            fire_bullets,
+            move_bullets,
+            kill_players,
+            remove_finished_sounds,
+            apply_deferred,
+            process_deaths,
+            sync_rollback_sounds,
+            increase_frame_system,
+        )
+        .chain()
+        .after(apply_state_transition::<RollbackState>)
         .distributive_run_if(in_state(RollbackState::InRound)),
     )
     .add_systems(
@@ -554,5 +503,38 @@ fn round_end_timeout(
 
     if timer.just_finished() {
         state.set(RollbackState::PreRound);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
+
+    #[test]
+    fn in_round_schedule_has_no_ambiguous_conflicts() {
+        let mut schedule = Schedule::default();
+        schedule.set_build_settings(ScheduleBuildSettings {
+            ambiguity_detection: LogLevel::Error,
+            ..default()
+        });
+        schedule.add_systems((
+            tick_speed_boost,
+            move_players,
+            reload_bullet,
+            collect_speed_pickups,
+            collect_shield_pickups,
+            trigger_traps,
+            fire_bullets,
+            move_bullets,
+            kill_players,
+            remove_finished_sounds,
+            apply_deferred,
+            process_deaths,
+            sync_rollback_sounds,
+            increase_frame_system,
+        ).chain());
+
+        assert!(schedule.initialize(&mut World::new()).is_ok());
     }
 }
