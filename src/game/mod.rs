@@ -453,7 +453,8 @@ pub fn run() {
             award_confirmed_progression.run_if(in_state(GameState::InGame)),
             update_network_telemetry.run_if(in_state(GameState::InGame)),
             watch_lobby_epoch.run_if(in_state(GameState::InGame)),
-            poll_lobby_control.run_if(in_state(GameState::InGame)),
+            poll_lobby_control
+                .run_if(in_state(GameState::InGame).or_else(in_state(GameState::Matchmaking))),
             repair_presentation_components.run_if(in_state(GameState::InGame)),
             apply_player_cosmetics
                 .after(repair_presentation_components)
