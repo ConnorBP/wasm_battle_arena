@@ -398,6 +398,8 @@ pub fn update_pause_ui(
         .fixed_pos(safe.min)
         .default_size(safe.size())
         .show(contexts.ctx_mut(), |ui| {
+            ui.set_max_width(safe.width());
+            ui.set_max_height(safe.height());
             ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -986,7 +988,10 @@ mod layout_tests {
     }
 }
 
-pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
+pub fn update_matchmaking_ui(
+    mut contexts: EguiContexts,
+    mut next_game_state: ResMut<NextState<GameState>>,
+) {
     let safe = safe_screen_rect(contexts.ctx_mut());
     let scale = responsive_scale(contexts.ctx_mut());
     Area::new("matchmaking info")
@@ -1005,6 +1010,15 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
                         .color(Color32::WHITE)
                         .font(FontId::proportional(28.0 * scale)),
                 );
+                if ui
+                    .add_sized(
+                        vec2(220.0_f32.min(safe.width()), 44.0),
+                        Button::new("Cancel Matchmaking"),
+                    )
+                    .clicked()
+                {
+                    next_game_state.set(GameState::MainMenu);
+                }
             });
         });
 }

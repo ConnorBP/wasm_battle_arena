@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 - 2026-07-13
+
+- Added local target practice with moving targets, score, streaks, and desktop/touch controls while waiting in matchmaking.
+- Added a mobile-safe multiplayer menu overlay with Resume, Settings, Exit Lobby, and Main Menu actions.
+- Constrained menus, score/status panels, and match-over controls to narrow portrait and landscape safe areas.
+- Added a visible Cancel Matchmaking action and guaranteed practice cleanup before multiplayer begins.
+
 ## 0.5.1 - 2026-07-13
 
 - Added short-lived Cloudflare Realtime TURN credentials for restrictive campus, corporate, and carrier NATs.
