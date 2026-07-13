@@ -2,6 +2,7 @@ use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use bincode::Options;
 use ggrs::{Message, NonBlockingSocket};
+use crate::game::session::PlayerId;
 
 #[cfg(target_arch = "wasm32")]
 const MAX_PACKET_BYTES: usize = 64 * 1024;
@@ -33,6 +34,7 @@ pub enum ConnectionState {
 pub struct CloudflareSocket {
     transport_id: u32,
     native_error: Option<String>,
+    legacy_remote: Option<PlayerId>,
 }
 
 impl CloudflareSocket {
@@ -52,6 +54,7 @@ impl CloudflareSocket {
         #[cfg(target_arch = "wasm32")]
         {
             self.transport_id = cloudflare_connect(signaling_url, room);
+            self.legacy_remote = None;
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -106,6 +109,7 @@ impl CloudflareSocket {
         Self {
             transport_id: std::mem::take(&mut self.transport_id),
             native_error: self.native_error.take(),
+            legacy_remote: self.legacy_remote.take(),
         }
     }
 
@@ -120,6 +124,7 @@ impl CloudflareSocket {
         }
         self.transport_id = 0;
         self.native_error = None;
+        self.legacy_remote = None;
     }
 }
 
@@ -129,8 +134,8 @@ impl Drop for CloudflareSocket {
     }
 }
 
-impl NonBlockingSocket<u8> for CloudflareSocket {
-    fn send_to(&mut self, message: &Message, _address: &u8) {
+impl NonBlockingSocket<PlayerId> for CloudflareSocket {
+    fn send_to(&mut self, message: &Message, _address: &PlayerId) {
         #[cfg(target_arch = "wasm32")]
         if self.transport_id != 0 {
             if let Ok(packet) = codec().serialize(message) {
@@ -142,17 +147,20 @@ impl NonBlockingSocket<u8> for CloudflareSocket {
         let _ = message;
     }
 
-    fn receive_all_messages(&mut self) -> Vec<(u8, Message)> {
+    fn receive_all_messages(&mut self) -> Vec<(PlayerId, Message)> {
         #[cfg(target_arch = "wasm32")]
         {
             let Some(info) = self.match_info() else {
                 return Vec::new();
             };
-            let remote = match info.player_index {
-                0 => 1,
-                1 => 0,
-                _ => return Vec::new(),
-            };
+            let remote = *self.legacy_remote.get_or_insert_with(|| {
+                crate::game::session::RoundBootstrap::duel(info.seed)
+                    .roster
+                    .into_iter()
+                    .find(|entry| entry.handle != info.player_index as usize)
+                    .expect("legacy duel has remote")
+                    .player_id
+            });
             let mut messages = Vec::new();
 
             loop {

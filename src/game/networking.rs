@@ -7,7 +7,7 @@ use crate::{
     game::{GameSeed, Scores, SoundIdSeed},
 };
 
-use super::{session::RoundBootstrap, toasts::Toasts, GameState, MAP_SIZE};
+use super::{session::{PlayerId, RoundBootstrap}, toasts::Toasts, GameState, MAP_SIZE};
 
 pub const ROLLBACK_FPS: usize = 60;
 
@@ -59,7 +59,7 @@ fn versioned_room_name(private_code: Option<&str>) -> String {
 impl ggrs::Config for GgrsConfig {
     type Input = u8;
     type State = u8;
-    type Address = u8;
+    type Address = PlayerId;
 }
 
 pub fn start_cloudflare_socket(
@@ -191,7 +191,7 @@ pub fn wait_for_players(
         )
         .expect("adding local player")
         .add_player(
-            PlayerType::Remote(remote_handle as u8),
+            PlayerType::Remote(bootstrap.roster.iter().find(|entry| entry.handle == remote_handle).expect("remote player in roster").player_id),
             bootstrap.handle(remote_handle).expect("remote handle in roster"),
         )
         .expect("adding remote player");
@@ -232,7 +232,7 @@ pub fn log_ggrs_events(
         for event in session.events() {
             match event {
                 GGRSEvent::Disconnected { addr } => {
-                    toasts.error(format!("Peer {addr} disconnected.").into());
+                    toasts.error(format!("Peer {addr:?} disconnected.").into());
                     next_state.set(GameState::MainMenu);
                 }
                 event => info!("GGRS Event: {event:?}"),
