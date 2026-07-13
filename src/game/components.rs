@@ -1,9 +1,12 @@
 
 use bevy::prelude::*;
 
+use super::session::PlayerId;
+
 #[derive(Component, Reflect, Default)]
 pub struct Player {
     pub handle: usize,
+    pub player_id: PlayerId,
 }
 
 #[derive(Component, Reflect, Default)]
@@ -41,8 +44,19 @@ pub struct MoveDir(pub Vec2);
 pub struct LookTowardsParentMove;
 
 #[derive(Component, Reflect)]
-// #[reflect(Component, Hash)]
-pub struct MarkedForDeath(pub(crate) Timer);
+pub struct MarkedForDeath {
+    pub(crate) timer: Timer,
+    pub(crate) frame: u32,
+}
+
+impl MarkedForDeath {
+    pub fn at(frame: u32) -> Self {
+        Self {
+            timer: Timer::from_seconds(0.5, TimerMode::Once),
+            frame,
+        }
+    }
+}
 
 // marker component for map blocks
 #[derive(Component)]
@@ -60,6 +74,6 @@ pub struct AnimationTimer(pub(crate) Timer);
 
 impl Default for MarkedForDeath {
     fn default() -> Self {
-        MarkedForDeath(Timer::from_seconds(0.5, TimerMode::Once))
+        MarkedForDeath::at(0)
     }
 }

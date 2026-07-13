@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use bevy_ggrs::AddRollbackCommandExtension;
 
-use super::{components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world, GameSeed, RollbackState, MAP_SIZE};
+use super::{components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world, GameSeed, RollbackState, RoundProgress, MAP_SIZE};
 
 const MAP_DOMAIN: u64 = 0x6d61_705f_726f_756e;
 const TRAP_DOMAIN: u64 = 0x7472_6170_5f70_6169;
@@ -144,8 +144,10 @@ pub(crate) fn splitmix64(mut value: u64) -> u64 {
 pub fn generate_map(
     mut commands: Commands,
     mut seed: ResMut<GameSeed>,
+    mut progress: ResMut<RoundProgress>,
     mut state: ResMut<NextState<RollbackState>>,
 ) {
+    *progress = RoundProgress::default();
     commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(seed.0));
     seed.0 = splitmix64(seed.0 ^ MAP_DOMAIN);
     state.set(RollbackState::InRound);

@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use bevy::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub struct PlayerId(pub u128);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,13 +20,80 @@ pub enum GameMode {
     Deathmatch,
 }
 
+/// The deterministic result of applying eliminations to a round roster.
+#[derive(Debug, Clone, PartialEq, Eq, Reflect)]
+pub enum RoundOutcome {
+    InProgress,
+    Complete { point_winners: Vec<PlayerId> },
+}
+
+impl RoundOutcome {
+    pub fn point_winners(&self) -> &[PlayerId] {
+        match self {
+            Self::InProgress => &[],
+            Self::Complete { point_winners } => point_winners,
+        }
+    }
+}
+
+/// Resolve a round without depending on entity or network iteration order.
+///
+/// Disconnected players are treated exactly like eliminated players. Unknown
+/// IDs are ignored, and the returned winners are in canonical `PlayerId`
+/// order.
+pub fn round_outcome(
+    mode: GameMode,
+    roster: &[PlayerId],
+    eliminated: &[PlayerId],
+    disconnected: &[PlayerId],
+) -> RoundOutcome {
+    let roster: BTreeSet<_> = roster.iter().copied().collect();
+    let unavailable: BTreeSet<_> = eliminated
+        .iter()
+        .chain(disconnected)
+        .copied()
+        .filter(|player_id| roster.contains(player_id))
+        .collect();
+
+    match mode {
+        GameMode::Duel if roster.len() == 2 => {
+            if unavailable.is_empty() {
+                return RoundOutcome::InProgress;
+            }
+
+            // Preserve duel rules: each eliminated player awards one point to
+            // the opponent, including one point each on a simultaneous KO.
+            let point_winners = roster
+                .iter()
+                .copied()
+                .filter(|player_id| {
+                    roster
+                        .iter()
+                        .any(|opponent| opponent != player_id && unavailable.contains(opponent))
+                })
+                .collect();
+            RoundOutcome::Complete { point_winners }
+        }
+        GameMode::Deathmatch if (2..=4).contains(&roster.len()) => {
+            let survivors: Vec<_> = roster.difference(&unavailable).copied().collect();
+            if survivors.len() > 1 {
+                RoundOutcome::InProgress
+            } else {
+                // A sole survivor scores. A simultaneous wipe has no winner.
+                RoundOutcome::Complete { point_winners: survivors }
+            }
+        }
+        _ => RoundOutcome::InProgress,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RosterEntry {
     pub player_id: PlayerId,
     pub handle: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub struct PlayerScore {
     pub player_id: PlayerId,
     pub score: u32,
@@ -198,6 +265,74 @@ mod tests {
         let untouched = streams.0[1];
         streams.next(0);
         assert_eq!(streams.0[1], untouched);
+    }
+
+    fn ids(values: &[u128]) -> Vec<PlayerId> {
+        values.iter().copied().map(PlayerId).collect()
+    }
+
+    fn winners(outcome: RoundOutcome) -> Vec<PlayerId> {
+        match outcome {
+            RoundOutcome::Complete { point_winners } => point_winners,
+            RoundOutcome::InProgress => panic!("expected a completed round"),
+        }
+    }
+
+    #[test]
+    fn deathmatch_scores_the_sole_survivor_for_two_three_and_four_players() {
+        for roster in [&[1, 2][..], &[1, 2, 3], &[1, 2, 3, 4]] {
+            let roster = ids(roster);
+            let eliminated = roster[..roster.len() - 1].to_vec();
+            assert_eq!(
+                winners(round_outcome(GameMode::Deathmatch, &roster, &eliminated, &[])),
+                vec![*roster.last().unwrap()],
+            );
+        }
+    }
+
+    #[test]
+    fn simultaneous_outcomes_keep_duel_semantics_but_deathmatch_has_no_winner() {
+        let roster = ids(&[10, 20]);
+        assert_eq!(
+            winners(round_outcome(GameMode::Duel, &roster, &roster, &[])),
+            roster,
+        );
+        assert!(winners(round_outcome(GameMode::Deathmatch, &roster, &roster, &[])).is_empty());
+
+        let four = ids(&[1, 2, 3, 4]);
+        assert!(winners(round_outcome(GameMode::Deathmatch, &four, &four, &[])).is_empty());
+    }
+
+    #[test]
+    fn round_policy_is_input_order_independent_and_disconnects_are_eliminations() {
+        let roster = ids(&[40, 10, 30, 20]);
+        let first = round_outcome(
+            GameMode::Deathmatch,
+            &roster,
+            &ids(&[30, 10]),
+            &ids(&[20]),
+        );
+        let second = round_outcome(
+            GameMode::Deathmatch,
+            &ids(&[20, 30, 10, 40]),
+            &ids(&[10]),
+            &ids(&[30, 20]),
+        );
+        assert_eq!(first, second);
+        assert_eq!(winners(first), ids(&[40]));
+
+        assert_eq!(
+            winners(round_outcome(GameMode::Duel, &ids(&[2, 1]), &[], &ids(&[1]))),
+            ids(&[2]),
+        );
+    }
+
+    #[test]
+    fn deathmatch_stays_in_progress_while_multiple_players_survive() {
+        assert_eq!(
+            round_outcome(GameMode::Deathmatch, &ids(&[1, 2, 3, 4]), &ids(&[2]), &[]),
+            RoundOutcome::InProgress,
+        );
     }
 
     #[test]

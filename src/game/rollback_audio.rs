@@ -11,11 +11,11 @@ use super::{
 pub struct RollbackSound {
     pub clip: Handle<AudioSource>,
     pub start_frame: u32,
-    pub sub_key: usize,
+    pub sub_key: u64,
 }
 
 impl RollbackSound {
-    pub fn key(&self) -> (Handle<AudioSource>, usize) {
+    pub fn key(&self) -> (Handle<AudioSource>, u64) {
         (self.clip.clone(), self.sub_key)
     }
 }
@@ -30,8 +30,8 @@ pub struct RollbackSoundBundle {
 
 #[derive(Resource, Reflect, Default)]
 pub struct PlaybackStates {
-    playing: HashMap<(Handle<AudioSource>, usize), Handle<AudioInstance>>,
-    live: HashSet<(Handle<AudioSource>, usize)>,
+    playing: HashMap<(Handle<AudioSource>, u64), Handle<AudioInstance>>,
+    live: HashSet<(Handle<AudioSource>, u64)>,
 }
 
 pub fn sync_rollback_sounds(

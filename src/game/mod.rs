@@ -34,6 +34,7 @@ use assets::sounds::*;
 use gui::*;
 use toasts::*;
 use ggrs_framecount::*;
+use session::{PlayerScore, RoundBootstrap, RoundOutcome};
 
 use seeded_random::Random;
 use seeded_random::Seed;
@@ -71,9 +72,57 @@ impl Default for RoundEndTimer {
     }
 }
 
-#[derive(Resource, Reflect, Default, Debug)]
+/// Rollback-safe scores in canonical stable-player-ID order.
+#[derive(Resource, Reflect, Default, Debug, Clone, PartialEq, Eq)]
 #[reflect(Resource)]
-pub struct Scores(u32, u32);
+pub struct Scores(Vec<PlayerScore>);
+
+#[derive(Reflect, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Elimination {
+    pub player_id: session::PlayerId,
+    pub frame: u32,
+}
+
+#[derive(Resource, Reflect, Default, Debug, Clone, PartialEq, Eq)]
+#[reflect(Resource)]
+pub struct RoundProgress {
+    pub eliminated: Vec<Elimination>,
+    pub disconnected: Vec<session::PlayerId>,
+    pub resolved: Option<RoundOutcome>,
+}
+
+impl RoundProgress {
+    pub fn record_elimination(&mut self, elimination: Elimination) {
+        if self.eliminated.iter().any(|entry| entry.player_id == elimination.player_id) {
+            return;
+        }
+        self.eliminated.push(elimination);
+        self.eliminated.sort_by_key(|entry| entry.player_id);
+    }
+}
+
+impl Scores {
+    pub fn from_bootstrap(bootstrap: &RoundBootstrap) -> Self {
+        let mut entries = bootstrap.scores.clone();
+        entries.sort_by_key(|entry| entry.player_id);
+        Self(entries)
+    }
+
+    pub fn entries(&self) -> &[PlayerScore] {
+        &self.0
+    }
+
+    pub fn apply_outcome(&mut self, outcome: &RoundOutcome) {
+        for player_id in outcome.point_winners() {
+            if let Ok(index) = self
+                .0
+                .binary_search_by_key(player_id, |entry| entry.player_id)
+            {
+                self.0[index].score += 1;
+            }
+        }
+    }
+}
 
 #[derive(Resource, Reflect, Default, Debug)]
 #[reflect(Resource)]
@@ -99,9 +148,6 @@ impl SoundIdSeed {
             .next()
     }
 
-    pub fn next_us(&mut self, handle: usize) -> usize {
-        self.next(handle) as usize
-    }
 }
 
 #[derive(Reflect, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +294,7 @@ pub fn run() {
             .register_rollback_resource::<GameSeed>()
             .register_rollback_resource::<SoundIdSeed>()
             .register_rollback_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
+            .register_rollback_resource::<RoundProgress>()
             // .rollback_resource_with_copy::<FrameCount>()
             .register_rollback_resource::<GGFrameCount>()
             .register_rollback_component::<Player>()
@@ -288,6 +335,7 @@ pub fn run() {
     .init_resource::<GGFrameCount>()
     .init_resource::<PlaybackStates>()
     .init_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
+    .init_resource::<RoundProgress>()
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()

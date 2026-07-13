@@ -235,13 +235,18 @@ pub fn update_settings_ui(
 
 
 pub fn update_score_ui(mut contexts: EguiContexts, scores: Res<Scores>) {
-    let Scores(p1_score, p2_score) = *scores;
+    let score_text = scores
+        .entries()
+        .iter()
+        .map(|entry| entry.score.to_string())
+        .collect::<Vec<_>>()
+        .join(" : ");
 
     Area::new("score")
     .anchor(Align2::CENTER_TOP, (0., 25.))
     .show(contexts.ctx_mut(), |ui| {
         ui.label(
-            RichText::new(format!("{p1_score} : {p2_score}"))
+            RichText::new(score_text)
                 .color(Color32::WHITE)
                 .font(FontId::proportional(72.0)),
         );

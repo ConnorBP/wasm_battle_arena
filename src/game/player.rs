@@ -4,15 +4,15 @@ use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use crate::game::rollback_audio::RollbackSoundBundle;
 
-use super::{components::*, MAP_SIZE, assets::{textures::{ImageAssets, spawn_explosion}, sounds::SoundAssets}, RollbackState, Scores, GameSeed, map::{splitmix64, CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
+use super::{components::*, MAP_SIZE, assets::{textures::{ImageAssets, spawn_explosion}, sounds::SoundAssets}, Elimination, RollbackState, RoundProgress, Scores, GameSeed, map::{splitmix64, CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
 use super::networking::GgrsConfig;
-use super::session::RoundBootstrap;
+use super::session::{round_outcome, PlayerId, RoundBootstrap, RoundOutcome};
 use super::input;
 
 
 pub fn move_players(
     inputs: Res<PlayerInputs<GgrsConfig>>,
-    mut players: Query<(&mut Transform, &mut MoveDir, &Player, Option<&SpeedBoost>)>,
+    mut players: Query<(&mut Transform, &mut MoveDir, &Player, Option<&SpeedBoost>), Without<MarkedForDeath>>,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
 ) {
     for (mut transform, mut move_dir, player, speed_boost) in &mut players {
@@ -235,6 +235,7 @@ pub fn spawn_players(
             &mut commands,
             &images,
             entry.handle,
+            entry.player_id,
             if look == Vec2::ZERO { Vec2::X } else { look },
             world.extend(100.),
             COLORS[entry.handle],
@@ -246,12 +247,13 @@ fn spawn_player(
     commands: &mut Commands,
     images: &Res<ImageAssets>,
     handle: usize,
+    player_id: PlayerId,
     move_dir: Vec2,
     translation: Vec3,
     color: Color,
 ) {
     let parent = commands.spawn((
-        Player { handle },
+        Player { handle, player_id },
         BulletReady(true),
         MoveDir(move_dir),
         SpriteBundle {
@@ -437,7 +439,7 @@ pub fn fire_bullets(
             ))
             .add_rollback();
 
-            let snd = sound_id.next_us(player.handle);
+            let snd = sound_id.next(player.handle);
             debug!("firing bullet snd {snd:#00x}");
             commands.spawn(
                 (
@@ -521,7 +523,7 @@ pub fn collect_speed_pickups(
             sound: RollbackSound {
                 clip: sounds.ray.clone(),
                 start_frame: frame.frame,
-                sub_key: sound_id.next_us(handle),
+                sub_key: sound_id.next(handle),
             },
             transform: Transform::from_translation(position),
             ..default()
@@ -559,7 +561,7 @@ pub fn collect_shield_pickups(
             sound: RollbackSound {
                 clip: sounds.ray.clone(),
                 start_frame: frame.frame,
-                sub_key: sound_id.next_us(handle),
+                sub_key: sound_id.next(handle),
             },
             transform: Transform::from_translation(position),
             ..default()
@@ -569,15 +571,18 @@ pub fn collect_shield_pickups(
 
 pub fn trigger_traps(
     mut commands: Commands,
+    frame: Res<GGFrameCount>,
+    mut progress: ResMut<RoundProgress>,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
-    players: Query<(Entity, &Transform), (With<Player>, Without<MarkedForDeath>)>,
+    players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
 ) {
-    for (entity, transform) in &players {
+    for (entity, player, transform) in &players {
         let Some((x, y)) = world_to_grid(transform.translation.xy()) else {
             continue;
         };
         if map_data.cells[x as usize][y as usize] == CellType::Trap {
-            commands.entity(entity).insert(MarkedForDeath::default());
+            progress.record_elimination(Elimination { player_id: player.player_id, frame: frame.frame });
+            commands.entity(entity).insert(MarkedForDeath::at(frame.frame));
         }
     }
 }
@@ -623,6 +628,7 @@ pub fn kill_players(
     sounds: Res<SoundAssets>,
     frame: Res<GGFrameCount>,
     mut sound_id: ResMut<SoundIdSeed>,
+    mut progress: ResMut<RoundProgress>,
     mut commands: Commands,
     players: Query<(Entity, &Player, &Transform), (Without<Bullet>, Without<MarkedForDeath>)>,
     bullets: Query<(Entity, &Bullet, &Transform)>,
@@ -630,7 +636,7 @@ pub fn kill_players(
 ) {
     let mut players: Vec<_> = players
         .iter()
-        .map(|(entity, player, transform)| (player.handle, entity, transform.translation))
+        .map(|(entity, player, transform)| (player.handle, player.player_id, entity, transform.translation))
         .collect();
     players.sort_by_key(|player| player.0);
     let mut bullets: Vec<_> = bullets
@@ -641,7 +647,7 @@ pub fn kill_players(
     bullets.sort_by_key(|bullet| (bullet.0, bullet.1));
     let mut consumed = HashSet::new();
 
-    for (handle, player_entity, player_position) in players {
+    for (handle, player_id, player_entity, player_position) in players {
         let mut shield_available = shields
             .get_mut(player_entity)
             .map(|shield| shield.0 > 0)
@@ -668,7 +674,7 @@ pub fn kill_players(
                     sound: RollbackSound {
                         clip: sounds.ray.clone(),
                         start_frame: frame.frame,
-                        sub_key: sound_id.next_us(handle),
+                        sub_key: sound_id.next(handle),
                     },
                     transform: Transform::from_translation(bullet_position),
                     ..default()
@@ -681,12 +687,13 @@ pub fn kill_players(
                 sound: RollbackSound {
                     clip: sounds.swoosh_death.clone(),
                     start_frame: frame.frame,
-                    sub_key: sound_id.next_us(handle),
+                    sub_key: sound_id.next(handle),
                 },
                 transform: Transform::from_translation(bullet_position),
                 ..default()
             },)).add_rollback();
-            commands.entity(player_entity).insert(MarkedForDeath::default());
+            progress.record_elimination(Elimination { player_id, frame: frame.frame });
+            commands.entity(player_entity).insert(MarkedForDeath::at(frame.frame));
             break;
         }
     }
@@ -694,34 +701,52 @@ pub fn kill_players(
 
 // we despawn the players after a timer delay in case the network messed up the bullet hit registration
 pub fn process_deaths(
-    mut marks: Query<&mut MarkedForDeath, With<Player>>,
+    mut marked_players: Query<&mut MarkedForDeath>,
+    bootstrap: Res<RoundBootstrap>,
+    mut progress: ResMut<RoundProgress>,
     mut next_state: ResMut<NextState<RollbackState>>,
 ) {
-    for mut marked in &mut marks {
-
-        marked.0.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
-
-        if marked.0.just_finished() {
-            next_state.set(RollbackState::RoundEnd);
+    let mut finished_frames = Vec::new();
+    for mut marked in &mut marked_players {
+        marked.timer.tick(Duration::from_secs_f64(1. / 60.));
+        if marked.timer.just_finished() {
+            finished_frames.push(marked.frame);
         }
+    }
+    let Some(&resolved_frame) = finished_frames.iter().min() else { return; };
+
+    let roster: Vec<_> = bootstrap.roster.iter().map(|entry| entry.player_id).collect();
+    let eliminated: Vec<_> = match bootstrap.mode {
+        super::session::GameMode::Duel => progress.eliminated.iter()
+            .filter(|entry| entry.frame == resolved_frame)
+            .map(|entry| entry.player_id)
+            .collect(),
+        super::session::GameMode::Deathmatch => progress.eliminated.iter()
+            .map(|entry| entry.player_id)
+            .collect(),
+    };
+    let outcome = round_outcome(bootstrap.mode, &roster, &eliminated, &progress.disconnected);
+    if matches!(outcome, RoundOutcome::Complete { .. }) {
+        progress.resolved = Some(outcome);
+        next_state.set(RollbackState::RoundEnd);
     }
 }
 
-/// when the round ends, kill and score every player currently marked for death regardless of who shot first
+/// Resolve the completed round in stable identity order, then despawn all
+/// eliminated entities. Duel scoring intentionally retains the deployed rule
+/// where every death awards the opposing player a point.
 pub fn count_points_and_despawn(
     mut commands: Commands,
     players: Query<(Entity, &Player), With<MarkedForDeath>>,
+    progress: Res<RoundProgress>,
     mut scores: ResMut<Scores>,
 ) {
-    for (player_entity, player_component) in &players {
-        if player_component.handle == 0 {
-            scores.1 += 1;
-        } else {
-            scores.0 += 1;
-        }
+    if let Some(outcome) = &progress.resolved {
+        scores.apply_outcome(outcome);
+    }
 
-        info!("player died: {scores:?}");
-
+    for (player_entity, _) in &players {
         commands.entity(player_entity).despawn_recursive();
     }
+    info!("round ended: {scores:?}");
 }
