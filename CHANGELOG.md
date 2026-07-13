@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 - 2026-07-13
+
+- Added short-lived Cloudflare Realtime TURN credentials for restrictive campus, corporate, and carrier NATs.
+- Added validated UDP/TCP/TLS relay configuration with safe STUN fallback and relay candidate telemetry.
+- Added a production relay-only verification script that never exposes TURN credentials or network addresses.
+
 ## 0.5.0 - 2026-07-13
 
 - Made 3–8 player Last Ghost Standing the default mode and retained Dueling Ghosts as an opt-in two-player mode.

@@ -4,6 +4,7 @@
 /.wrangler/
 **/.wrangler/
 **/node_modules/
+/cloudflare-worker/.turn-secrets.tmp
 /.smoke-ingame/
 /.smoke-mobile-input/
 desktop.ini
