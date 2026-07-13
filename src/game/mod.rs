@@ -24,6 +24,7 @@ mod toasts;
 #[cfg(feature = "debug_render")]
 mod debug_render;
 
+use assets::procedural::*;
 use assets::sounds::*;
 use assets::textures::*;
 use components::*;
@@ -384,9 +385,23 @@ pub fn run() {
         (
             clear_sounds,
             clear_explosion_presentations,
+            clear_player_powerup_presentations,
             cleanup_network_session,
         )
             .chain(),
+    )
+    .add_systems(
+        Update,
+        apply_retro_egui_theme
+            .before(display_toasts)
+            .before(update_main_menu)
+            .before(update_settings_ui)
+            .before(update_direct_connect_ui)
+            .before(update_in_game_controls_ui)
+            .before(update_match_status_ui)
+            .before(update_matchmaking_ui)
+            .before(update_respawn_ui)
+            .before(update_score_ui),
     )
     .add_systems(
         Update,
@@ -427,6 +442,12 @@ pub fn run() {
             repair_presentation_components.run_if(in_state(GameState::InGame)),
             apply_player_cosmetics
                 .after(repair_presentation_components)
+                .run_if(in_state(GameState::InGame)),
+            reconcile_player_powerup_presentations
+                .after(repair_presentation_components)
+                .run_if(in_state(GameState::InGame)),
+            animate_player_powerup_presentations
+                .after(reconcile_player_powerup_presentations)
                 .run_if(in_state(GameState::InGame)),
             player_look
                 .after(apply_player_cosmetics)
@@ -484,6 +505,7 @@ pub fn run() {
             count_points_and_despawn,
             clear_sounds,
             clear_explosion_presentations,
+            clear_player_powerup_presentations,
         ),
     )
     .add_systems(OnEnter(RollbackState::RoundEnd), reset_round_end_timer)
@@ -524,15 +546,54 @@ fn setup(mut commands: Commands) {
     ));
 
     commands.spawn(SpriteBundle {
-        transform: Transform::from_xyz(0., 0., -2.),
+        transform: Transform::from_xyz(0., 0., -4.),
         sprite: Sprite {
-            color: Color::rgb(0.08, 0.09, 0.12),
-            custom_size: Some(Vec2::splat(MAP_SIZE as f32)),
+            color: Color::rgb(0.025, 0.030, 0.045),
+            custom_size: Some(Vec2::splat(MAP_SIZE as f32 + 4.0)),
             ..default()
         },
         ..default()
     });
 
+    // One-unit checker/noise tiles create a low-resolution floor. Rare small
+    // dither squares are hash-selected, so decoration is stable across runs
+    // without consuming authoritative map RNG.
+    for x in 0..MAP_SIZE {
+        for y in 0..MAP_SIZE {
+            let position = Vec2::new(
+                x as f32 - MAP_SIZE as f32 / 2.0 + 0.5,
+                y as f32 - MAP_SIZE as f32 / 2.0 + 0.5,
+            );
+            commands.spawn(SpriteBundle {
+                transform: Transform::from_translation(position.extend(-3.0)),
+                sprite: Sprite {
+                    color: floor_tile_color(x, y),
+                    custom_size: Some(Vec2::splat(0.98)),
+                    ..default()
+                },
+                ..default()
+            });
+            if floor_dither_visible(x, y) {
+                let corner = if decoration_hash(x, y, 0x434f_524e) & 1 == 0 {
+                    Vec2::new(-0.31, 0.31)
+                } else {
+                    Vec2::new(0.31, -0.31)
+                };
+                commands.spawn(SpriteBundle {
+                    transform: Transform::from_translation((position + corner).extend(-2.9)),
+                    sprite: Sprite {
+                        color: floor_dither_color(x, y),
+                        custom_size: Some(Vec2::splat(0.10)),
+                        ..default()
+                    },
+                    ..default()
+                });
+            }
+        }
+    }
+
+    // Subtle grout lines preserve cell readability without overpowering the
+    // restricted floor palette.
     // Horizontal lines
     for i in 0..=MAP_SIZE {
         commands.spawn(SpriteBundle {
@@ -542,7 +603,7 @@ fn setup(mut commands: Commands) {
                 0.,
             )),
             sprite: Sprite {
-                color: Color::rgb(0.27, 0.27, 0.27),
+                color: Color::rgb(0.11, 0.13, 0.16),
                 custom_size: Some(Vec2::new(MAP_SIZE as f32, GRID_WIDTH)),
                 ..default()
             },
@@ -559,7 +620,7 @@ fn setup(mut commands: Commands) {
                 0.,
             )),
             sprite: Sprite {
-                color: Color::rgb(0.27, 0.27, 0.27),
+                color: Color::rgb(0.11, 0.13, 0.16),
                 custom_size: Some(Vec2::new(GRID_WIDTH, MAP_SIZE as f32)),
                 ..default()
             },

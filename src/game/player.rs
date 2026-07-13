@@ -121,6 +121,249 @@ fn wall_check(player: Vec2, wall: Vec2) -> bool {
     distance.x < collision_distance && distance.y < collision_distance
 }
 
+/// Pixel-stepped points and block dimensions for the shield ring. Keeping the
+/// layout pure makes the presentation easy to verify without a renderer.
+fn shield_segment_layout() -> Vec<(Vec2, Vec2)> {
+    vec![
+        (Vec2::new(-0.42, 0.56), Vec2::new(0.28, 0.12)),
+        (Vec2::new(-0.14, 0.62), Vec2::new(0.28, 0.12)),
+        (Vec2::new(0.14, 0.62), Vec2::new(0.28, 0.12)),
+        (Vec2::new(0.42, 0.56), Vec2::new(0.28, 0.12)),
+        (Vec2::new(0.56, 0.40), Vec2::new(0.12, 0.24)),
+        (Vec2::new(0.62, 0.13), Vec2::new(0.12, 0.28)),
+        (Vec2::new(0.62, -0.15), Vec2::new(0.12, 0.28)),
+        (Vec2::new(0.55, -0.43), Vec2::new(0.12, 0.24)),
+        (Vec2::new(0.36, -0.58), Vec2::new(0.32, 0.12)),
+        (Vec2::new(0.0, -0.63), Vec2::new(0.40, 0.12)),
+        (Vec2::new(-0.36, -0.58), Vec2::new(0.32, 0.12)),
+        (Vec2::new(-0.55, -0.43), Vec2::new(0.12, 0.24)),
+        (Vec2::new(-0.62, -0.15), Vec2::new(0.12, 0.28)),
+        (Vec2::new(-0.62, 0.13), Vec2::new(0.12, 0.28)),
+        (Vec2::new(-0.56, 0.40), Vec2::new(0.12, 0.24)),
+    ]
+}
+
+fn spawn_shield_bubble(commands: &mut Commands, owner: Entity, position: Vec3) -> Entity {
+    let root = commands
+        .spawn((
+            ShieldBubble { owner },
+            SpatialBundle::from_transform(Transform::from_translation(Vec3::new(
+                position.x, position.y, 104.0,
+            ))),
+            Name::new("presentation: shield bubble"),
+        ))
+        .id();
+    commands.entity(root).with_children(|bubble| {
+        for (index, (offset, size)) in shield_segment_layout().into_iter().enumerate() {
+            bubble.spawn(SpriteBundle {
+                transform: Transform::from_translation(offset.extend(index as f32 * 0.0001)),
+                sprite: Sprite {
+                    color: if index % 3 == 0 {
+                        Color::rgb(1.0, 0.86, 0.30)
+                    } else {
+                        Color::rgb(0.30, 0.92, 1.0)
+                    },
+                    custom_size: Some(size),
+                    ..default()
+                },
+                ..default()
+            });
+        }
+        // A translucent square core makes the ring read as a protective bubble
+        // while retaining hard pixel edges.
+        bubble.spawn(SpriteBundle {
+            transform: Transform::from_xyz(0.0, 0.0, -0.01),
+            sprite: Sprite {
+                color: Color::rgba(0.20, 0.78, 0.95, 0.12),
+                custom_size: Some(Vec2::splat(1.05)),
+                ..default()
+            },
+            ..default()
+        });
+    });
+    root
+}
+
+/// Rebuild presentation-only power-up entities from rollback-authoritative
+/// components. This runs outside GgrsSchedule: visuals never participate in
+/// snapshots, and stale visuals are removed on the first post-rollback frame.
+pub fn reconcile_player_powerup_presentations(
+    mut commands: Commands,
+    players: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&ShieldCharges>,
+            Option<&SpeedBoost>,
+            Option<&MarkedForDeath>,
+        ),
+        With<Player>,
+    >,
+    mut bubbles: Query<(Entity, &ShieldBubble, &mut Transform), Without<Player>>,
+    mut emitters: Query<(Entity, &mut SpeedTrailEmitter), Without<Player>>,
+    particles: Query<(Entity, &SpeedTrailParticle)>,
+) {
+    let shield_owners: HashSet<_> = players
+        .iter()
+        .filter(|(_, _, shield, _, dead)| {
+            shield.map(|value| value.0 > 0).unwrap_or(false) && dead.is_none()
+        })
+        .map(|(entity, _, _, _, _)| entity)
+        .collect();
+    let speed_owners: HashSet<_> = players
+        .iter()
+        .filter(|(_, _, _, boost, dead)| boost.is_some() && dead.is_none())
+        .map(|(entity, _, _, _, _)| entity)
+        .collect();
+
+    let mut existing_bubbles = HashSet::new();
+    for (entity, bubble, mut transform) in &mut bubbles {
+        if !shield_owners.contains(&bubble.owner) || !existing_bubbles.insert(bubble.owner) {
+            commands.entity(entity).despawn_recursive();
+            continue;
+        }
+        if let Ok((_, player_transform, _, _, _)) = players.get(bubble.owner) {
+            transform.translation.x = player_transform.translation.x;
+            transform.translation.y = player_transform.translation.y;
+        }
+    }
+    for owner in shield_owners.difference(&existing_bubbles).copied() {
+        if let Ok((_, transform, _, _, _)) = players.get(owner) {
+            spawn_shield_bubble(&mut commands, owner, transform.translation);
+        }
+    }
+
+    let mut existing_emitters = HashSet::new();
+    for (entity, emitter) in &mut emitters {
+        if !speed_owners.contains(&emitter.owner) || !existing_emitters.insert(emitter.owner) {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
+    for owner in speed_owners.difference(&existing_emitters).copied() {
+        if let Ok((_, transform, _, _, _)) = players.get(owner) {
+            commands.spawn((
+                SpeedTrailEmitter {
+                    owner,
+                    previous_position: transform.translation,
+                    timer: Timer::from_seconds(0.055, TimerMode::Repeating),
+                    sequence: 0,
+                },
+                Name::new("presentation: speed trail emitter"),
+            ));
+        }
+    }
+
+    // Trails are part of the active boost affordance rather than independent
+    // gameplay events, so consumption/expiry clears every lingering particle.
+    for (entity, particle) in &particles {
+        if !speed_owners.contains(&particle.owner) {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+pub fn clear_player_powerup_presentations(
+    mut commands: Commands,
+    visuals: Query<
+        Entity,
+        Or<(
+            With<ShieldBubble>,
+            With<SpeedTrailEmitter>,
+            With<SpeedTrailParticle>,
+        )>,
+    >,
+) {
+    for entity in &visuals {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+pub fn animate_player_powerup_presentations(
+    mut commands: Commands,
+    time: Res<Time>,
+    images: Res<ImageAssets>,
+    players: Query<(&Transform, &MoveDir, Option<&SpeedBoost>), With<Player>>,
+    mut emitters: Query<&mut SpeedTrailEmitter>,
+    mut particles: Query<
+        (Entity, &mut SpeedTrailParticle, &mut Transform, &mut Sprite),
+        Without<Player>,
+    >,
+) {
+    for mut emitter in &mut emitters {
+        let Ok((transform, direction, boost)) = players.get(emitter.owner) else {
+            continue;
+        };
+        if boost.is_none() {
+            continue;
+        }
+        emitter.timer.tick(time.delta());
+        let moved = transform
+            .translation
+            .xy()
+            .distance(emitter.previous_position.xy())
+            > 0.015;
+        if emitter.timer.just_finished() && moved {
+            let side = if emitter.sequence & 1 == 0 { 1.0 } else { -1.0 };
+            let backward = -direction.0.normalize_or_zero();
+            let lateral = Vec2::new(-backward.y, backward.x) * side;
+            let origin = transform.translation.xy() + backward * 0.25;
+            commands.spawn((
+                SpeedTrailParticle {
+                    owner: emitter.owner,
+                    velocity: (backward * 0.55).extend(0.0),
+                    lifetime: Timer::from_seconds(0.18, TimerMode::Once),
+                },
+                SpriteBundle {
+                    texture: images.ghost.clone(),
+                    transform: Transform::from_translation(origin.extend(99.0)),
+                    sprite: Sprite {
+                        color: Color::rgba(0.15, 0.90, 1.0, 0.42),
+                        custom_size: Some(Vec2::splat(0.76)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                Name::new("presentation: speed afterimage"),
+            ));
+            // A bright, offset pixel spark separates speed from ordinary ghost
+            // motion even when the tinted afterimage overlaps the player.
+            commands.spawn((
+                SpeedTrailParticle {
+                    owner: emitter.owner,
+                    velocity: (backward * 1.1 + lateral * 0.35).extend(0.0),
+                    lifetime: Timer::from_seconds(0.14, TimerMode::Once),
+                },
+                SpriteBundle {
+                    transform: Transform::from_translation((origin + lateral * 0.38).extend(103.0)),
+                    sprite: Sprite {
+                        color: Color::rgb(1.0, 0.86, 0.28),
+                        custom_size: Some(Vec2::new(0.18, 0.10)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                Name::new("presentation: speed spark"),
+            ));
+            emitter.sequence = emitter.sequence.wrapping_add(1);
+        }
+        emitter.previous_position = transform.translation;
+    }
+
+    for (entity, mut particle, mut transform, mut sprite) in &mut particles {
+        particle.lifetime.tick(time.delta());
+        if particle.lifetime.finished() {
+            commands.entity(entity).despawn_recursive();
+            continue;
+        }
+        transform.translation += particle.velocity * time.delta_seconds();
+        let remaining = 1.0 - particle.lifetime.percent();
+        sprite.color.set_a(remaining * 0.55);
+        if let Some(size) = sprite.custom_size.as_mut() {
+            *size *= 1.0 - time.delta_seconds() * 1.8;
+        }
+    }
+}
+
 pub fn player_look(
     players: Query<(&MoveDir, &Children), With<Player>>,
     mut eyes_sprite: Query<&mut TextureAtlasSprite, With<LookTowardsParentMove>>,
@@ -404,6 +647,19 @@ mod spawn_tests {
             map.cells[x][y] = CellType::WallBlock;
         }
         map
+    }
+
+    #[test]
+    fn shield_ring_is_pixel_stepped_closed_and_outside_player() {
+        let segments = shield_segment_layout();
+        assert_eq!(segments.len(), 15);
+        assert!(segments.iter().all(|(point, size)| {
+            point.length() >= PLAYER_RADIUS && size.x >= 0.1 && size.y >= 0.1
+        }));
+        assert!(segments.iter().any(|(point, _)| point.x < -0.6));
+        assert!(segments.iter().any(|(point, _)| point.x > 0.6));
+        assert!(segments.iter().any(|(point, _)| point.y < -0.6));
+        assert!(segments.iter().any(|(point, _)| point.y > 0.6));
     }
 
     #[test]

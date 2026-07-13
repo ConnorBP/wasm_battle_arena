@@ -72,7 +72,33 @@ impl MarkedForDeath {
 #[derive(Component)]
 pub struct MapBlock;
 
-// non synced for animation only
+// Presentation-only components below are deliberately not rollback registered.
+// They are reconciled from authoritative gameplay components after each frame,
+// so rollback can freely remove/recreate their owners without visual residue.
+
+/// Root of the pixel-art shield bubble attached to an authoritative player.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ShieldBubble {
+    pub owner: Entity,
+}
+
+/// Presentation-only speed trail state. It lives separately from the player so
+/// none of its wall-clock timing can enter deterministic simulation state.
+#[derive(Component)]
+pub struct SpeedTrailEmitter {
+    pub owner: Entity,
+    pub previous_position: Vec3,
+    pub timer: Timer,
+    pub sequence: u32,
+}
+
+/// Short-lived afterimage or spark emitted by a speed trail.
+#[derive(Component)]
+pub struct SpeedTrailParticle {
+    pub owner: Entity,
+    pub velocity: Vec3,
+    pub lifetime: Timer,
+}
 
 /// When paired with a TextureAtlasSprite and an AnimationTimer it will animate once through the frame count
 #[derive(Component)]

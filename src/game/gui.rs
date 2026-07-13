@@ -46,6 +46,64 @@ fn panel_margin(ctx: &Context) -> Margin {
     Margin::symmetric(horizontal, vertical)
 }
 
+const PANEL_DARK: Color32 = Color32::from_rgb(20, 24, 34);
+const PANEL_RAISED: Color32 = Color32::from_rgb(31, 38, 52);
+const OUTLINE: Color32 = Color32::from_rgb(104, 224, 238);
+const ACCENT: Color32 = Color32::from_rgb(244, 203, 72);
+const STATUS_DANGER: Color32 = Color32::from_rgb(255, 92, 108);
+
+/// Centralized per-frame theme. Applying it before every UI system also repairs
+/// context style after browser resize/context recreation. The 44-point minimum
+/// interaction height is intentionally suitable for touch targets.
+pub fn apply_retro_egui_theme(mut contexts: EguiContexts) {
+    apply_retro_style(contexts.ctx_mut());
+}
+
+fn apply_retro_style(ctx: &Context) {
+    let scale = responsive_scale(ctx);
+    let mut style = (*ctx.style()).clone();
+    style.visuals.dark_mode = true;
+    style.visuals.panel_fill = PANEL_DARK;
+    style.visuals.window_fill = PANEL_RAISED;
+    style.visuals.extreme_bg_color = Color32::from_rgb(11, 14, 22);
+    style.visuals.faint_bg_color = Color32::from_rgb(39, 47, 62);
+    style.visuals.override_text_color = Some(Color32::from_rgb(240, 246, 248));
+    style.visuals.hyperlink_color = OUTLINE;
+    style.visuals.selection.bg_fill = Color32::from_rgb(33, 104, 124);
+    style.visuals.selection.stroke = Stroke::new(2.0, ACCENT);
+    style.visuals.widgets.inactive.bg_fill = PANEL_RAISED;
+    style.visuals.widgets.inactive.bg_stroke = Stroke::new(2.0, Color32::from_rgb(76, 105, 119));
+    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+    style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(39, 82, 98);
+    style.visuals.widgets.hovered.bg_stroke = Stroke::new(3.0, OUTLINE);
+    style.visuals.widgets.active.bg_fill = Color32::from_rgb(75, 64, 39);
+    style.visuals.widgets.active.bg_stroke = Stroke::new(3.0, ACCENT);
+    style.visuals.widgets.noninteractive.bg_stroke =
+        Stroke::new(1.0, Color32::from_rgb(66, 76, 92));
+    style.visuals.window_stroke = Stroke::new(3.0, OUTLINE);
+    style.visuals.window_rounding = Rounding::same(2.0);
+    style.visuals.widgets.inactive.rounding = Rounding::same(2.0);
+    style.visuals.widgets.hovered.rounding = Rounding::same(2.0);
+    style.visuals.widgets.active.rounding = Rounding::same(2.0);
+    style.spacing.item_spacing = vec2(8.0, 8.0);
+    style.spacing.button_padding = vec2(16.0, 10.0);
+    style.spacing.interact_size = vec2(44.0, 44.0);
+    style.spacing.slider_width = 220.0;
+    style.text_styles.insert(
+        TextStyle::Button,
+        FontId::new(22.0 * scale.max(0.75), FontFamily::Monospace),
+    );
+    style.text_styles.insert(
+        TextStyle::Heading,
+        FontId::new(30.0 * scale.max(0.75), FontFamily::Monospace),
+    );
+    style.text_styles.insert(
+        TextStyle::Body,
+        FontId::new(18.0 * scale.max(0.8), FontFamily::Monospace),
+    );
+    ctx.set_style(style);
+}
+
 /// handle keybinds for interacting with menu.
 /// Ex. hotkeys for menu toggle
 pub fn handle_menu_input(
@@ -127,7 +185,7 @@ pub fn update_main_menu(
         .frame(
             Frame::none()
                 .inner_margin(panel_margin(contexts.ctx_mut()))
-                .fill(Color32::from_rgb(66, 69, 73)),
+                .fill(PANEL_DARK),
         )
         .show(contexts.ctx_mut(), |ui| {
             // set spacing
@@ -212,7 +270,7 @@ pub fn update_direct_connect_ui(
         .frame(
             Frame::none()
                 .inner_margin(panel_margin(contexts.ctx_mut()))
-                .fill(Color32::from_rgb(66, 69, 73)),
+                .fill(PANEL_DARK),
         )
         .show(contexts.ctx_mut(), |ui| {
             ScrollArea::vertical()
@@ -280,7 +338,7 @@ pub fn update_settings_ui(
         .frame(
             Frame::none()
                 .inner_margin(panel_margin(contexts.ctx_mut()))
-                .fill(Color32::from_rgb(66, 69, 73)),
+                .fill(PANEL_DARK),
         )
         .show(contexts.ctx_mut(), |ui| {
             // set spacing
@@ -546,7 +604,7 @@ pub fn update_match_status_ui(
                 if marked.is_some() {
                     ui.label(
                         RichText::new("ELIMINATED — spectating until the next round")
-                            .color(Color32::LIGHT_RED)
+                            .color(STATUS_DANGER)
                             .strong(),
                     );
                 } else {
@@ -556,14 +614,14 @@ pub fn update_match_status_ui(
                                 "⚡ SPEED  {:.1}s",
                                 boost.frames_left as f32 / 60.0
                             ))
-                            .color(Color32::LIGHT_BLUE)
+                            .color(OUTLINE)
                             .strong(),
                         );
                     }
                     if shield.is_some() {
                         ui.label(
                             RichText::new("◆ SHIELD  blocks 1 hit")
-                                .color(Color32::GOLD)
+                                .color(ACCENT)
                                 .strong(),
                         );
                     }
@@ -579,13 +637,13 @@ pub fn update_match_status_ui(
             {
                 ui.label(
                     RichText::new("ELIMINATED — spectating until the next round")
-                        .color(Color32::LIGHT_RED)
+                        .color(STATUS_DANGER)
                         .strong(),
                 );
             } else if rollback.get() == &RollbackState::InRound {
                 ui.label(
                     RichText::new("SPECTATING — waiting for the active ghosts")
-                        .color(Color32::LIGHT_RED)
+                        .color(STATUS_DANGER)
                         .strong(),
                 );
             }
@@ -640,6 +698,12 @@ mod layout_tests {
             let margin = panel_margin(&ctx);
             assert!(margin.left <= 40.0 && margin.top <= 32.0);
             assert!((0.6..=1.0).contains(&responsive_scale(&ctx)));
+            apply_retro_style(&ctx);
+            let style = ctx.style();
+            assert!(style.spacing.interact_size.x >= 44.0);
+            assert!(style.spacing.interact_size.y >= 44.0);
+            assert_eq!(style.visuals.panel_fill, PANEL_DARK);
+            assert_eq!(style.visuals.widgets.hovered.bg_stroke.color, OUTLINE);
             let _ = ctx.end_frame();
         }
     }
