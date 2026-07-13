@@ -7,7 +7,7 @@ use bevy_ggrs::AddRollbackCommandExtension;
 use super::{
     assets::procedural::{shield_pickup_color, speed_pickup_color, trap_color, wall_face_color, wall_foundation_color, PICKUP_SIZE, TRAP_SIZE},
     components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world,
-    GameSeed, RollbackState, RoundProgress, MAP_SIZE,
+    session::{GameMode, RoundBootstrap}, GameSeed, RollbackState, RoundProgress, MAP_SIZE,
 };
 
 const MAP_DOMAIN: u64 = 0x6d61_705f_726f_756e;
@@ -24,29 +24,43 @@ pub enum CellType {
     Trap,
     SpeedPickup,
     ShieldPickup,
+    Void,
 }
 
 #[derive(Resource, Reflect, Clone)]
 #[reflect(Resource)]
 pub struct Map<T: Sized + Default + Copy, const WIDTH: usize, const HEIGHT: usize> {
     pub cells: [[T; WIDTH]; HEIGHT],
+    pub active_size: usize,
 }
 
 impl<T: Default + Copy, const WIDTH: usize, const HEIGHT: usize> Default for Map<T, WIDTH, HEIGHT> {
     fn default() -> Self {
-        Self { cells: [[T::default(); WIDTH]; HEIGHT] }
+        Self { cells: [[T::default(); WIDTH]; HEIGHT], active_size: WIDTH.min(HEIGHT) }
     }
 }
 
 impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
     pub(crate) fn generated(seed: u64) -> Self {
-        let mut cells = [[CellType::Empty; SIZE]; SIZE];
-        let center = SIZE / 2;
+        Self::generated_with_size(seed, SIZE)
+    }
 
-        for x in 0..SIZE {
-            for y in 0..SIZE {
+    pub(crate) fn generated_with_size(seed: u64, active_size: usize) -> Self {
+        assert!(active_size > 0 && active_size <= SIZE && active_size % 2 == 1);
+        let mut cells = [[CellType::Void; SIZE]; SIZE];
+        let center = SIZE / 2;
+        let start = center - active_size / 2;
+        let end = start + active_size;
+        for column in &mut cells[start..end] {
+            for cell in &mut column[start..end] {
+                *cell = CellType::Empty;
+            }
+        }
+
+        for x in start..end {
+            for y in start..end {
                 let mirror = (SIZE - 1 - x, SIZE - 1 - y);
-                if (x, y) > mirror || x == 0 || y == 0 || x + 1 == SIZE || y + 1 == SIZE {
+                if (x, y) > mirror || x == start || y == start || x + 1 == end || y + 1 == end {
                     continue;
                 }
                 if x == center || y == center {
@@ -67,14 +81,19 @@ impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
             .flatten()
             .filter(|cell| **cell == CellType::Empty)
             .count();
-        if empty_cells * 2 < SIZE * SIZE {
-            cells = [[CellType::Empty; SIZE]; SIZE];
+        if empty_cells * 2 < active_size * active_size {
+            cells = [[CellType::Void; SIZE]; SIZE];
+            for column in &mut cells[start..end] {
+                for cell in &mut column[start..end] {
+                    *cell = CellType::Empty;
+                }
+            }
         }
 
-        place_feature_pair(&mut cells, seed ^ TRAP_DOMAIN, center, CellType::Trap);
-        place_feature_pair(&mut cells, seed ^ PICKUP_DOMAIN, center, CellType::SpeedPickup);
-        place_feature_pair(&mut cells, seed ^ SHIELD_DOMAIN, center, CellType::ShieldPickup);
-        Self { cells }
+        place_feature_pair(&mut cells, seed ^ TRAP_DOMAIN, center, start, end, CellType::Trap);
+        place_feature_pair(&mut cells, seed ^ PICKUP_DOMAIN, center, start, end, CellType::SpeedPickup);
+        place_feature_pair(&mut cells, seed ^ SHIELD_DOMAIN, center, start, end, CellType::ShieldPickup);
+        Self { cells, active_size }
     }
 }
 
@@ -82,11 +101,13 @@ fn place_feature_pair<const SIZE: usize>(
     cells: &mut [[CellType; SIZE]; SIZE],
     seed: u64,
     center: usize,
+    start: usize,
+    end: usize,
     feature: CellType,
 ) {
     let mut candidates = Vec::new();
-    for x in 1..SIZE.saturating_sub(1) {
-        for y in 1..SIZE.saturating_sub(1) {
+    for x in start + 1..end - 1 {
+        for y in start + 1..end - 1 {
             let mirror = (SIZE - 1 - x, SIZE - 1 - y);
             if (x, y) >= mirror || x == center || y == center {
                 continue;
@@ -148,10 +169,15 @@ pub(crate) fn splitmix64(mut value: u64) -> u64 {
 pub fn generate_map(
     mut commands: Commands,
     mut seed: ResMut<GameSeed>,
+    bootstrap: Res<RoundBootstrap>,
     mut state: ResMut<NextState<RollbackState>>,
 ) {
+    let active_size = match bootstrap.mode {
+        GameMode::Duel => 21,
+        GameMode::Deathmatch => MAP_SIZE,
+    };
     commands.insert_resource(RoundProgress::default());
-    commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(seed.0));
+    commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated_with_size(seed.0, active_size));
     seed.0 = splitmix64(seed.0 ^ MAP_DOMAIN);
     state.set(RollbackState::InRound);
 }
@@ -208,7 +234,7 @@ pub fn spawn_map_sprites(
                     )).add_rollback();
                     continue;
                 }
-                CellType::Empty => continue,
+                CellType::Empty | CellType::Void => continue,
             };
             commands.spawn((
                 MapBlock,
@@ -271,5 +297,10 @@ mod tests {
         assert_eq!(first.cells[MAP_SIZE / 2][MAP_SIZE / 2], CellType::Empty);
         assert_eq!(first.cells[0][0], CellType::Empty);
         assert_eq!(first.cells[MAP_SIZE - 1][MAP_SIZE - 1], CellType::Empty);
+
+        let duel = Map::<CellType, MAP_SIZE, MAP_SIZE>::generated_with_size(42, 21);
+        assert_eq!(duel.active_size, 21);
+        assert_eq!(duel.cells[0][0], CellType::Void);
+        assert_eq!(duel.cells[MAP_SIZE / 2][MAP_SIZE / 2], CellType::Empty);
     }
 }

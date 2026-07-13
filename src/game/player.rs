@@ -25,15 +25,30 @@ pub fn move_players(
 
         move_dir.0 = direction;
 
-        let move_speed = if speed_boost.is_some() { 0.13 * 1.35 } else { 0.13 };
+        let move_speed = movement_speed(speed_boost.is_some());
         let old_pos = transform.translation.xy();
         let requested_delta = direction * move_speed;
         let move_delta = resolve_player_movement(&map_data, old_pos, requested_delta);
-        let limit = Vec2::splat(MAP_SIZE as f32 / 2. - 0.5);
+        let limit = Vec2::splat(map_data.active_size as f32 / 2. - 0.5);
         let new_pos = (old_pos + move_delta).clamp(-limit, limit);
 
         transform.translation.x = new_pos.x;
         transform.translation.y = new_pos.y;
+    }
+}
+
+const BASE_MOVE_SPEED: f32 = 0.13;
+const BOOSTED_MOVE_SPEED: f32 = 0.1755;
+const SPEED_BOOST_FRAMES: u16 = 300;
+
+fn movement_speed(boosted: bool) -> f32 {
+    if boosted { BOOSTED_MOVE_SPEED } else { BASE_MOVE_SPEED }
+}
+
+fn tick_boost_frames(frames_left: u16) -> Option<u16> {
+    match frames_left {
+        0 | 1 => None,
+        frames => Some(frames - 1),
     }
 }
 
@@ -64,7 +79,7 @@ fn resolve_player_movement(
 fn player_hits_wall(map_data: &Map<CellType, MAP_SIZE, MAP_SIZE>, player_pos: Vec2) -> bool {
     map_data.cells.iter().enumerate().any(|(x, column)| {
         column.iter().enumerate().any(|(y, cell)| {
-            *cell == CellType::WallBlock
+            matches!(*cell, CellType::WallBlock | CellType::Void)
                 && wall_check(player_pos, grid_to_world((x as u32, y as u32)))
         })
     })
@@ -308,7 +323,7 @@ mod spawn_tests {
     use super::*;
 
     fn empty_map() -> Map<CellType, MAP_SIZE, MAP_SIZE> {
-        Map { cells: [[CellType::Empty; MAP_SIZE]; MAP_SIZE] }
+        Map { cells: [[CellType::Empty; MAP_SIZE]; MAP_SIZE], active_size: MAP_SIZE }
     }
 
     fn map_with_walls(walls: &[(usize, usize)]) -> Map<CellType, MAP_SIZE, MAP_SIZE> {
@@ -330,6 +345,26 @@ mod spawn_tests {
         let resolved = resolve_player_movement(&map, old, Vec2::new(0.2, 0.1));
         assert_eq!(resolved.x, 0.0);
         assert_eq!(resolved.y, 0.1);
+    }
+
+    #[test]
+    fn speed_boost_runs_for_exactly_300_deterministic_frames() {
+        let mut frames = Some(SPEED_BOOST_FRAMES);
+        let mut distance = 0.0;
+        let mut boosted_frames = 0;
+        for _ in 0..SPEED_BOOST_FRAMES {
+            boosted_frames += usize::from(frames.is_some());
+            distance += movement_speed(frames.is_some());
+            frames = frames.and_then(tick_boost_frames);
+        }
+        assert_eq!(boosted_frames, SPEED_BOOST_FRAMES as usize);
+        assert_eq!(frames, None);
+
+        let replay = (0..SPEED_BOOST_FRAMES).fold((Some(SPEED_BOOST_FRAMES), 0.0f32), |(frames, position), _| {
+            (frames.and_then(tick_boost_frames), position + movement_speed(frames.is_some()))
+        });
+        assert_eq!(replay.0, None);
+        assert_eq!(replay.1.to_bits(), distance.to_bits());
     }
 
     #[test]
@@ -430,10 +465,10 @@ pub fn tick_speed_boost(
     mut players: Query<(Entity, &mut SpeedBoost)>,
 ) {
     for (entity, mut boost) in &mut players {
-        if boost.frames_left <= 1 {
-            commands.entity(entity).remove::<SpeedBoost>();
+        if let Some(frames) = tick_boost_frames(boost.frames_left) {
+            boost.frames_left = frames;
         } else {
-            boost.frames_left -= 1;
+            commands.entity(entity).remove::<SpeedBoost>();
         }
     }
 }
@@ -468,7 +503,7 @@ pub fn collect_speed_pickups(
             continue;
         };
 
-        commands.entity(player_entity).insert(SpeedBoost { frames_left: 300 });
+        commands.entity(player_entity).insert(SpeedBoost { frames_left: SPEED_BOOST_FRAMES });
         commands.entity(pickup_entity).despawn_recursive();
         commands.spawn((RollbackSoundBundle {
             sound: RollbackSound {
@@ -575,7 +610,7 @@ pub fn move_bullets(
         if let Some((x,y)) = world_to_grid(transform.translation.xy()) {
             // if coords are inside of a wall then its a hit
             match map_data.cells[x as usize][y as usize] {
-                CellType::WallBlock => {
+                CellType::WallBlock | CellType::Void => {
                     // bullet in a block, despawn it
                     bullet.active = false;
                     commands.entity(entity).despawn_recursive();
