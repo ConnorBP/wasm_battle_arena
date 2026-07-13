@@ -4,7 +4,10 @@
   "type": "module",
   "scripts": {
     "smoke:ingame": "node scripts/smoke-ingame.mjs",
-    "smoke:mobile-input": "node scripts/smoke-mobile-input.mjs"
+    "smoke:mobile-input": "node scripts/smoke-mobile-input.mjs",
+    "smoke:multiplayer:protocol": "node scripts/multiplayer-protocol-smoke.mjs",
+    "smoke:multiplayer:browser": "node scripts/multiplayer-browser-smoke.mjs",
+    "smoke:multiplayer:local": "bash scripts/run-local-multiplayer-smoke.sh"
   },
   "devDependencies": {
     "playwright": "1.61.1"

@@ -19,7 +19,7 @@ export default {
       return new Response("WebSocket upgrade required", { status: 426 });
     }
 
-    const allowedOrigins = (env.ALLOWED_ORIGINS || "")
+    const allowedOrigins = (env.LOCAL_ALLOWED_ORIGINS || env.ALLOWED_ORIGINS || "")
       .split(",")
       .map((origin) => origin.trim())
       .filter(Boolean);
