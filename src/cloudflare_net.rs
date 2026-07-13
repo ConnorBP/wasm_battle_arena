@@ -21,6 +21,15 @@ pub struct MatchInfo {
     pub seed: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct LobbyMatchInfo {
+    pub local_player: PlayerId,
+    pub seed: u64,
+    pub match_id: u128,
+    pub epoch: u32,
+    pub roster: Vec<(PlayerId, usize)>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConnectionState {
     Disconnected,
@@ -30,11 +39,19 @@ pub enum ConnectionState {
     Failed(String),
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum TransportMode {
+    #[default]
+    Legacy,
+    Lobby,
+}
+
 #[derive(Resource, Default)]
 pub struct CloudflareSocket {
     transport_id: u32,
     native_error: Option<String>,
     legacy_remote: Option<PlayerId>,
+    mode: TransportMode,
 }
 
 impl CloudflareSocket {
@@ -55,11 +72,34 @@ impl CloudflareSocket {
         {
             self.transport_id = cloudflare_connect(signaling_url, room);
             self.legacy_remote = None;
+            self.mode = TransportMode::Legacy;
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = signaling_url;
+            self.native_error = Some("online play is only supported in browser builds".into());
+        }
+    }
+
+    pub fn connect_lobby(&mut self, signaling_url: &str, room: &str, mode: u32, capacity: u32) {
+        self.close();
+        if room.is_empty() || room.len() > 64 || !room.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+            self.native_error = Some("invalid lobby room".into());
+            return;
+        }
+        if !((mode == 0 && capacity == 2) || (mode == 1 && (2..=4).contains(&capacity))) {
+            self.native_error = Some("invalid lobby mode or capacity".into());
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.transport_id = cloudflare_connect_lobby(signaling_url, room, mode, capacity);
+            self.mode = TransportMode::Lobby;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (signaling_url, mode, capacity);
             self.native_error = Some("online play is only supported in browser builds".into());
         }
     }
@@ -105,11 +145,34 @@ impl CloudflareSocket {
         None
     }
 
+    pub fn lobby_match_info(&self) -> Option<LobbyMatchInfo> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if self.mode != TransportMode::Lobby || self.state() != ConnectionState::Ready { return None; }
+            let local_player = parse_player_id(&cloudflare_lobby_local_id(self.transport_id))?;
+            let seed_hex = cloudflare_lobby_seed(self.transport_id);
+            let match_id = u128::from_str_radix(&seed_hex, 16).ok()?;
+            let seed = match_id as u64;
+            let len = cloudflare_lobby_roster_len(self.transport_id) as usize;
+            if !(2..=4).contains(&len) { return None; }
+            let mut roster = Vec::with_capacity(len);
+            for index in 0..len {
+                roster.push((parse_player_id(&cloudflare_lobby_roster_id(self.transport_id, index as u32))?, index));
+            }
+            roster.sort_by_key(|entry| entry.0);
+            if roster.iter().enumerate().any(|(handle, entry)| entry.1 != handle) || !roster.iter().any(|entry| entry.0 == local_player) { return None; }
+            Some(LobbyMatchInfo { local_player, seed, match_id, epoch: cloudflare_lobby_epoch(self.transport_id), roster })
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        None
+    }
+
     pub fn take_transport(&mut self) -> Self {
         Self {
             transport_id: std::mem::take(&mut self.transport_id),
             native_error: self.native_error.take(),
             legacy_remote: self.legacy_remote.take(),
+            mode: self.mode,
         }
     }
 
@@ -120,11 +183,15 @@ impl CloudflareSocket {
     fn close(&mut self) {
         if self.transport_id != 0 {
             #[cfg(target_arch = "wasm32")]
-            cloudflare_close(self.transport_id);
+            match self.mode {
+                TransportMode::Legacy => cloudflare_close(self.transport_id),
+                TransportMode::Lobby => cloudflare_close_lobby(self.transport_id),
+            }
         }
         self.transport_id = 0;
         self.native_error = None;
         self.legacy_remote = None;
+        self.mode = TransportMode::Legacy;
     }
 }
 
@@ -134,12 +201,20 @@ impl Drop for CloudflareSocket {
     }
 }
 
+fn parse_player_id(value: &str) -> Option<PlayerId> {
+    if value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) { return None; }
+    u128::from_str_radix(value, 16).ok().map(PlayerId)
+}
+
 impl NonBlockingSocket<PlayerId> for CloudflareSocket {
     fn send_to(&mut self, message: &Message, _address: &PlayerId) {
         #[cfg(target_arch = "wasm32")]
         if self.transport_id != 0 {
             if let Ok(packet) = codec().serialize(message) {
-                cloudflare_send(self.transport_id, &packet);
+                match self.mode {
+                    TransportMode::Legacy => cloudflare_send(self.transport_id, &packet),
+                    TransportMode::Lobby => cloudflare_lobby_send(self.transport_id, &format!("{:032x}", _address.0), &packet),
+                }
             }
         }
 
@@ -150,9 +225,22 @@ impl NonBlockingSocket<PlayerId> for CloudflareSocket {
     fn receive_all_messages(&mut self) -> Vec<(PlayerId, Message)> {
         #[cfg(target_arch = "wasm32")]
         {
-            let Some(info) = self.match_info() else {
-                return Vec::new();
-            };
+            if self.mode == TransportMode::Lobby {
+                let mut messages = Vec::new();
+                loop {
+                    let value = cloudflare_lobby_receive(self.transport_id);
+                    if value.is_null() || value.is_undefined() { break; }
+                    let array = js_sys::Array::from(&value);
+                    if array.length() != 2 { continue; }
+                    let Some(from) = parse_player_id(&array.get(0).as_string().unwrap_or_default()) else { continue; };
+                    let packet = js_sys::Uint8Array::new(&array.get(1)).to_vec();
+                    if packet.len() <= MAX_PACKET_BYTES {
+                        if let Ok(message) = codec().deserialize(&packet) { messages.push((from, message)); }
+                    }
+                }
+                return messages;
+            }
+            let Some(info) = self.match_info() else { return Vec::new(); };
             let remote = *self.legacy_remote.get_or_insert_with(|| {
                 crate::game::session::RoundBootstrap::duel(info.seed)
                     .roster
@@ -373,6 +461,127 @@ export function cloudflare_connect(baseUrl, room) {
     return id;
 }
 
+function lobbySendSignal(session, to, data) {
+    if (network === session && session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(JSON.stringify({ type: "signal", to, data }));
+    }
+}
+
+function lobbyBindChannel(session, peerId, channel) {
+    if (session.channels.has(peerId)) return fail(session, "duplicate lobby data channel");
+    channel.binaryType = "arraybuffer";
+    session.channels.set(peerId, channel);
+    channel.onmessage = ({ data }) => {
+        if (network !== session || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES) return;
+        if (session.inbox.length >= MAX_QUEUED_PACKETS) return fail(session, "lobby receive queue overflow");
+        session.inbox.push({ from: peerId, packet: new Uint8Array(data) });
+    };
+    channel.onclose = () => { if (network === session && session.status === 1) fail(session, "lobby peer disconnected"); };
+    channel.onerror = () => fail(session, "lobby peer data channel failed");
+    channel.onopen = () => {
+        if (network !== session) return;
+        session.openPeers.add(peerId);
+        if (session.openPeers.size === session.roster.length - 1) {
+            session.status = 1;
+            window.clearTimeout(session.timeout);
+        }
+    };
+}
+
+async function lobbyCreatePeer(session, peerId, offerer) {
+    const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
+    session.peers.set(peerId, peer);
+    session.pendingIce.set(peerId, []);
+    peer.onicecandidate = ({ candidate }) => lobbySendSignal(session, peerId, { type: "ice", candidate });
+    peer.ondatachannel = ({ channel }) => lobbyBindChannel(session, peerId, channel);
+    peer.onconnectionstatechange = () => { if (peer.connectionState === "failed") fail(session, "lobby WebRTC connection failed"); };
+    if (offerer) {
+        lobbyBindChannel(session, peerId, peer.createDataChannel("ggrs", { ordered: false, maxRetransmits: 0 }));
+        await peer.setLocalDescription(await peer.createOffer());
+        lobbySendSignal(session, peerId, { type: "offer", sdp: peer.localDescription.sdp });
+    }
+}
+
+async function lobbyHandleSignal(session, message) {
+    const from = message.from;
+    if (!session.roster.some(entry => entry.playerId === from) || from === session.localPlayerId || message.epoch !== session.epoch) {
+        throw new Error("invalid lobby signal source");
+    }
+    const peer = session.peers.get(from);
+    if (!peer) throw new Error("lobby signal before peer setup");
+    const data = message.data;
+    if (data.type === "offer") {
+        if (session.localPlayerId < from) throw new Error("unexpected lobby offer");
+        await peer.setRemoteDescription({ type: "offer", sdp: data.sdp });
+        for (const candidate of session.pendingIce.get(from).splice(0)) if (candidate) await peer.addIceCandidate(candidate);
+        await peer.setLocalDescription(await peer.createAnswer());
+        lobbySendSignal(session, from, { type: "answer", sdp: peer.localDescription.sdp });
+    } else if (data.type === "answer") {
+        if (session.localPlayerId > from) throw new Error("unexpected lobby answer");
+        await peer.setRemoteDescription({ type: "answer", sdp: data.sdp });
+        for (const candidate of session.pendingIce.get(from).splice(0)) if (candidate) await peer.addIceCandidate(candidate);
+    } else if (data.type === "ice") {
+        if (peer.remoteDescription) { if (data.candidate) await peer.addIceCandidate(data.candidate); }
+        else session.pendingIce.get(from).push(data.candidate);
+    }
+}
+
+export function cloudflare_connect_lobby(baseUrl, room, mode, capacity) {
+    if (network) cloudflare_close_lobby(network.id);
+    const endpoint = (baseUrl || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/lobby`).replace(/\/match\/?$/, "/lobby");
+    const modeName = mode === 0 ? "duel" : "deathmatch";
+    const ws = new WebSocket(`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?mode=${modeName}&capacity=${capacity}`);
+    const id = nextTransportId++ || nextTransportId++;
+    const session = { id, ws, status: 0, error: "", lobby: true, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, signalChain: Promise.resolve(), timeout: 0 };
+    network = session;
+    session.timeout = window.setTimeout(() => fail(session, "lobby matchmaking timed out"), MATCHMAKING_TIMEOUT_MS);
+    ws.onmessage = ({ data }) => {
+        if (network !== session || typeof data !== "string" || data.length > 16384) return;
+        session.signalChain = session.signalChain.then(async () => {
+            const message = JSON.parse(data);
+            if (message.type === "welcome") {
+                if (message.protocol !== 2 || !/^[0-9a-f]{32}$/.test(message.playerId)) throw new Error("invalid lobby welcome");
+                session.localPlayerId = message.playerId;
+            } else if (message.type === "start") {
+                if (message.epoch !== 0 || !/^[0-9a-f]{32}$/.test(message.seed) || !Array.isArray(message.roster) || message.roster.length !== capacity) throw new Error("invalid lobby start");
+                const roster = [...message.roster].sort((a,b) => a.playerId.localeCompare(b.playerId));
+                if (roster.some((entry,index) => entry.index !== index || !/^[0-9a-f]{32}$/.test(entry.playerId))) throw new Error("invalid lobby roster");
+                session.roster = roster; session.seed = message.seed; session.epoch = message.epoch;
+                for (const entry of roster) if (entry.playerId !== session.localPlayerId) await lobbyCreatePeer(session, entry.playerId, session.localPlayerId < entry.playerId);
+            } else if (message.type === "signal") {
+                await lobbyHandleSignal(session, message);
+            } else if (message.type === "error") {
+                throw new Error(message.error || "lobby error");
+            }
+        }).catch(error => fail(session, error));
+    };
+    ws.onerror = () => fail(session, "could not reach lobby service");
+    ws.onclose = () => { if (network === session && session.status !== 2) fail(session, "lobby service disconnected"); };
+    return id;
+}
+
+export function cloudflare_lobby_local_id(id) { return current(id)?.localPlayerId || ""; }
+export function cloudflare_lobby_seed(id) { return current(id)?.seed || ""; }
+export function cloudflare_lobby_epoch(id) { return current(id)?.epoch ?? 0; }
+export function cloudflare_lobby_roster_len(id) { return current(id)?.roster.length ?? 0; }
+export function cloudflare_lobby_roster_id(id, index) { return current(id)?.roster[index]?.playerId || ""; }
+export function cloudflare_lobby_send(id, to, packet) {
+    const session = current(id); const channel = session?.channels.get(to);
+    if (session?.status !== 1 || channel?.readyState !== "open" || packet.length > MAX_PACKET_BYTES || channel.bufferedAmount > MAX_BUFFERED_BYTES) return;
+    try { channel.send(packet); } catch (error) { fail(session, error); }
+}
+export function cloudflare_lobby_receive(id) {
+    const item = current(id)?.inbox.shift();
+    return item ? [item.from, item.packet] : null;
+}
+export function cloudflare_close_lobby(id) {
+    const session = current(id); if (!session) return;
+    network = null; window.clearTimeout(session.timeout);
+    for (const channel of session.channels.values()) channel.close();
+    for (const peer of session.peers.values()) peer.close();
+    session.ws.close(1000, "client closed");
+}
+
 export function cloudflare_status(id) { return current(id)?.status ?? 2; }
 export function cloudflare_error(id) { return current(id)?.error || "network connection failed"; }
 export function cloudflare_player_index(id) { return current(id)?.playerIndex ?? 255; }
@@ -408,4 +617,13 @@ extern "C" {
     fn cloudflare_send(id: u32, packet: &[u8]);
     fn cloudflare_receive(id: u32) -> wasm_bindgen::JsValue;
     fn cloudflare_close(id: u32);
+    fn cloudflare_connect_lobby(base_url: &str, room: &str, mode: u32, capacity: u32) -> u32;
+    fn cloudflare_lobby_local_id(id: u32) -> String;
+    fn cloudflare_lobby_seed(id: u32) -> String;
+    fn cloudflare_lobby_epoch(id: u32) -> u32;
+    fn cloudflare_lobby_roster_len(id: u32) -> u32;
+    fn cloudflare_lobby_roster_id(id: u32, index: u32) -> String;
+    fn cloudflare_lobby_send(id: u32, to: &str, packet: &[u8]);
+    fn cloudflare_lobby_receive(id: u32) -> wasm_bindgen::JsValue;
+    fn cloudflare_close_lobby(id: u32);
 }

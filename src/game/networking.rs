@@ -7,7 +7,7 @@ use crate::{
     game::{GameSeed, Scores, SoundIdSeed},
 };
 
-use super::{session::{PlayerId, RoundBootstrap}, toasts::Toasts, GameState, MAP_SIZE};
+use super::{session::{GameMode, MatchId, PlayerId, PlayerProfile, PlayerScore, RosterEntry, RoundBootstrap, RoundNumber, SessionEpoch}, toasts::Toasts, GameState, MAP_SIZE};
 
 pub const ROLLBACK_FPS: usize = 60;
 
@@ -25,9 +25,18 @@ pub struct GgrsConfig;
 #[derive(Resource)]
 pub struct LocalPlayerHandle(pub usize);
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct MatchmakingRoom {
     pub private_code: Option<String>,
+    pub mode: super::session::GameMode,
+    pub capacity: u8,
+    pub use_lobby_v2: bool,
+}
+
+impl Default for MatchmakingRoom {
+    fn default() -> Self {
+        Self { private_code: None, mode: super::session::GameMode::Duel, capacity: 2, use_lobby_v2: false }
+    }
 }
 
 pub fn sanitize_room_code(value: &str) -> String {
@@ -68,7 +77,12 @@ pub fn start_cloudflare_socket(
 ) {
     let room_name = versioned_room_name(room.private_code.as_deref());
     info!("connecting to Cloudflare matchmaking");
-    socket.connect(SIGNALING_URL, &room_name);
+    if room.use_lobby_v2 {
+        let mode = match room.mode { super::session::GameMode::Duel => 0, super::session::GameMode::Deathmatch => 1 };
+        socket.connect_lobby(SIGNALING_URL, &format!("v2-{room_name}-{mode}-{}", room.capacity), mode, room.capacity as u32);
+    } else {
+        socket.connect(SIGNALING_URL, &room_name);
+    }
 }
 
 #[cfg(feature = "sync_test")]
@@ -153,7 +167,13 @@ pub fn wait_for_players(
     mut next_state: ResMut<NextState<GameState>>,
     mut toasts: ResMut<Toasts>,
 ) {
-    let match_info = match socket.state() {
+    let state = socket.state();
+    if state == ConnectionState::Ready {
+        if let Some(lobby) = socket.lobby_match_info() {
+            return start_lobby_session(commands, socket, next_state, toasts, lobby);
+        }
+    }
+    let match_info = match state {
         ConnectionState::Ready => socket.match_info().expect("ready match has assignment"),
         ConnectionState::Failed(error) => {
             toasts.error(error.into());
@@ -223,6 +243,50 @@ mod tests {
         assert_eq!(versioned_room_name(Some("ROOM42")), versioned_room_name(Some("room42")));
         assert!(versioned_room_name(Some("A")).len() <= 64);
     }
+}
+
+fn start_lobby_session(
+    mut commands: Commands,
+    mut socket: ResMut<CloudflareSocket>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut toasts: ResMut<Toasts>,
+    info: crate::cloudflare_net::LobbyMatchInfo,
+) {
+    let mode = if info.roster.len() == 2 { GameMode::Duel } else { GameMode::Deathmatch };
+    let roster: Vec<_> = info.roster.iter().map(|(player_id, handle)| RosterEntry { player_id: *player_id, handle: *handle }).collect();
+    let profiles = roster.iter().map(|entry| PlayerProfile {
+        player_id: entry.player_id,
+        name: format!("Player {}", entry.handle + 1),
+        palette_id: entry.handle as u8,
+        cosmetic_id: 0,
+    }).collect();
+    let scores = roster.iter().map(|entry| PlayerScore { player_id: entry.player_id, score: 0 }).collect();
+    let Ok(bootstrap) = RoundBootstrap::new(2, MatchId(info.match_id), info.seed, SessionEpoch(info.epoch), RoundNumber(0), mode, roster, profiles, scores) else {
+        toasts.error("Invalid lobby assignment.".into()); next_state.set(GameState::MainMenu); return;
+    };
+    let Some(local) = bootstrap.roster.iter().find(|entry| entry.player_id == info.local_player) else {
+        toasts.error("Local player missing from lobby roster.".into()); next_state.set(GameState::MainMenu); return;
+    };
+    let mut builder = ggrs::SessionBuilder::<GgrsConfig>::new()
+        .with_fps(ROLLBACK_FPS).unwrap()
+        .with_num_players(bootstrap.roster.len())
+        .with_input_delay(if cfg!(feature = "no_delay") { 0 } else { 2 })
+        .with_max_prediction_window(40)
+        .with_max_frames_behind(42).unwrap();
+    for entry in &bootstrap.roster {
+        let player_type = if entry.player_id == info.local_player { PlayerType::Local } else { PlayerType::Remote(entry.player_id) };
+        let Ok(next) = builder.add_player(player_type, entry.handle) else { toasts.error("Invalid lobby roster.".into()); next_state.set(GameState::MainMenu); return; };
+        builder = next;
+    }
+    let Ok(session) = builder.start_p2p_session(socket.take_transport()) else { toasts.error("Could not start lobby session.".into()); next_state.set(GameState::MainMenu); return; };
+    commands.insert_resource(LocalPlayerHandle(local.handle));
+    commands.insert_resource(SoundIdSeed::new(info.seed, bootstrap.roster.len()));
+    commands.insert_resource(Scores::from_bootstrap(&bootstrap));
+    commands.insert_resource(super::RoundProgress::default());
+    commands.insert_resource(bootstrap);
+    commands.insert_resource(Session::P2P(session));
+    commands.insert_resource(GameSeed(info.seed));
+    next_state.set(GameState::InGame);
 }
 
 pub fn log_ggrs_events(

@@ -116,6 +116,20 @@ pub fn update_main_menu(
             next_menu_state.set(MenuState::Main);
             next_game_state.set(GameState::Matchmaking);
         }
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut room.use_lobby_v2, "Lobby v2 / Deathmatch preview");
+            if room.use_lobby_v2 {
+                if ui.selectable_label(room.mode == super::session::GameMode::Duel, "Duel").clicked() {
+                    room.mode = super::session::GameMode::Duel; room.capacity = 2;
+                }
+                if ui.selectable_label(room.mode == super::session::GameMode::Deathmatch, "Deathmatch").clicked() {
+                    room.mode = super::session::GameMode::Deathmatch; room.capacity = room.capacity.max(3);
+                }
+            }
+        });
+        if room.use_lobby_v2 && room.mode == super::session::GameMode::Deathmatch {
+            ui.add(Slider::new(&mut room.capacity, 3..=4).text("Players"));
+        }
         if ui.button("🔒 Private Match").clicked() {
             next_menu_state.set(MenuState::DirectConnect);
         }
