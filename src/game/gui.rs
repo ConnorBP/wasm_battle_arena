@@ -12,10 +12,10 @@ use super::{
     networking::{sanitize_room_code, LocalPlayerHandle, MatchmakingRoom},
     practice::{PracticeCooldown, PracticeScore},
     progression::{CasualProfile, COSMETICS},
-    session::{mode_label, PlayerProfile, RoundBootstrap, MATCH_POINTS_TO_WIN},
+    session::{mode_label, MatchPreference, PlayerProfile, RoundBootstrap, MATCH_POINTS_TO_WIN},
     GameState, MatchFlow, PendingPlayerProfile, RematchFlow, RollbackState, Scores,
 };
-use crate::cloudflare_net::CloudflareSocket;
+use crate::cloudflare_net::{CloudflareSocket, QueueStatus};
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub enum MenuState {
@@ -260,36 +260,31 @@ pub fn update_main_menu(
                         {
                             *button_style = FontId::new(28.0 * scale, FontFamily::Proportional);
                         }
-                        ui.heading("Last Ghost Standing");
-                        ui.label("The prominent default: survive a 3–8 ghost arena. Last ghost alive scores; first to 3 wins.");
+                        ui.heading("Public Matchmaking");
+                        ui.label("Any is recommended: find the quickest fair Duel or 3–8 ghost Last Ghost Standing match.");
                         ui.horizontal_wrapped(|ui| {
-                            if ui.selectable_label(room.mode == super::session::GameMode::Deathmatch, "Last Ghost Standing (3–8)").clicked() {
-                                room.mode = super::session::GameMode::Deathmatch;
-                                room.capacity = room.capacity.clamp(3, 8);
-                                room.use_lobby_v2 = true;
+                            if ui.selectable_label(room.preference == MatchPreference::Any, "★ Any (Recommended)").clicked() {
+                                room.preference = MatchPreference::Any;
                             }
-                            if ui.selectable_label(room.mode == super::session::GameMode::Duel, "Dueling Ghosts (2)").clicked() {
-                                room.mode = super::session::GameMode::Duel;
-                                room.capacity = 2;
-                                room.use_lobby_v2 = true;
+                            if ui.selectable_label(room.preference == MatchPreference::Duel, "Dueling Ghosts").clicked() {
+                                room.preference = MatchPreference::Duel;
+                            }
+                            if ui.selectable_label(room.preference == MatchPreference::LastGhostStanding, "Last Ghost Standing").clicked() {
+                                room.preference = MatchPreference::LastGhostStanding;
                             }
                         });
-                        if room.mode == super::session::GameMode::Deathmatch {
-                            ui.add(Slider::new(&mut room.capacity, 3..=8).text("Ghosts required"));
+                        if room.preference == MatchPreference::LastGhostStanding {
+                            ui.add(Slider::new(&mut room.target, 3..=8).text("Target ghosts"));
                         }
-                        ui.small(match room.mode {
-                            super::session::GameMode::Duel => "Opt-in head-to-head rules • exactly 2 players • first to 3",
-                            super::session::GameMode::Deathmatch => "3–8 players • last survivor scores • selected capacity is an immutable roster • first to 3",
+                        ui.small(match room.preference {
+                            MatchPreference::Any => "Recommended • coordinator may assign Duel or Last Ghost Standing",
+                            MatchPreference::Duel => "Exactly 2 players • first to 3",
+                            MatchPreference::LastGhostStanding => "3–8 players • last survivor scores • first to 3",
                         });
-                        if ui.button("▶ Queue Selected Mode").clicked() {
+                        if ui.button("▶ Find Public Match").clicked() {
                             room.private_code = None;
                             next_menu_state.set(MenuState::Main);
                             next_game_state.set(GameState::Matchmaking);
-                        }
-                        if room.mode == super::session::GameMode::Duel {
-                            ui.checkbox(&mut room.use_lobby_v2, "Modern lobby (disable for legacy duel fallback)");
-                        } else {
-                            room.use_lobby_v2 = true;
                         }
                         if ui.button("🔒 Private Match").clicked() {
                             next_menu_state.set(MenuState::DirectConnect);
@@ -333,7 +328,20 @@ pub fn update_direct_connect_ui(
                     ui.style_mut().spacing.item_spacing.y = 10.0 * scale;
                     ui.vertical_centered_justified(|ui| {
                         ui.heading("Private Match");
-                        ui.label("Enter the same room code on both devices.");
+                        ui.label("Enter the same room code and choose the same exact mode on every device. Private rooms connect directly with protocol 3.");
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.selectable_label(room.private_mode == super::session::GameMode::Duel, "Dueling Ghosts (2)").clicked() {
+                                room.private_mode = super::session::GameMode::Duel;
+                                room.private_capacity = 2;
+                            }
+                            if ui.selectable_label(room.private_mode == super::session::GameMode::Deathmatch, "Last Ghost Standing").clicked() {
+                                room.private_mode = super::session::GameMode::Deathmatch;
+                                room.private_capacity = room.private_capacity.clamp(3, 8);
+                            }
+                        });
+                        if room.private_mode == super::session::GameMode::Deathmatch {
+                            ui.add(Slider::new(&mut room.private_capacity, 3..=8).text("Exact ghosts"));
+                        }
                         if ui.text_edit_singleline(&mut *code).changed() {
                             *code = sanitize_room_code(code.as_str());
                         }
@@ -853,8 +861,8 @@ pub fn update_match_status_ui(
                     if ui.add_sized(vec2(action_width, 44.0), Button::new("Re-Queue (General Queue)")).clicked() {
                         socket.leave_lobby(true);
                         room.private_code = None;
-                        room.mode = super::session::GameMode::Deathmatch;
-                        room.capacity = 8;
+                        room.preference = MatchPreference::Any;
+                        room.target = 8;
                         socket.disconnect();
                         *rematch = RematchFlow::Idle;
                         next_game.set(GameState::Matchmaking);
@@ -991,6 +999,7 @@ mod layout_tests {
 pub fn update_matchmaking_ui(
     mut contexts: EguiContexts,
     mut next_game_state: ResMut<NextState<GameState>>,
+    socket: Res<CloudflareSocket>,
 ) {
     let safe = safe_screen_rect(contexts.ctx_mut());
     let scale = responsive_scale(contexts.ctx_mut());
@@ -1005,8 +1014,21 @@ pub fn update_matchmaking_ui(
                         .font(FontId::proportional(42.0 * scale)),
                 );
                 ui.label(RichText::new("Game by Connor Postma 2023").color(Color32::GRAY));
+                let status = match socket.queue_status() {
+                    Some(QueueStatus::Searching) => "Searching the public queue…".to_owned(),
+                    Some(QueueStatus::HoldingForThird) => {
+                        "Holding briefly for a third ghost…".to_owned()
+                    }
+                    Some(QueueStatus::Forming { count, target }) => {
+                        format!("Forming Last Ghost Standing: {count}/{target}")
+                    }
+                    Some(QueueStatus::Assigned) => {
+                        "Assigned — joining the secure lobby…".to_owned()
+                    }
+                    None => "Connecting to matchmaking…".to_owned(),
+                };
                 ui.label(
-                    RichText::new("Waiting for opponents to join...")
+                    RichText::new(status)
                         .color(Color32::WHITE)
                         .font(FontId::proportional(28.0 * scale)),
                 );

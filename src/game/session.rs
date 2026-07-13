@@ -39,6 +39,26 @@ pub enum GameMode {
     Deathmatch,
 }
 
+/// A public queue preference is intentionally not a game mode: `Any` lets the
+/// protocol-v4 coordinator choose an exact Duel or Last Ghost Standing lobby.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MatchPreference {
+    #[default]
+    Any,
+    Duel,
+    LastGhostStanding,
+}
+
+impl MatchPreference {
+    pub fn protocol_name(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Duel => "duel",
+            Self::LastGhostStanding => "deathmatch",
+        }
+    }
+}
+
 pub const MATCH_POINTS_TO_WIN: u32 = 3;
 
 /// Public-facing mode copy. The internal `Deathmatch` variant is a round-based
@@ -388,6 +408,17 @@ mod tests {
                 })
                 .collect(),
         )
+    }
+
+    #[test]
+    fn public_preferences_map_to_protocol_without_becoming_game_modes() {
+        assert_eq!(MatchPreference::default(), MatchPreference::Any);
+        assert_eq!(MatchPreference::Any.protocol_name(), "any");
+        assert_eq!(MatchPreference::Duel.protocol_name(), "duel");
+        assert_eq!(
+            MatchPreference::LastGhostStanding.protocol_name(),
+            "deathmatch"
+        );
     }
 
     #[test]

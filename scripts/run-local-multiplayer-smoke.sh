@@ -76,6 +76,8 @@ wait_http "${local_origin}/" "game site" "$site_pid"
 
 ARTIFACT_DIR="$artifact_dir" WORKER_URL="$worker_url" ORIGIN="$local_origin" \
   npm run smoke:multiplayer:protocol
+ARTIFACT_DIR="$artifact_dir" WORKER_URL="$worker_url" ORIGIN="$local_origin" \
+  npm run smoke:multiplayer:flex-queue
 ARTIFACT_DIR="$artifact_dir" GAME_URL="$local_origin" \
   npm run smoke:multiplayer:browser
 

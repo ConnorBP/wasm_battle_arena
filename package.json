@@ -1,15 +1,1 @@
-{
-  "name": "wasm-battle-arena-tests",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "smoke:ingame": "node scripts/smoke-ingame.mjs",
-    "smoke:mobile-input": "node scripts/smoke-mobile-input.mjs",
-    "smoke:multiplayer:protocol": "node scripts/multiplayer-protocol-smoke.mjs",
-    "smoke:multiplayer:browser": "node scripts/multiplayer-browser-smoke.mjs",
-    "smoke:multiplayer:local": "bash scripts/run-local-multiplayer-smoke.sh"
-  },
-  "devDependencies": {
-    "playwright": "1.61.1"
-  }
-}
+{"name":"wasm-battle-arena-tests","private":true,"type":"module","scripts":{"smoke:ingame":"node scripts/smoke-ingame.mjs","smoke:mobile-input":"node scripts/smoke-mobile-input.mjs","smoke:multiplayer:protocol":"node scripts/multiplayer-protocol-smoke.mjs","smoke:multiplayer:flex-queue":"node scripts/flexible-queue-protocol-smoke.mjs","smoke:multiplayer:browser":"node scripts/multiplayer-browser-smoke.mjs","smoke:multiplayer:local":"bash scripts/run-local-multiplayer-smoke.sh"},"devDependencies":{"playwright":"1.61.1"}}

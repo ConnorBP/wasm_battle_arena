@@ -9,14 +9,18 @@ use crate::{
 
 use super::{
     session::{
-        GameMode, MatchId, PlayerId, PlayerProfile, PlayerScore, RosterEntry, RoundBootstrap,
-        RoundNumber, SessionEpoch,
+        GameMode, MatchId, MatchPreference, PlayerId, PlayerProfile, PlayerScore, RosterEntry,
+        RoundBootstrap, RoundNumber, SessionEpoch,
     },
     toasts::Toasts,
     GameState, MAP_SIZE,
 };
 
 pub const ROLLBACK_FPS: usize = 60;
+
+fn final_lobby_can_install(state: &ConnectionState, has_lobby_snapshot: bool) -> bool {
+    *state == ConnectionState::Ready && has_lobby_snapshot
+}
 
 #[cfg(not(feature = "local"))]
 const SIGNALING_URL: &str = match option_env!("GHOST_BATTLE_SIGNALING_URL") {
@@ -35,18 +39,24 @@ pub struct LocalPlayerHandle(pub usize);
 #[derive(Resource)]
 pub struct MatchmakingRoom {
     pub private_code: Option<String>,
-    pub mode: super::session::GameMode,
-    pub capacity: u8,
-    pub use_lobby_v2: bool,
+    /// Public protocol-v4 selection. Distinct from the exact v3 game mode.
+    pub preference: MatchPreference,
+    /// Requested LGS expansion target. It is still sent for Any/Duel because
+    /// protocol 4 requires a bounded target on every queue request.
+    pub target: u8,
+    /// Exact private-room mode/capacity; private rooms bypass protocol 4.
+    pub private_mode: GameMode,
+    pub private_capacity: u8,
 }
 
 impl Default for MatchmakingRoom {
     fn default() -> Self {
         Self {
             private_code: None,
-            mode: super::session::GameMode::Deathmatch,
-            capacity: 8,
-            use_lobby_v2: true,
+            preference: MatchPreference::Any,
+            target: 8,
+            private_mode: GameMode::Duel,
+            private_capacity: 2,
         }
     }
 }
@@ -88,30 +98,40 @@ pub fn start_cloudflare_socket(
     room: Res<MatchmakingRoom>,
     profile: Res<super::PendingPlayerProfile>,
 ) {
-    let room_name = versioned_room_name(room.private_code.as_deref());
     info!("connecting to Cloudflare matchmaking");
-    if room.use_lobby_v2 && socket.has_transport() {
+    if socket.has_transport() {
         // Persistent protocol-3 control already received the next immutable
         // start; do not open a second identity/control socket.
         return;
     }
-    if room.use_lobby_v2 {
-        let (mode, capacity) = match room.mode {
-            super::session::GameMode::Duel => (0, 2),
-            super::session::GameMode::Deathmatch => (1, room.capacity.clamp(3, 8) as u32),
-        };
-        socket.connect_lobby(
+    if room.private_code.is_none() {
+        socket.connect_queue(
             SIGNALING_URL,
-            &format!("v3-{room_name}-{mode}-{capacity}"),
-            mode,
-            capacity,
+            room.preference.protocol_name(),
+            room.target.clamp(3, 8),
             &profile.name,
             profile.palette_id,
             profile.cosmetic_id,
         );
-    } else {
-        socket.connect(SIGNALING_URL, &room_name);
+        return;
     }
+
+    // Private rooms remain direct, exact protocol 3 and never enter the
+    // flexible public queue.
+    let room_name = versioned_room_name(room.private_code.as_deref());
+    let (mode, capacity) = match room.private_mode {
+        GameMode::Duel => (0, 2),
+        GameMode::Deathmatch => (1, room.private_capacity.clamp(3, 8) as u32),
+    };
+    socket.connect_lobby(
+        SIGNALING_URL,
+        &format!("v3-{room_name}-{mode}-{capacity}"),
+        mode,
+        capacity,
+        &profile.name,
+        profile.palette_id,
+        profile.cosmetic_id,
+    );
 }
 
 #[cfg(feature = "sync_test")]
@@ -211,11 +231,29 @@ pub fn wait_for_players(
     mut toasts: ResMut<Toasts>,
 ) {
     let state = socket.state();
-    if let Some(lobby) = socket.lobby_match_info() {
-        return start_lobby_session(commands, socket, next_state, toasts, lobby);
+    // Coordinator assignment is not readiness. The browser closes v4, opens
+    // the exact signed v3 room, receives welcome (and TURN), then completes
+    // WebRTC. Only this final immutable lobby snapshot may install GGRS and
+    // atomically leave Matchmaking/practice.
+    let lobby = socket.lobby_match_info();
+    if final_lobby_can_install(&state, lobby.is_some()) {
+        return start_lobby_session(
+            commands,
+            socket,
+            next_state,
+            toasts,
+            lobby.expect("final readiness requires immutable lobby snapshot"),
+        );
     }
     let match_info = match state {
-        ConnectionState::Ready => socket.match_info().expect("ready match has assignment"),
+        ConnectionState::Ready => {
+            let Some(info) = socket.match_info() else {
+                toasts.error("Invalid final matchmaking assignment.".into());
+                next_state.set(GameState::MainMenu);
+                return;
+            };
+            info
+        }
         ConnectionState::Failed(error) => {
             toasts.error(error.into());
             next_state.set(GameState::MainMenu);
@@ -294,6 +332,35 @@ pub fn wait_for_players(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coordinator_assignment_is_not_final_lobby_readiness() {
+        assert!(!final_lobby_can_install(
+            &ConnectionState::Connecting,
+            false
+        ));
+        assert!(!final_lobby_can_install(&ConnectionState::Connecting, true));
+        assert!(!final_lobby_can_install(&ConnectionState::Ready, false));
+        assert!(final_lobby_can_install(&ConnectionState::Ready, true));
+    }
+
+    #[test]
+    fn public_and_private_transport_policy_is_unambiguous() {
+        let public = MatchmakingRoom::default();
+        assert!(public.private_code.is_none());
+        assert_eq!(public.preference, MatchPreference::Any);
+        assert_eq!(public.target, 8);
+
+        let private = MatchmakingRoom {
+            private_code: Some("ROOM".into()),
+            private_mode: GameMode::Deathmatch,
+            private_capacity: 5,
+            ..Default::default()
+        };
+        assert!(private.private_code.is_some());
+        assert_eq!(private.private_mode, GameMode::Deathmatch);
+        assert_eq!(private.private_capacity, 5);
+    }
 
     #[test]
     fn private_room_codes_are_canonical_and_bounded() {

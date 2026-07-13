@@ -394,8 +394,9 @@ pub fn run() {
         (reset_practice_view, setup_practice).chain(),
     )
     .add_systems(OnEnter(GameState::Matchmaking), start_cloudflare_socket)
-    // Protocol-3 lobby control intentionally survives Matchmaking -> InGame;
-    // legacy matchmaking is closed after handing its transport to GGRS.
+    // Queue practice remains active through coordinator assignment and the v3
+    // handoff. `wait_for_players` changes state only after the exact v3 lobby
+    // and all WebRTC channels are ready, so cleanup occurs at actual readiness.
     .add_systems(
         OnExit(GameState::Matchmaking),
         (

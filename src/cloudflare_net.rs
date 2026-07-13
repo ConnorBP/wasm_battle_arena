@@ -41,6 +41,89 @@ pub enum LobbyControlEvent {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueStatus {
+    Searching,
+    HoldingForThird,
+    Forming { count: u8, target: u8 },
+    Assigned,
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+fn queue_status_from_scalars(phase: u32, count: u32, target: u32) -> Option<QueueStatus> {
+    match phase {
+        1 => Some(QueueStatus::Searching),
+        2 => Some(QueueStatus::HoldingForThird),
+        3 if (3..=8).contains(&count) && (count..=8).contains(&target) => {
+            Some(QueueStatus::Forming {
+                count: count as u8,
+                target: target as u8,
+            })
+        }
+        4 => Some(QueueStatus::Assigned),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum QueueTimeoutPhase {
+    SocketOpen,
+    Waiting,
+    AssignmentHandoff,
+    WebRtc,
+}
+
+/// `None` is deliberate for ordinary queue age; liveness is instead enforced
+/// by heartbeat watchdog. All transition/connectivity phases stay bounded.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn queue_timeout_ms(phase: QueueTimeoutPhase) -> Option<u64> {
+    match phase {
+        QueueTimeoutPhase::Waiting => None,
+        QueueTimeoutPhase::SocketOpen | QueueTimeoutPhase::AssignmentHandoff => Some(15_000),
+        QueueTimeoutPhase::WebRtc => Some(120_000),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub struct QueueAssignmentScalars {
+    pub protocol: u32,
+    pub room: String,
+    pub mode: String,
+    pub capacity: u32,
+    pub ticket: String,
+    pub expires_at: u64,
+    pub token: String,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn valid_queue_assignment(
+    value: &QueueAssignmentScalars,
+    expected_ticket: &str,
+    now: u64,
+) -> bool {
+    value.protocol == 4
+        && value.ticket == expected_ticket
+        && is_lower_hex(&value.ticket, 32)
+        && value.room.len() == 35
+        && value.room.starts_with("q4_")
+        && is_lower_hex(&value.room[3..], 32)
+        && is_lower_hex(&value.token, 64)
+        && value.expires_at > now
+        && value.expires_at <= now.saturating_add(60_000)
+        && ((value.mode == "duel" && value.capacity == 2)
+            || (value.mode == "deathmatch" && (3..=8).contains(&value.capacity)))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn is_lower_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 pub struct LobbyMatchInfo {
     pub local_player: PlayerId,
     pub mode: u32,
@@ -124,6 +207,50 @@ impl CloudflareSocket {
         }
     }
 
+    pub fn connect_queue(
+        &mut self,
+        signaling_url: &str,
+        preference: &str,
+        target: u8,
+        profile_name: &str,
+        palette_id: u8,
+        cosmetic_id: u8,
+    ) {
+        self.close();
+        if !matches!(preference, "any" | "duel" | "deathmatch") || !(3..=8).contains(&target) {
+            self.native_error = Some("invalid public queue preference or target".into());
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.transport_id = cloudflare_connect_queue(
+                signaling_url,
+                preference,
+                target as u32,
+                profile_name,
+                palette_id as u32,
+                cosmetic_id as u32,
+            );
+            // Protocol 4 hands this same owning handle to an exact protocol-3
+            // lobby. It is therefore a lobby transport once assigned.
+            self.mode = TransportMode::Lobby;
+            self.epoch = 0;
+            self.owns_transport = true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (
+                signaling_url,
+                preference,
+                target,
+                profile_name,
+                palette_id,
+                cosmetic_id,
+            );
+            self.native_error = Some("online play is only supported in browser builds".into());
+        }
+    }
+
     pub fn connect_lobby(
         &mut self,
         signaling_url: &str,
@@ -194,6 +321,23 @@ impl CloudflareSocket {
 
         #[cfg(not(target_arch = "wasm32"))]
         ConnectionState::Disconnected
+    }
+
+    pub fn queue_status(&self) -> Option<QueueStatus> {
+        #[cfg(target_arch = "wasm32")]
+        if self.transport_id != 0 {
+            return queue_status_from_scalars(
+                cloudflare_queue_phase(self.transport_id),
+                cloudflare_queue_count(self.transport_id),
+                cloudflare_queue_target(self.transport_id),
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            None
+        }
+        #[cfg(target_arch = "wasm32")]
+        None
     }
 
     pub fn match_info(&self) -> Option<MatchInfo> {
@@ -555,6 +699,118 @@ impl NonBlockingSocket<PlayerId> for CloudflareSocket {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assignment() -> QueueAssignmentScalars {
+        QueueAssignmentScalars {
+            protocol: 4,
+            room: format!("q4_{}", "a".repeat(32)),
+            mode: "deathmatch".into(),
+            capacity: 5,
+            ticket: "b".repeat(32),
+            expires_at: 20_000,
+            token: "c".repeat(64),
+        }
+    }
+
+    #[test]
+    fn queue_status_scalars_are_strict_and_bounded() {
+        assert_eq!(
+            queue_status_from_scalars(1, 0, 8),
+            Some(QueueStatus::Searching)
+        );
+        assert_eq!(
+            queue_status_from_scalars(2, 0, 8),
+            Some(QueueStatus::HoldingForThird)
+        );
+        assert_eq!(
+            queue_status_from_scalars(3, 4, 7),
+            Some(QueueStatus::Forming {
+                count: 4,
+                target: 7
+            })
+        );
+        assert_eq!(queue_status_from_scalars(3, 2, 8), None);
+        assert_eq!(queue_status_from_scalars(3, 6, 5), None);
+        assert_eq!(
+            queue_status_from_scalars(4, 0, 0),
+            Some(QueueStatus::Assigned)
+        );
+    }
+
+    #[test]
+    fn ordinary_queue_wait_has_no_age_timeout_but_handoffs_are_bounded() {
+        assert_eq!(queue_timeout_ms(QueueTimeoutPhase::Waiting), None);
+        assert_eq!(
+            queue_timeout_ms(QueueTimeoutPhase::SocketOpen),
+            Some(15_000)
+        );
+        assert_eq!(
+            queue_timeout_ms(QueueTimeoutPhase::AssignmentHandoff),
+            Some(15_000)
+        );
+        assert_eq!(queue_timeout_ms(QueueTimeoutPhase::WebRtc), Some(120_000));
+    }
+
+    #[test]
+    fn assignment_validation_rejects_tampering_expiry_and_unbounded_scalars() {
+        let valid = assignment();
+        assert!(valid_queue_assignment(&valid, &"b".repeat(32), 10_000));
+        for invalid in [
+            QueueAssignmentScalars {
+                protocol: 3,
+                ..valid.clone()
+            },
+            QueueAssignmentScalars {
+                room: "q4_bad".into(),
+                ..valid.clone()
+            },
+            QueueAssignmentScalars {
+                capacity: 2,
+                ..valid.clone()
+            },
+            QueueAssignmentScalars {
+                token: "C".repeat(64),
+                ..valid.clone()
+            },
+            QueueAssignmentScalars {
+                expires_at: 10_000,
+                ..valid.clone()
+            },
+            QueueAssignmentScalars {
+                expires_at: 70_001,
+                ..valid.clone()
+            },
+        ] {
+            assert!(!valid_queue_assignment(&invalid, &"b".repeat(32), 10_000));
+        }
+        let duel = QueueAssignmentScalars {
+            mode: "duel".into(),
+            capacity: 2,
+            ..valid
+        };
+        assert!(valid_queue_assignment(&duel, &"b".repeat(32), 10_000));
+        assert!(!valid_queue_assignment(&duel, &"d".repeat(32), 10_000));
+    }
+
+    #[test]
+    fn queue_connect_rejects_invalid_preference_or_target_before_transport() {
+        let mut socket = CloudflareSocket::default();
+        socket.connect_queue("", "surprise", 8, "Ghost", 0, 0);
+        assert_eq!(
+            socket.state(),
+            ConnectionState::Failed("invalid public queue preference or target".into())
+        );
+        socket.connect_queue("", "any", 2, "Ghost", 0, 0);
+        assert_eq!(
+            socket.state(),
+            ConnectionState::Failed("invalid public queue preference or target".into())
+        );
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
@@ -572,6 +828,9 @@ const MAX_PACKET_BYTES = 64 * 1024;
 const MAX_QUEUED_PACKETS = 256;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 const MATCHMAKING_TIMEOUT_MS = 2 * 60 * 1000;
+const INITIAL_SOCKET_TIMEOUT_MS = 15 * 1000;
+const QUEUE_HEARTBEAT_MS = 15 * 1000;
+const ASSIGNMENT_HANDOFF_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_ICE_SERVERS = Object.freeze([{ urls: "stun:stun.cloudflare.com:3478" }]);
 const MAX_ICE_SERVERS = 8;
 const MAX_ICE_URLS = 8;
@@ -656,6 +915,7 @@ function isCurrent(session) {
 
 function closeSession(session, code, reason) {
     window.clearTimeout(session.timeout);
+    window.clearInterval(session.heartbeat);
     session.channel?.close();
     session.peer?.close();
     session.ws?.close(code, reason);
@@ -900,20 +1160,25 @@ async function lobbyHandleSignal(session, message) {
     }
 }
 
-export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileName, paletteId, cosmeticId) {
-    const endpoint = (baseUrl || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/lobby`).replace(/\/match\/?$/, "/lobby");
+function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, paletteId, cosmeticId, assignment = null, existingId = 0) {
+    const endpoint = (baseUrl || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/lobby`).replace(/\/match\/?$/, "/lobby").replace(/\/queue\/?$/, "/lobby");
     const modeName = mode === 0 ? "duel" : "deathmatch";
     const identityKey = `ghost-lobby-v3:${room}`;
     let credentials = null;
-    try { credentials = JSON.parse(sessionStorage.getItem(identityKey) || "null"); } catch (_) {}
+    // Queue tickets are one-use admission credentials, so an assigned handoff
+    // never combines one with a stale reconnect identity.
+    if (!assignment) {
+        try { credentials = JSON.parse(sessionStorage.getItem(identityKey) || "null"); } catch (_) {}
+    }
     const reconnect = credentials && /^[0-9a-f]{32}$/.test(credentials.playerId) && /^[0-9a-f]{32}$/.test(credentials.reconnectToken)
         ? `&playerId=${credentials.playerId}&reconnectToken=${credentials.reconnectToken}` : "";
-    const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}`;
+    const handoff = assignment ? `&queueTicket=${assignment.ticket}&queueExpires=${assignment.expiresAt}&queueToken=${assignment.token}` : "";
+    const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}${handoff}`;
     const ws = new WebSocket(url);
-    const id = nextTransportId++ || nextTransportId++;
-    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
+    const id = existingId || nextTransportId++ || nextTransportId++;
+    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, queueTarget: capacity, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
     networks.set(id, session);
-    session.timeout = window.setTimeout(() => fail(session, "lobby matchmaking timed out"), MATCHMAKING_TIMEOUT_MS);
+    session.timeout = window.setTimeout(() => fail(session, assignment ? "assignment handoff timed out" : "lobby matchmaking timed out"), assignment ? ASSIGNMENT_HANDOFF_TIMEOUT_MS : MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
     ws.onmessage = ({ data }) => {
         if (!isCurrent(session) || typeof data !== "string" || data.length > 16384) return;
@@ -927,6 +1192,13 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
                 session.turnExpiresAt = ice?.turnExpiresAt ?? null;
                 session.iceHasTurn = ice?.hasTurn ?? false;
                 session.localPlayerId = message.playerId;
+                if (session.assignmentHandoff) {
+                    session.assignmentHandoff = false;
+                    window.clearTimeout(session.timeout);
+                    // Signed admission succeeded. Peer formation remains
+                    // independently bounded by the existing WebRTC timeout.
+                    session.timeout = window.setTimeout(() => fail(session, "lobby WebRTC timed out"), MATCHMAKING_TIMEOUT_MS);
+                }
                 // Store identity only. TURN usernames/credentials remain solely
                 // in this in-memory session and are refreshed by reconnect.
                 sessionStorage.setItem(identityKey, JSON.stringify({ playerId: message.playerId, reconnectToken: message.reconnectToken }));
@@ -960,6 +1232,100 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
     ws.onclose = () => { if (isCurrent(session) && session.status !== 2) fail(session, "lobby service disconnected"); };
     return id;
 }
+
+export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileName, paletteId, cosmeticId) {
+    return connectLobbyInternal(baseUrl, room, mode, capacity, profileName, paletteId, cosmeticId);
+}
+
+function validAssignment(message, ticket) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+    if (!Object.keys(message).every(key => ["type","protocol","room","mode","capacity","ticket","expiresAt","token"].includes(key))) return false;
+    if (message.type !== "assigned" || message.protocol !== 4 || message.ticket !== ticket || !/^[0-9a-f]{32}$/.test(message.ticket)) return false;
+    if (!/^q4_[0-9a-f]{32}$/.test(message.room) || !/^[0-9a-f]{64}$/.test(message.token)) return false;
+    if (!Number.isSafeInteger(message.expiresAt) || message.expiresAt <= Date.now() || message.expiresAt > Date.now() + 60_000) return false;
+    return (message.mode === "duel" && message.capacity === 2) ||
+        (message.mode === "deathmatch" && Number.isInteger(message.capacity) && message.capacity >= 3 && message.capacity <= 8);
+}
+
+function queueStatus(session, message) {
+    if (!message || typeof message !== "object" || Array.isArray(message) ||
+        !Object.keys(message).every(key => ["type","status","phase","count","target"].includes(key))) return false;
+    const value = message.status ?? message.phase;
+    if (value === "searching" || value === "queued") { session.queuePhase = 1; return true; }
+    if (value === "holding" || value === "holding_for_third" || value === "holding_briefly_for_third") { session.queuePhase = 2; return true; }
+    if ((value === "forming" || value === "forming_lgs") && Number.isInteger(message.count) && Number.isInteger(message.target) &&
+        message.count >= 3 && message.count <= 8 && message.target >= message.count && message.target <= 8) {
+        session.queuePhase = 3; session.queueCount = message.count; session.queueTarget = message.target; return true;
+    }
+    return false;
+}
+
+// Pure timeout policy kept explicit for source/reducer harnesses: public queue
+// waiting has no ordinary age timeout. Only opening, assignment handoff, and
+// WebRTC/lobby formation retain bounded failure windows.
+function timeoutForPhase(phase) {
+    if (phase === "queue_wait") return null;
+    if (phase === "socket_open") return INITIAL_SOCKET_TIMEOUT_MS;
+    if (phase === "assignment_handoff") return ASSIGNMENT_HANDOFF_TIMEOUT_MS;
+    return MATCHMAKING_TIMEOUT_MS;
+}
+
+export function cloudflare_connect_queue(baseUrl, preference, target, profileName, paletteId, cosmeticId) {
+    const endpoint = (baseUrl || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/queue`).replace(/\/match\/?$/, "/queue").replace(/\/lobby\/?$/, "/queue");
+    const url = `${endpoint.replace(/\/$/, "")}/public-v4?protocol=4&preference=${encodeURIComponent(preference)}&target=${target}`;
+    const ws = new WebSocket(url);
+    const id = nextTransportId++ || nextTransportId++;
+    const session = { id, ws, queue: true, status: 0, error: "", queuePhase: 1, queueCount: 0, queueTarget: target, ticket: "", timeout: 0, heartbeat: 0, signalChain: Promise.resolve(), telemetry: [0,0,0,0,0,0,0,0,0,0,0] };
+    networks.set(id, session);
+    session.timeout = window.setTimeout(() => fail(session, "could not open public queue"), timeoutForPhase("socket_open"));
+    ws.onopen = () => {
+        if (!isCurrent(session)) return;
+        // Keep the initial timer until the protocol-4 queued acknowledgement;
+        // an open socket which never admits a ticket is not a healthy queue.
+        session.heartbeat = window.setInterval(() => {
+            if (isCurrent(session) && ws.readyState === WebSocket.OPEN) {
+                try { ws.send(JSON.stringify({ type: "heartbeat" })); } catch (error) { fail(session, error); }
+            }
+        }, QUEUE_HEARTBEAT_MS);
+    };
+    ws.onmessage = ({ data }) => {
+        if (!isCurrent(session) || typeof data !== "string" || data.length > 2048) return fail(session, "invalid queue message");
+        session.signalChain = session.signalChain.then(() => {
+            const message = JSON.parse(data);
+            if (message?.type === "queued") {
+                if (message.protocol !== 4 || !/^[0-9a-f]{32}$/.test(message.ticket) || message.preference !== preference || message.target !== target) throw new Error("invalid queue acknowledgement");
+                session.ticket = message.ticket; session.queuePhase = 1;
+                window.clearTimeout(session.timeout);
+                session.timeout = 0; // Ordinary admitted queue waiting is unbounded.
+                return;
+            }
+            if (message?.type === "status" && queueStatus(session, message)) return;
+            if (message?.type === "heartbeat_ack") return;
+            if (message?.type === "assigned") {
+                if (!validAssignment(message, session.ticket)) throw new Error("invalid queue assignment");
+                session.queuePhase = 4;
+                session.handingOff = true;
+                window.clearInterval(session.heartbeat);
+                // Remove the queue object before closing it so a synchronous or
+                // queued close callback cannot fail the newly installed lobby.
+                networks.delete(id);
+                ws.close(1000, "assignment accepted");
+                const mode = message.mode === "duel" ? 0 : 1;
+                connectLobbyInternal(baseUrl, message.room, mode, message.capacity, profileName, paletteId, cosmeticId, message, id);
+                return;
+            }
+            if (message?.type === "error") throw new Error(typeof message.error === "string" ? message.error : "queue error");
+            throw new Error("unsupported queue message");
+        }).catch(error => fail(current(id) || session, error));
+    };
+    ws.onerror = () => { if (isCurrent(session)) fail(session, "could not reach public queue"); };
+    ws.onclose = () => { if (isCurrent(session) && !session.handingOff && session.status !== 2) fail(session, "public queue disconnected"); };
+    return id;
+}
+
+export function cloudflare_queue_phase(id) { return current(id)?.queuePhase ?? 0; }
+export function cloudflare_queue_count(id) { return current(id)?.queueCount ?? 0; }
+export function cloudflare_queue_target(id) { return current(id)?.queueTarget ?? 0; }
 
 export function cloudflare_lobby_local_id(id) { return current(id)?.localPlayerId || ""; }
 export function cloudflare_lobby_mode(id) { return current(id)?.mode ?? 0; }
@@ -1004,15 +1370,18 @@ export function cloudflare_lobby_close_epoch(id) {
 }
 export function cloudflare_close_lobby(id) {
     const session = current(id); if (!session) return;
-    networks.delete(id); window.clearTimeout(session.timeout);
+    networks.delete(id); window.clearTimeout(session.timeout); window.clearInterval(session.heartbeat);
     try { if (session.identityKey) sessionStorage.removeItem(session.identityKey); } catch (_) {}
-    for (const channel of session.channels.values()) channel.close();
-    for (const peer of session.peers.values()) peer.close();
+    if (session.queue && session.ws.readyState === WebSocket.OPEN && session.ticket) {
+        try { session.ws.send(JSON.stringify({ type: "cancel" })); } catch (_) {}
+    }
+    for (const channel of session.channels?.values?.() ?? []) channel.close();
+    for (const peer of session.peers?.values?.() ?? []) peer.close();
     session.ws.close(1000, "client closed");
 }
 
 export function cloudflare_telemetry(id, counter) { return current(id)?.telemetry?.[counter] ?? 0; }
-export function cloudflare_status(id) { return current(id)?.status ?? 2; }
+export function cloudflare_status(id) { const session=current(id); return session ? session.status : 0; }
 export function cloudflare_error(id) { return current(id)?.error || "network connection failed"; }
 export function cloudflare_player_index(id) { return current(id)?.playerIndex ?? 255; }
 export function cloudflare_seed_high(id) { return current(id)?.seedHigh ?? 0; }
@@ -1048,6 +1417,17 @@ extern "C" {
     fn cloudflare_send(id: u32, packet: &[u8]);
     fn cloudflare_receive(id: u32) -> wasm_bindgen::JsValue;
     fn cloudflare_close(id: u32);
+    fn cloudflare_connect_queue(
+        base_url: &str,
+        preference: &str,
+        target: u32,
+        profile_name: &str,
+        palette_id: u32,
+        cosmetic_id: u32,
+    ) -> u32;
+    fn cloudflare_queue_phase(id: u32) -> u32;
+    fn cloudflare_queue_count(id: u32) -> u32;
+    fn cloudflare_queue_target(id: u32) -> u32;
     fn cloudflare_connect_lobby(
         base_url: &str,
         room: &str,

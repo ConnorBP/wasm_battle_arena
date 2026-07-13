@@ -22,7 +22,7 @@ Queue sockets are long-lived and have no ordinary matchmaking timeout. Clients m
 {"type":"heartbeat","nonce":"optional bounded string"}
 ```
 
-The server responds with `heartbeat_ack`. A missing heartbeat/dead connection is removed by the watchdog. Clients may send exactly `{"type":"cancel"}`; cancellation and disconnect immediately remove the ticket. Message rate and size limits and a 256-entry pool cap protect the Durable Object.
+The server responds with `heartbeat_ack`. As arbitration changes, it also sends bounded UI status updates: `{"type":"status","status":"searching"}`, `{"type":"status","status":"holding_for_third"}`, or `{"type":"status","status":"forming","count":3,"target":8}`. A missing heartbeat/dead connection is removed by the watchdog. Clients may send exactly `{"type":"cancel"}`; cancellation and disconnect immediately remove the ticket. Message rate and size limits and a 256-entry pool cap protect the Durable Object.
 
 ## Deterministic arbitration
 

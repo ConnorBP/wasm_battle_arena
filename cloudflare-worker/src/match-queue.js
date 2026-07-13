@@ -113,7 +113,30 @@ export class MatchQueue extends DurableObject {
         socket.close(1008, removed.reason);
       }
     }
+    this.publishStatuses();
     await this.replayAssignments(now);
+  }
+
+  publishStatuses() {
+    for (const entry of Object.values(this.state.entries)) {
+      const socket = this.socket(entry.ticket);
+      if (!socket) continue;
+      let status = { type: "status", status: "searching" };
+      if (this.state.lock?.tickets.includes(entry.ticket)) {
+        status = {
+          type: "status", status: "forming",
+          count: this.state.lock.tickets.length, target: this.state.lock.target,
+        };
+      } else if (entry.preference === "any" && entry.anyHoldDeadline !== null) {
+        status = { type: "status", status: "holding_for_third" };
+      }
+      const encoded = JSON.stringify(status);
+      const attachment = socket.deserializeAttachment() ?? {};
+      if (attachment.queueStatus === encoded) continue;
+      attachment.queueStatus = encoded;
+      socket.serializeAttachment(attachment);
+      this.send(socket, status);
+    }
   }
 
   async replayAssignments(now) {
