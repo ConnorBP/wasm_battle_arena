@@ -755,6 +755,7 @@ pub fn process_deaths(
     let outcome = round_outcome(bootstrap.mode, &roster, &eliminated, &progress.disconnected);
     if matches!(outcome, RoundOutcome::Complete { .. }) {
         progress.resolved = Some(outcome);
+        progress.resolved_frame = Some(resolved_frame);
         next_state.set(RollbackState::RoundEnd);
     }
 }

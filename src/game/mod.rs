@@ -89,7 +89,11 @@ pub struct RoundProgress {
     pub eliminated: Vec<Elimination>,
     pub disconnected: Vec<session::PlayerId>,
     pub resolved: Option<RoundOutcome>,
+    pub resolved_frame: Option<u32>,
 }
+
+#[derive(Resource, Default)]
+pub struct ReportedOutcome(pub Option<(u32, u32, u32)>);
 
 impl RoundProgress {
     pub fn record_elimination(&mut self, elimination: Elimination) {
@@ -358,6 +362,7 @@ pub fn run() {
     .init_resource::<PlaybackStates>()
     .init_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
     .init_resource::<RoundProgress>()
+    .init_resource::<ReportedOutcome>()
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()
@@ -393,6 +398,8 @@ pub fn run() {
             update_volume,
 
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
+            report_confirmed_outcome.run_if(in_state(GameState::InGame)),
+            watch_lobby_epoch.run_if(in_state(GameState::InGame)),
             (player_look, camera_follow, ears_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
         ),
     )

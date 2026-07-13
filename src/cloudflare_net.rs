@@ -167,6 +167,22 @@ impl CloudflareSocket {
         None
     }
 
+    pub fn report_round(&self, epoch: u32, round: u32, winners: &[PlayerId]) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            let array = js_sys::Array::new();
+            for winner in winners { array.push(&wasm_bindgen::JsValue::from_str(&format!("{:032x}", winner.0))); }
+            return cloudflare_lobby_report(self.transport_id, epoch, round, array.into());
+        }
+        false
+    }
+
+    pub fn lobby_epoch(&self) -> Option<u32> {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 { return Some(cloudflare_lobby_epoch(self.transport_id)); }
+        None
+    }
+
     pub fn take_transport(&mut self) -> Self {
         Self {
             transport_id: std::mem::take(&mut self.transport_id),
@@ -574,6 +590,18 @@ export function cloudflare_lobby_receive(id) {
     const item = current(id)?.inbox.shift();
     return item ? [item.from, item.packet] : null;
 }
+export function cloudflare_lobby_report(id, epoch, round, winners) {
+    const session = current(id);
+    if (!session || session.ws.readyState !== WebSocket.OPEN || epoch !== session.epoch) return false;
+    const winnerSet = new Set(Array.from(winners));
+    const outcomes = session.roster.map((entry, index) => ({
+        playerId: entry.playerId,
+        placement: winnerSet.has(entry.playerId) ? 1 : index + 1,
+        scoreDelta: winnerSet.has(entry.playerId) ? 1 : 0,
+    }));
+    try { session.ws.send(JSON.stringify({ type: "report", epoch, round, outcomes })); return true; }
+    catch (error) { fail(session, error); return false; }
+}
 export function cloudflare_close_lobby(id) {
     const session = current(id); if (!session) return;
     network = null; window.clearTimeout(session.timeout);
@@ -624,6 +652,7 @@ extern "C" {
     fn cloudflare_lobby_roster_len(id: u32) -> u32;
     fn cloudflare_lobby_roster_id(id: u32, index: u32) -> String;
     fn cloudflare_lobby_send(id: u32, to: &str, packet: &[u8]);
+    fn cloudflare_lobby_report(id: u32, epoch: u32, round: u32, winners: wasm_bindgen::JsValue) -> bool;
     fn cloudflare_lobby_receive(id: u32) -> wasm_bindgen::JsValue;
     fn cloudflare_close_lobby(id: u32);
 }

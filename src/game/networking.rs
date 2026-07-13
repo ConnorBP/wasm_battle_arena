@@ -110,6 +110,7 @@ pub fn start_sync_test(
     commands.insert_resource(SoundIdSeed::new(SYNC_TEST_SEED, 2));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
     commands.insert_resource(super::RoundProgress::default());
+    commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
     commands.insert_resource(Session::SyncTest(session));
     commands.insert_resource(GameSeed(SYNC_TEST_SEED));
@@ -283,10 +284,40 @@ fn start_lobby_session(
     commands.insert_resource(SoundIdSeed::new(info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
     commands.insert_resource(super::RoundProgress::default());
+    commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
     commands.insert_resource(Session::P2P(session));
     commands.insert_resource(GameSeed(info.seed));
     next_state.set(GameState::InGame);
+}
+
+pub fn report_confirmed_outcome(
+    session: Res<Session<GgrsConfig>>,
+    socket: Res<CloudflareSocket>,
+    bootstrap: Option<Res<RoundBootstrap>>,
+    progress: Res<super::RoundProgress>,
+    mut reported: ResMut<super::ReportedOutcome>,
+) {
+    let (Some(bootstrap), Some(outcome), Some(frame)) = (bootstrap, progress.resolved.as_ref(), progress.resolved_frame) else { return; };
+    let Session::P2P(p2p) = session.as_ref() else { return; };
+    if p2p.confirmed_frame() < frame as i32 { return; }
+    let fingerprint = (bootstrap.epoch.0, bootstrap.round.0, frame);
+    if reported.0 == Some(fingerprint) { return; }
+    if socket.report_round(bootstrap.epoch.0, bootstrap.round.0, outcome.point_winners()) {
+        reported.0 = Some(fingerprint);
+    }
+}
+
+pub fn watch_lobby_epoch(
+    socket: Res<CloudflareSocket>,
+    bootstrap: Option<Res<RoundBootstrap>>,
+    progress: Res<super::RoundProgress>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    let (Some(current), Some(server_epoch)) = (bootstrap, socket.lobby_epoch()) else { return; };
+    if progress.resolved.is_some() && server_epoch > current.epoch.0 {
+        next_state.set(GameState::Matchmaking);
+    }
 }
 
 pub fn log_ggrs_events(

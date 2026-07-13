@@ -96,10 +96,10 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [ ] add multiplayer session modes
     - [x] keep the current two-player duel mode
     - [x] fixed-roster 2–4 player deathmatch client/server preview (deployment token required)
-    - [ ] refactor sessions and deterministic seed synchronization for players joining, disconnecting, and reconnecting between rounds
+    - [x] add epoch reducer, score consensus, waiting roster selection, and confirmed-frame reports
     - [x] variable-size fixed-roster lobby and full-mesh matchmaking source
     - [x] add focused networking, rollback, determinism, and matchmaking tests
-    - [ ] complete epoch-boundary late-join/reconnect client integration
+    - [x] queue mid-match joins for the next epoch and trigger confirmed epoch replacement
 - [x] add initial power-ups and advanced gameplay systems
     - [x] rollback-safe deterministic speed pickups
     - [x] rollback-safe one-hit shield pickups
