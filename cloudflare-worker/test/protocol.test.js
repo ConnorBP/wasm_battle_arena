@@ -9,6 +9,8 @@ import {
   randomHex,
   routePath,
   validateSignalData,
+  parseEpochClientMessage,
+  parseEpochLobbyQuery,
 } from "../src/protocol.js";
 
 test("routePath preserves the legacy /match route and adds /lobby", () => {
@@ -52,6 +54,13 @@ test("directed signal schema accepts bounded SDP and ICE only", () => {
   }).ok, false);
   assert.equal(parseClientMessage(JSON.stringify({ type: "signal", to: target, data: {}, extra: 1 })).ok, false);
   assert.equal(parseClientMessage("not-json").ok, false);
+});
+
+test("epoch protocol validates profiles and reports", () => {
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams("protocol=3&mode=deathmatch&capacity=4")).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"profile", name:"Ghost", paletteId:1, cosmeticId:2 })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"report", epoch:0, round:0, outcomes:[] })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"profile", name:"", paletteId:1, cosmeticId:2 })).ok, false);
 });
 
 test("rate limiter resets after a one-second window", () => {

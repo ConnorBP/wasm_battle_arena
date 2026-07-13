@@ -1,4 +1,5 @@
 export const PROTOCOL_VERSION = 2;
+export const EPOCH_PROTOCOL_VERSION = 3;
 export const PLAYER_ID_PATTERN = /^[0-9a-f]{32}$/i;
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 export const MAX_MESSAGES_PER_SECOND = 60;
@@ -17,6 +18,13 @@ export function routePath(pathname) {
 
 export function validRoomName(room) {
   return ROOM_PATTERN.test(room);
+}
+
+export function parseEpochLobbyQuery(searchParams) {
+  const copy = new URLSearchParams(searchParams);
+  if (copy.getAll("protocol").length !== 1 || copy.get("protocol") !== "3") return fail("protocol must be 3");
+  copy.delete("protocol");
+  return parseLobbyQuery(copy);
 }
 
 export function parseLobbyQuery(searchParams) {
@@ -65,6 +73,26 @@ export function parseLobbyQuery(searchParams) {
       reconnectToken: rawToken?.toLowerCase() ?? null,
     },
   };
+}
+
+export function parseEpochClientMessage(text) {
+  let message;
+  try { message = JSON.parse(text); } catch { return fail("invalid JSON"); }
+  if (!isRecord(message) || typeof message.type !== "string") return fail("invalid message");
+  if (message.type === "ready" && onlyKeys(message, ["type"])) return { ok: true, value: message };
+  if (message.type === "profile" && onlyKeys(message, ["type", "name", "paletteId", "cosmeticId"])) {
+    if (typeof message.name !== "string" || byteLength(message.name) === 0 || byteLength(message.name) > 24 || /[\u0000-\u001f\u007f]/.test(message.name) || message.name !== message.name.trim() || !Number.isInteger(message.paletteId) || message.paletteId < 0 || message.paletteId > 3 || !Number.isInteger(message.cosmeticId) || message.cosmeticId < 0 || message.cosmeticId > 3) return fail("invalid profile");
+    return { ok: true, value: message };
+  }
+  if (message.type === "report" && onlyKeys(message, ["type", "epoch", "round", "outcomes"])) {
+    if (!Number.isInteger(message.epoch) || message.epoch < 0 || !Number.isInteger(message.round) || message.round < 0 || !Array.isArray(message.outcomes)) return fail("invalid report");
+    return { ok: true, value: message };
+  }
+  if (message.type === "signal" && onlyKeys(message, ["type", "epoch", "to", "data"])) {
+    if (!Number.isInteger(message.epoch) || message.epoch < 0) return fail("invalid signal epoch");
+    return parseClientMessage(JSON.stringify({ type: "signal", to: message.to, data: message.data })).ok ? { ok: true, value: message } : fail("invalid signal");
+  }
+  return parseClientMessage(text);
 }
 
 export function parseClientMessage(text) {

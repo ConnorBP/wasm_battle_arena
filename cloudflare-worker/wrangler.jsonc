@@ -3,22 +3,16 @@
   "name": "ghost-battle-signaling",
   "main": "src/index.js",
   "compatibility_date": "2026-07-01",
-  "ratelimits": [
-    {
-      "name": "MATCHMAKING_RATE_LIMITER",
-      "namespace_id": "1001",
-      "simple": { "limit": 20, "period": 60 }
-    }
-  ],
-  "durable_objects": {
-    "bindings": [
-      { "name": "MATCHMAKER", "class_name": "Matchmaker" },
-      { "name": "LOBBY", "class_name": "Lobby" }
-    ]
-  },
+  "ratelimits": [{ "name": "MATCHMAKING_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }],
+  "durable_objects": { "bindings": [
+    { "name": "MATCHMAKER", "class_name": "Matchmaker" },
+    { "name": "LOBBY", "class_name": "Lobby" },
+    { "name": "EPOCH_LOBBY", "class_name": "EpochLobby" }
+  ] },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Matchmaker"] },
-    { "tag": "v2", "new_sqlite_classes": ["Lobby"] }
+    { "tag": "v2", "new_sqlite_classes": ["Lobby"] },
+    { "tag": "v3", "new_sqlite_classes": ["EpochLobby"] }
   ],
   "vars": { "ALLOWED_ORIGINS": "https://ghost.segfault.site" }
 }

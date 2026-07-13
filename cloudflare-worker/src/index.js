@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { routePath } from "./protocol.js";
 export { Lobby } from "./lobby.js";
+export { EpochLobby } from "./epoch-lobby.js";
 
 const MAX_CLIENTS = 64;
 const MAX_MESSAGE_BYTES = 16 * 1024;
@@ -33,7 +34,9 @@ export default {
     const { success } = await env.MATCHMAKING_RATE_LIMITER.limit({ key: rateKey });
     if (!success) return new Response("Too many matchmaking attempts", { status: 429 });
 
-    const binding = route.kind === "match" ? env.MATCHMAKER : env.LOBBY;
+    const binding = route.kind === "match"
+      ? env.MATCHMAKER
+      : url.searchParams.get("protocol") === "3" ? env.EPOCH_LOBBY : env.LOBBY;
     return binding.get(binding.idFromName(route.room)).fetch(request);
   },
 };
