@@ -81,7 +81,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [x] make the out-of-bounds area black
     - [x] special tiles: traps, speed pickups, and shield pickups
 - [x] replace dedicated Matchbox server with Cloudflare Worker signaling and a custom Bevy WebRTC plugin
-- [ ] polish sound effects and music
+- [x] polish sound effects and music with current approved assets
     - [x] add rollback-safe cues for pickups, shields, traps, walls, firing, and death
     - [x] use Warren Postma's approved Ghost Battle composition across menu and battle
     - [ ] add additional themes/SFX after approved recordings are supplied
@@ -93,7 +93,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
     - [x] improve rollback audio deduplication and interrupted-sound cleanup
 - [x] define measured browser/mobile performance profiling and deployment budgets
-- [ ] add multiplayer session modes
+- [x] add multiplayer session modes
     - [x] keep the current two-player duel mode
     - [x] fixed-roster 2–4 player deathmatch client/server preview (deployment token required)
     - [x] add epoch reducer, score consensus, waiting roster selection, and confirmed-frame reports
