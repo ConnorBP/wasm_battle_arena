@@ -137,7 +137,7 @@ impl CasualProfile {
             palette_id: fields[5]
                 .parse::<u8>()
                 .ok()
-                .filter(|id| *id < 4)
+                .filter(|id| (*id as usize) < super::session::MAX_LOBBY_PLAYERS)
                 .unwrap_or(defaults.palette_id),
             lifetime_points: bounded_counter(fields[6]),
             matches_played: bounded_counter(fields[7]),
@@ -224,7 +224,7 @@ impl CasualProfile {
         self.music_volume = finite_clamped_volume(self.music_volume, Self::default().music_volume);
         self.effects_volume =
             finite_clamped_volume(self.effects_volume, Self::default().effects_volume);
-        if self.palette_id >= 4 {
+        if self.palette_id as usize >= super::session::MAX_LOBBY_PLAYERS {
             self.palette_id = 0;
         }
         self.lifetime_points = self.lifetime_points.min(MAX_COUNTER);
@@ -313,7 +313,7 @@ pub fn sync_persistent_preferences(
     mut stored: ResMut<CasualProfile>,
 ) {
     let name = canonical_name(&pending.name);
-    let palette = if pending.palette_id < 4 {
+    let palette = if (pending.palette_id as usize) < super::session::MAX_LOBBY_PLAYERS {
         pending.palette_id
     } else {
         0

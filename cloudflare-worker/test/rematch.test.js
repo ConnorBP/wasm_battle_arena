@@ -64,6 +64,33 @@ test("deny timeout disconnect policy releases whole roster to main menu", () => 
   assert.equal(expireLifecycleRematch(timed, 10_100).reason, "timeout");
 });
 
+test("terminal rematch decisions are idempotent without recreating an epoch", () => {
+  const acceptedState = ended(2); const acceptedNonce = "9".repeat(32);
+  requestLifecycleRematch(acceptedState, ids[0], 1, acceptedNonce, 10);
+  const accepted = respondLifecycleRematch(acceptedState, ids[1], 1, acceptedNonce, true);
+  assert.ok(accepted.next);
+  const duplicate = respondLifecycleRematch(acceptedState, ids[1], 1, acceptedNonce, true);
+  assert.equal(duplicate.type, "accepted");
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.next, undefined);
+  assert.equal(acceptedState.epoch, 1);
+
+  const deniedState = ended(2); const deniedNonce = "8".repeat(32);
+  requestLifecycleRematch(deniedState, ids[0], 1, deniedNonce, 10);
+  denyLifecycleRematch(deniedState, "denied");
+  assert.equal(deniedState.matchGeneration, 1);
+  assert.deepEqual(deniedState.lastRoster, []);
+  const late = respondLifecycleRematch(deniedState, ids[1], 1, deniedNonce, true);
+  assert.equal(late.type, "denied");
+  assert.equal(late.duplicate, true);
+});
+
+test("rematch rejects a disconnected immutable roster", () => {
+  const state = ended(2);
+  state.players[ids[1]].connected = false;
+  assert.equal(requestLifecycleRematch(state, ids[0], 1, "7".repeat(32), 10).code, "stale_rematch");
+});
+
 test("exit affects current immutable roster and seed advance is deterministic", () => {
   const state = ended(4); const roster = [...state.lastRoster];
   const result = leaveLifecycleMatch(state, roster[0]);

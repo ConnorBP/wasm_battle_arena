@@ -512,8 +512,12 @@ pub fn poll_lobby_control(
                     required,
                 };
             }
-            LobbyControlEvent::RematchAccepted { .. } => {
-                *flow = super::RematchFlow::Idle;
+            LobbyControlEvent::RematchAccepted { generation, nonce } => {
+                if matches!(&*flow, super::RematchFlow::Pending { generation: pending_generation, nonce: pending_nonce, .. }
+                    if *pending_generation == generation && *pending_nonce == nonce)
+                {
+                    *flow = super::RematchFlow::Idle;
+                }
                 // The following immutable start has a larger epoch and causes
                 // watch_lobby_epoch to tear down/recreate GGRS.
             }
@@ -522,6 +526,7 @@ pub fn poll_lobby_control(
                 toasts.error(format!("Match ended: {reason}").into());
                 next_state.set(GameState::MainMenu);
             }
+            LobbyControlEvent::Ignored => {}
         }
     }
 }

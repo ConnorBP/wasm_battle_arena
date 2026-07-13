@@ -52,7 +52,7 @@ export function createLifecycleState(mode, capacity, now) {
     matchSeed: null,
     matchOver: false,
     rematch: null,
-    rematchDecision: null,
+    lastRematchDecision: null,
   };
 }
 
@@ -284,7 +284,7 @@ function finishRematch(state) {
   state.active = { epoch: state.epoch, round: 0, seed: state.matchSeed, reason: "rematch_accepted", roster, proposal: null, reports: {} };
   state.matchOver = false;
   const result = { type: "accepted", generation: proposal.generation, nonce: proposal.nonce, roster: [...state.lastRoster], next: state.active };
-  state.rematchDecision = { ...result, next: null };
+  state.lastRematchDecision = { type: "accepted", generation: result.generation, nonce: result.nonce };
   state.rematch = null;
   return result;
 }
@@ -296,8 +296,12 @@ function finishRematch(state) {
  * first; the first nonce becomes authoritative.
  */
 export function requestLifecycleRematch(state, playerId, generation, nonce, now) {
-  if (state.rematchDecision?.generation === generation) return { ...state.rematchDecision, duplicate: true };
-  if (!state.matchOver || generation !== state.matchGeneration + 1 || !state.lastRoster.includes(playerId)) return { type: "error", code: "stale_rematch" };
+  const terminal = state.lastRematchDecision ?? state.rematchDecision;
+  if (terminal?.generation === generation && terminal.nonce === nonce) return { ...terminal, duplicate: true };
+  if (generation <= state.matchGeneration) return { type: "error", code: "stale_rematch" };
+  const ids = rematchRoster(state);
+  if (!state.matchOver || generation !== state.matchGeneration + 1 || !state.lastRoster.includes(playerId)
+      || ids.length !== state.lastRoster.length || ids.length !== state.capacity) return { type: "error", code: "stale_rematch" };
   if (state.rematch?.deadline <= now) return denyLifecycleRematch(state, "timeout");
   if (!state.rematch) state.rematch = { generation, nonce, deadline: now + REMATCH_DEADLINE_MS, requestedBy: playerId, accepted: [] };
   if (state.rematch.generation !== generation) return { type: "error", code: "stale_rematch" };
@@ -308,7 +312,9 @@ export function requestLifecycleRematch(state, playerId, generation, nonce, now)
 }
 
 export function respondLifecycleRematch(state, playerId, generation, nonce, accept) {
-  if (state.rematchDecision?.generation === generation) return { ...state.rematchDecision, duplicate: true };
+  const terminal = state.lastRematchDecision ?? state.rematchDecision;
+  if (terminal?.generation === generation && terminal.nonce === nonce) return { ...terminal, duplicate: true };
+  if (generation <= state.matchGeneration) return { type: "error", code: "stale_rematch" };
   const proposal = state.rematch;
   if (!proposal || proposal.generation !== generation || proposal.nonce !== nonce || !state.lastRoster.includes(playerId)) return { type: "error", code: "stale_rematch" };
   if (!accept) return denyLifecycleRematch(state, "denied");
@@ -323,11 +329,13 @@ export function denyLifecycleRematch(state, reason) {
   const proposal = state.rematch;
   if (!proposal) return { type: "error", code: "no_rematch" };
   const result = { type: "denied", generation: proposal.generation, nonce: proposal.nonce, reason, roster: [...state.lastRoster] };
-  state.rematchDecision = result;
+  state.matchGeneration = proposal.generation;
+  state.lastRematchDecision = result;
   state.rematch = null;
   state.matchOver = false;
   state.active = null;
   for (const id of state.lastRoster) if (state.players[id]) state.players[id].ready = false;
+  state.lastRoster = [];
   return result;
 }
 

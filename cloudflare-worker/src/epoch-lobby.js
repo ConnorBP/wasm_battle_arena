@@ -95,7 +95,6 @@ export class EpochLobby extends DurableObject {
     // Enforce persisted wall-clock rematch expiry before every message, not
     // only when an alarm happens to wake the Durable Object.
     await this.expireRematch(Date.now());
-    await this.persist();
     if (typeof raw !== "string" || new TextEncoder().encode(raw).byteLength > MAX_MESSAGE_BYTES) return this.violation(socket, "invalid message");
     const attachment = socket.deserializeAttachment();
     if (!attachment?.playerId || attachment.superseded) return this.violation(socket, "invalid session");
@@ -137,7 +136,7 @@ export class EpochLobby extends DurableObject {
       if (result.type === "pending") this.broadcast({ type: "rematch_pending", generation: result.generation, nonce: result.nonce, requestedBy: result.requestedBy, deadline: result.deadline, accepted: result.accepted, required: result.required });
       else if (result.type === "accepted") {
         this.broadcast({ type: "rematch_accepted", generation: result.generation, nonce: result.nonce });
-        this.broadcastStart(result.next);
+        if (!result.duplicate && result.next) this.broadcastStart(result.next);
       } else if (result.type === "denied") this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
       else this.sendError(socket, result.code);
       return;
@@ -190,13 +189,12 @@ export class EpochLobby extends DurableObject {
     if (!attachment?.playerId || attachment.superseded || this.socket(attachment.playerId, socket)) return;
     const player = this.state.players[attachment.playerId];
     if (player) {
-      if (this.state.rematch && this.state.lastRoster.includes(player.playerId)) {
-        const result = denyRematch(this.state, "disconnect");
-        if (result.type === "denied") this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
-      }
       player.connected = false;
       player.reconnectUntil = Date.now() + RECONNECT_GRACE_MS;
+      let denial = null;
+      if (this.state.rematch && this.state.lastRoster.includes(player.playerId)) denial = denyRematch(this.state, "participant_disconnected");
       await this.persist();
+      if (denial?.type === "denied") this.broadcast({ type: "rematch_denied", generation: denial.generation, nonce: denial.nonce, reason: denial.reason, destination: "main_menu" });
       this.broadcastPresence(player);
     }
   }
@@ -219,7 +217,10 @@ export class EpochLobby extends DurableObject {
 
   async expireRematch(now) {
     const result = expireRematch(this.state, now);
-    if (result?.type === "denied") this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
+    if (result?.type === "denied") {
+      await this.persist();
+      this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
+    }
   }
 
   startMessage(active) {

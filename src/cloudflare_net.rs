@@ -33,7 +33,9 @@ pub enum LobbyControlEvent {
     },
     RematchAccepted {
         generation: u32,
+        nonce: String,
     },
+    Ignored,
     ReturnToMenu {
         reason: String,
     },
@@ -319,6 +321,9 @@ impl CloudflareSocket {
                 }),
                 "rematch_accepted" => Some(LobbyControlEvent::RematchAccepted {
                     generation: number("generation")? as u32,
+                    nonce: js_sys::Reflect::get(&value, &"nonce".into())
+                        .ok()?
+                        .as_string()?,
                 }),
                 "rematch_denied" | "match_exit" => Some(LobbyControlEvent::ReturnToMenu {
                     reason: js_sys::Reflect::get(&value, &"reason".into())
@@ -326,7 +331,7 @@ impl CloudflareSocket {
                         .and_then(|v| v.as_string())
                         .unwrap_or_else(|| "match ended".into()),
                 }),
-                _ => None,
+                _ => Some(LobbyControlEvent::Ignored),
             };
         }
         #[cfg(not(target_arch = "wasm32"))]

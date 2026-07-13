@@ -503,6 +503,10 @@ fn palette_color(id: u8) -> Color32 {
         Color32::from_rgb(38, 64, 204),
         Color32::from_rgb(51, 191, 77),
         Color32::from_rgb(191, 64, 191),
+        Color32::from_rgb(242, 166, 38),
+        Color32::from_rgb(26, 204, 204),
+        Color32::from_rgb(230, 115, 166),
+        Color32::from_rgb(166, 191, 51),
     ]
     .get(id as usize)
     .copied()
