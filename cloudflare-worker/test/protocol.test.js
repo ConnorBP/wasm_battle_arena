@@ -28,9 +28,13 @@ test("lobby query validates mode, capacity, and reconnect pair", () => {
   });
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=duel&capacity=3")).ok, false);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=1")).ok, false);
-  assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=3")).ok, false);
+  assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=2")).ok, false);
+  assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=3")).ok, true);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=4")).ok, true);
-  assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=5")).ok, false);
+  for (let capacity = 3; capacity <= 8; capacity += 1) {
+    assert.equal(parseLobbyQuery(new URLSearchParams(`mode=deathmatch&capacity=${capacity}`)).ok, true);
+  }
+  assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=9")).ok, false);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=duel&capacity=2&playerId=abc")).ok, false);
   assert.equal(parseLobbyQuery(new URLSearchParams(
     `mode=duel&capacity=2&playerId=${"a".repeat(32)}&reconnectToken=${"B".repeat(32)}`,
@@ -66,6 +70,12 @@ test("epoch protocol validates profiles and reports", () => {
   ] })).ok, true);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"report", epoch:0, round:0, outcomes:[] })).ok, false);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"profile", name:"", paletteId:1, cosmeticId:2 })).ok, false);
+  const nonce = "f".repeat(32);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"rematch_request", generation:1, nonce })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"rematch_response", generation:1, nonce, accept:false })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"leave" })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"requeue" })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"rematch_request", generation:0, nonce })).ok, false);
 });
 
 test("epoch signals are always epoch-scoped and never downgrade to v2", () => {

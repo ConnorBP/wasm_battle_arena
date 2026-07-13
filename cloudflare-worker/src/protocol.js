@@ -48,8 +48,8 @@ export function parseLobbyQuery(searchParams) {
   if (mode === "duel" && capacity !== 2) {
     return fail("duel capacity must be 2");
   }
-  if (mode === "deathmatch" && capacity !== 4) {
-    return fail("deathmatch capacity must be 4");
+  if (mode === "deathmatch" && (capacity < 3 || capacity > 8)) {
+    return fail("deathmatch capacity must be between 3 and 8");
   }
 
   const rawPlayerId = searchParams.get("playerId");
@@ -80,16 +80,25 @@ export function parseEpochClientMessage(text) {
   try { message = JSON.parse(text); } catch { return fail("invalid JSON"); }
   if (!isRecord(message) || typeof message.type !== "string") return fail("invalid message");
   if (message.type === "ready" && onlyKeys(message, ["type"])) return { ok: true, value: message };
+  if ((message.type === "leave" || message.type === "requeue") && onlyKeys(message, ["type"])) return { ok: true, value: message };
+  if (message.type === "rematch_request" && onlyKeys(message, ["type", "generation", "nonce"])) {
+    if (!Number.isSafeInteger(message.generation) || message.generation < 1 || typeof message.nonce !== "string" || !PLAYER_ID_PATTERN.test(message.nonce)) return fail("invalid rematch request");
+    return { ok: true, value: { ...message, nonce: message.nonce.toLowerCase() } };
+  }
+  if (message.type === "rematch_response" && onlyKeys(message, ["type", "generation", "nonce", "accept"])) {
+    if (!Number.isSafeInteger(message.generation) || message.generation < 1 || typeof message.nonce !== "string" || !PLAYER_ID_PATTERN.test(message.nonce) || typeof message.accept !== "boolean") return fail("invalid rematch response");
+    return { ok: true, value: { ...message, nonce: message.nonce.toLowerCase() } };
+  }
   if (message.type === "profile" && onlyKeys(message, ["type", "name", "paletteId", "cosmeticId"])) {
     if (typeof message.name !== "string" || byteLength(message.name) === 0 || byteLength(message.name) > 24 || /[\u0000-\u001f\u007f]/.test(message.name) || message.name !== message.name.trim() || !Number.isInteger(message.paletteId) || message.paletteId < 0 || message.paletteId > 3 || !Number.isInteger(message.cosmeticId) || message.cosmeticId < 0 || message.cosmeticId > 3) return fail("invalid profile");
     return { ok: true, value: message };
   }
   if (message.type === "report" && onlyKeys(message, ["type", "epoch", "round", "outcomes"])) {
-    if (!Number.isInteger(message.epoch) || message.epoch < 0 || !Number.isInteger(message.round) || message.round < 0 || !Array.isArray(message.outcomes) || message.outcomes.length < 2 || message.outcomes.length > 4) return fail("invalid report");
+    if (!Number.isInteger(message.epoch) || message.epoch < 0 || !Number.isInteger(message.round) || message.round < 0 || !Array.isArray(message.outcomes) || message.outcomes.length < 2 || message.outcomes.length > 8) return fail("invalid report");
     for (const outcome of message.outcomes) {
       if (!isRecord(outcome) || !onlyKeys(outcome, ["playerId", "placement", "scoreDelta"]) ||
           typeof outcome.playerId !== "string" || !PLAYER_ID_PATTERN.test(outcome.playerId) ||
-          !Number.isInteger(outcome.placement) || outcome.placement < 1 || outcome.placement > 4 ||
+          !Number.isInteger(outcome.placement) || outcome.placement < 1 || outcome.placement > 8 ||
           !Number.isSafeInteger(outcome.scoreDelta) || outcome.scoreDelta < 0 || outcome.scoreDelta > 1_000_000) return fail("invalid report outcome");
     }
     return { ok: true, value: { ...message, outcomes: message.outcomes.map((outcome) => ({ ...outcome, playerId: outcome.playerId.toLowerCase() })) } };

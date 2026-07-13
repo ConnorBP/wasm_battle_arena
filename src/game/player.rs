@@ -432,11 +432,15 @@ pub fn spawn_players(
     // Domain-separate the next round's map seed from spawn selection.
     seed.0 = splitmix64(seed.0 ^ 0x7370_6177_6e5f_706f);
 
-    const COLORS: [Color; 4] = [
+    const COLORS: [Color; 8] = [
         Color::rgb(0.8, 0.2, 0.2),
         Color::rgb(0.15, 0.25, 0.8),
         Color::rgb(0.2, 0.75, 0.3),
         Color::rgb(0.75, 0.25, 0.75),
+        Color::rgb(0.95, 0.65, 0.15),
+        Color::rgb(0.1, 0.8, 0.8),
+        Color::rgb(0.9, 0.45, 0.65),
+        Color::rgb(0.65, 0.75, 0.2),
     ];
     for entry in &bootstrap.roster {
         let profile = bootstrap
@@ -458,7 +462,7 @@ pub fn spawn_players(
             entry.player_id,
             if look == Vec2::ZERO { Vec2::X } else { look },
             world.extend(100.),
-            COLORS[profile.palette_id as usize],
+            COLORS[(profile.palette_id as usize + entry.handle / 4 * 4) % COLORS.len()],
             profile.cosmetic_id,
             &profile.name,
         );
@@ -576,7 +580,7 @@ fn generate_spawn_positions(
     count: usize,
 ) -> Vec<(u32, u32)> {
     const SPAWN_SELECTION_DOMAIN: u64 = 0x7370_6177_6e5f_7365;
-    assert!((2..=4).contains(&count));
+    assert!((2..=8).contains(&count));
     let mut pairs = Vec::new();
 
     for x in 0..MAP_SIZE {
@@ -602,31 +606,51 @@ fn generate_spawn_positions(
     };
     let mut positions = vec![first[0], first[1]];
 
-    if count == 3 {
-        positions.push(((MAP_SIZE / 2) as u32, (MAP_SIZE / 2) as u32));
-    } else if count == 4 {
-        let min_distance = (MAP_SIZE / 4) as u32;
-        let second_candidates: Vec<_> = pairs
+    let pair_target = count / 2;
+    while positions.len() / 2 < pair_target {
+        let pair_number = positions.len() / 2;
+        let mut candidates: Vec<_> = pairs
             .iter()
             .copied()
-            .filter(|pair| {
-                pair.iter().all(|candidate| {
-                    first.iter().all(|existing| {
+            .filter(|pair| !pair.iter().any(|candidate| positions.contains(candidate)))
+            .collect();
+        candidates.sort_by_key(|pair| {
+            let minimum = pair
+                .iter()
+                .flat_map(|candidate| {
+                    positions.iter().map(move |existing| {
                         candidate.0.abs_diff(existing.0) + candidate.1.abs_diff(existing.1)
-                            >= min_distance
                     })
                 })
-            })
-            .collect();
-        let second = if second_candidates.is_empty() {
-            [(0, (MAP_SIZE - 1) as u32), ((MAP_SIZE - 1) as u32, 0)]
-        } else {
-            second_candidates[(splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN ^ 1)
-                % second_candidates.len() as u64) as usize]
-        };
-        positions.extend(second);
+                .min()
+                .unwrap_or(0);
+            (
+                std::cmp::Reverse(minimum),
+                splitmix64(
+                    base_seed
+                        ^ SPAWN_SELECTION_DOMAIN
+                        ^ pair_number as u64
+                        ^ ((pair[0].0 as u64) << 32)
+                        ^ pair[0].1 as u64,
+                ),
+            )
+        });
+        let next = candidates.first().copied().unwrap_or([
+            (
+                pair_number as u32,
+                (MAP_SIZE - 1) as u32 - pair_number as u32,
+            ),
+            (
+                (MAP_SIZE - 1) as u32 - pair_number as u32,
+                pair_number as u32,
+            ),
+        ]);
+        positions.extend(next);
     }
-
+    if count % 2 == 1 {
+        positions.push(((MAP_SIZE / 2) as u32, (MAP_SIZE / 2) as u32));
+    }
+    positions.truncate(count);
     positions
 }
 
@@ -728,7 +752,7 @@ mod spawn_tests {
     #[test]
     fn spawn_generation_is_deterministic_unique_and_symmetric() {
         let map = empty_map();
-        for count in 2..=4 {
+        for count in 2..=8 {
             let first = generate_spawn_positions(77, &map, count);
             assert_eq!(first, generate_spawn_positions(77, &map, count));
             assert_eq!(first.len(), count);
@@ -764,7 +788,7 @@ mod spawn_tests {
         );
 
         let generated = Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(91);
-        for count in 2..=4 {
+        for count in 2..=8 {
             assert!(generate_spawn_positions(91, &generated, count)
                 .iter()
                 .all(|&(x, y)| generated.cells[x as usize][y as usize] == CellType::Empty));

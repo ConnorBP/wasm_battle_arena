@@ -8,6 +8,12 @@ import {
   startLifecycleRound,
   submitLifecycleReport,
   validateEpochSignal,
+  requestLifecycleRematch,
+  respondLifecycleRematch,
+  expireLifecycleRematch,
+  denyLifecycleRematch,
+  leaveLifecycleMatch,
+  requeueLifecyclePlayer,
 } from "../vendor/cloudflare-game-common/lifecycle.js";
 
 export const createEpochState = createLifecycleState;
@@ -17,3 +23,9 @@ export const startNextEpoch = startLifecycleRound;
 export const submitReport = submitLifecycleReport;
 export const abort = abortLifecycleRound;
 export const validateSignal = validateEpochSignal;
+export const requestRematch = requestLifecycleRematch;
+export const respondRematch = respondLifecycleRematch;
+export const expireRematch = expireLifecycleRematch;
+export const denyRematch = denyLifecycleRematch;
+export const leaveMatch = leaveLifecycleMatch;
+export const requeuePlayer = requeueLifecyclePlayer;

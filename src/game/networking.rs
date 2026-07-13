@@ -44,9 +44,9 @@ impl Default for MatchmakingRoom {
     fn default() -> Self {
         Self {
             private_code: None,
-            mode: super::session::GameMode::Duel,
-            capacity: 2,
-            use_lobby_v2: false,
+            mode: super::session::GameMode::Deathmatch,
+            capacity: 8,
+            use_lobby_v2: true,
         }
     }
 }
@@ -98,7 +98,7 @@ pub fn start_cloudflare_socket(
     if room.use_lobby_v2 {
         let (mode, capacity) = match room.mode {
             super::session::GameMode::Duel => (0, 2),
-            super::session::GameMode::Deathmatch => (1, 4),
+            super::session::GameMode::Deathmatch => (1, room.capacity.clamp(3, 8) as u32),
         };
         socket.connect_lobby(
             SIGNALING_URL,
@@ -189,6 +189,7 @@ pub fn cleanup_network_session(
     commands.remove_resource::<super::map::Map<super::map::CellType, MAP_SIZE, MAP_SIZE>>();
     commands.insert_resource(super::Scores::default());
     commands.insert_resource(super::MatchFlow::Playing);
+    commands.insert_resource(super::RematchFlow::Idle);
     commands.insert_resource(super::RoundEndTimer::default());
     commands.insert_resource(super::ggrs_framecount::GGFrameCount::default());
     rollback_state.set(super::RollbackState::PreRound);
@@ -281,6 +282,7 @@ pub fn wait_for_players(
     commands.insert_resource(SoundIdSeed::new(match_info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
     commands.insert_resource(super::MatchFlow::Playing);
+    commands.insert_resource(super::RematchFlow::Idle);
     commands.insert_resource(super::RoundProgress::default());
     commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
@@ -312,17 +314,19 @@ fn start_lobby_session(
     mut toasts: ResMut<Toasts>,
     info: crate::cloudflare_net::LobbyMatchInfo,
 ) {
-    // Competitive rosters are intentionally only 2-player Duel or full
-    // 4-player Last Ghost Standing; never silently turn a 3-player lobby into
-    // a competitive match.
-    let mode = match info.roster.len() {
-        2 => GameMode::Duel,
-        4 => GameMode::Deathmatch,
-        _ => {
-            toasts.error("Competitive matches require exactly 2 or 4 players.".into());
-            next_state.set(GameState::MainMenu);
-            return;
+    let valid = (info.mode == 0 && info.roster.len() == 2)
+        || (info.mode == 1 && (3..=super::session::MAX_LOBBY_PLAYERS).contains(&info.roster.len()));
+    let mode = if valid {
+        if info.mode == 0 {
+            GameMode::Duel
+        } else {
+            GameMode::Deathmatch
         }
+    } else {
+        toasts
+            .error("Lobby assignment does not match Duel (2) or Last Ghost Standing (3–8).".into());
+        next_state.set(GameState::MainMenu);
+        return;
     };
     let roster: Vec<_> = info
         .roster
@@ -403,6 +407,7 @@ fn start_lobby_session(
     commands.insert_resource(SoundIdSeed::new(info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
     commands.insert_resource(super::MatchFlow::Playing);
+    commands.insert_resource(super::RematchFlow::Idle);
     commands.insert_resource(super::RoundProgress::default());
     commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
@@ -458,7 +463,8 @@ pub fn watch_lobby_epoch(
     else {
         return;
     };
-    if progress.resolved.is_none()
+    let is_new_epoch = server_epoch > current.epoch.0;
+    if (!is_new_epoch && progress.resolved.is_none())
         || (server_epoch, server_round) <= (current.epoch.0, current.round.0)
     {
         return;
@@ -467,14 +473,56 @@ pub fn watch_lobby_epoch(
     // matchmaking installer. The persistent control socket remains open.
     socket.close_epoch_transport();
     commands.remove_resource::<Session<GgrsConfig>>();
-    // Scores have already been applied by the rollback RoundEnd transition;
-    // check the first-to-three endpoint before allowing epoch replacement.
-    if let Some(winner) = super::session::match_winner(scores.entries()) {
+    // A larger epoch is a server-authoritative roster/rematch replacement and
+    // must recreate GGRS even when the old match was already over. Round-only
+    // advancement still respects the local first-to-three endpoint.
+    if is_new_epoch {
+        *flow = super::MatchFlow::Playing;
+        next_state.set(GameState::Matchmaking);
+    } else if let Some(winner) = super::session::match_winner(scores.entries()) {
         *flow = super::MatchFlow::MatchOver {
             winner: winner.player_id,
         };
     } else {
         next_state.set(GameState::Matchmaking);
+    }
+}
+
+pub fn poll_lobby_control(
+    mut flow: ResMut<super::RematchFlow>,
+    socket: Res<CloudflareSocket>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut toasts: ResMut<Toasts>,
+) {
+    use crate::cloudflare_net::LobbyControlEvent;
+    while let Some(event) = socket.poll_control() {
+        match event {
+            LobbyControlEvent::RematchPending {
+                generation,
+                nonce,
+                deadline_ms,
+                accepted,
+                required,
+            } => {
+                *flow = super::RematchFlow::Pending {
+                    generation,
+                    nonce,
+                    deadline_ms,
+                    accepted,
+                    required,
+                };
+            }
+            LobbyControlEvent::RematchAccepted { .. } => {
+                *flow = super::RematchFlow::Idle;
+                // The following immutable start has a larger epoch and causes
+                // watch_lobby_epoch to tear down/recreate GGRS.
+            }
+            LobbyControlEvent::ReturnToMenu { reason } => {
+                *flow = super::RematchFlow::Idle;
+                toasts.error(format!("Match ended: {reason}").into());
+                next_state.set(GameState::MainMenu);
+            }
+        }
     }
 }
 
@@ -487,6 +535,8 @@ pub fn update_network_telemetry(
 
 pub fn log_ggrs_events(
     mut session: ResMut<Session<GgrsConfig>>,
+    socket: Res<CloudflareSocket>,
+    bootstrap: Option<Res<RoundBootstrap>>,
     mut toasts: ResMut<Toasts>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
@@ -494,7 +544,11 @@ pub fn log_ggrs_events(
         for event in session.events() {
             match event {
                 GGRSEvent::Disconnected { addr } => {
-                    toasts.error(format!("Peer {addr:?} disconnected.").into());
+                    // Server policy releases the whole immutable roster; the
+                    // control message prevents surviving peers from queueing.
+                    socket.leave_lobby(false);
+                    let size = bootstrap.as_ref().map(|b| b.roster.len()).unwrap_or(2);
+                    toasts.error(format!("Peer {addr:?} disconnected; returning all {size} roster players to menu.").into());
                     next_state.set(GameState::MainMenu);
                 }
                 event => info!("GGRS Event: {event:?}"),

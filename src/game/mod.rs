@@ -98,6 +98,19 @@ pub struct RoundProgress {
 #[derive(Resource, Default)]
 pub struct ReportedOutcome(pub Option<(u32, u32, u32)>);
 
+#[derive(Resource, Debug, Default, Clone, PartialEq, Eq)]
+pub enum RematchFlow {
+    #[default]
+    Idle,
+    Pending {
+        generation: u32,
+        nonce: String,
+        deadline_ms: u64,
+        accepted: u8,
+        required: u8,
+    },
+}
+
 /// Match endpoint state. It is rollback-registered because the endpoint is
 /// derived from rollback scores; UI reads it to gate the next round.
 #[derive(Resource, Reflect, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -364,6 +377,7 @@ pub fn run() {
     .init_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
     .init_resource::<RoundProgress>()
     .init_resource::<ReportedOutcome>()
+    .init_resource::<RematchFlow>()
     .init_resource::<MatchFlow>()
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
@@ -439,6 +453,7 @@ pub fn run() {
             award_confirmed_progression.run_if(in_state(GameState::InGame)),
             update_network_telemetry.run_if(in_state(GameState::InGame)),
             watch_lobby_epoch.run_if(in_state(GameState::InGame)),
+            poll_lobby_control.run_if(in_state(GameState::InGame)),
             repair_presentation_components.run_if(in_state(GameState::InGame)),
             apply_player_cosmetics
                 .after(repair_presentation_components)

@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import { createEpochState, startNextEpoch, submitReport, abort, validateSignal } from "./epoch-state.js";
+import {
+  createEpochState, startNextEpoch, submitReport, validateSignal,
+  requestRematch, respondRematch, expireRematch, denyRematch, leaveMatch, requeuePlayer,
+} from "./epoch-state.js";
 import { rotateReconnectIdentity } from "../vendor/cloudflare-game-common/lifecycle.js";
 import {
   MAX_LOBBY_SOCKETS, MAX_MESSAGE_BYTES, RECONNECT_GRACE_MS,
@@ -21,10 +24,17 @@ export class EpochLobby extends DurableObject {
     if (!parsed.ok) return text(parsed.error, 400);
     const now = Date.now();
     await this.expire(now);
+    await this.expireRematch(now);
     // expire may have aborted a round / expired identities; persist those side
     // effects even if this request later early-returns.
     if (this.state) await this.persist();
     if (!this.state) this.state = createEpochState(parsed.value.mode, parsed.value.capacity, now);
+    // Forward-compatible defaults for Durable Objects persisted before Wave C.
+    this.state.matchGeneration ??= 0;
+    this.state.matchSeed ??= this.state.active?.seed ?? null;
+    this.state.matchOver ??= false;
+    this.state.rematch ??= null;
+    this.state.rematchDecision ??= null;
     if (this.state.mode !== parsed.value.mode || this.state.capacity !== parsed.value.capacity) return text("Lobby configuration mismatch", 409);
 
     let player;
@@ -82,6 +92,10 @@ export class EpochLobby extends DurableObject {
   }
 
   async webSocketMessage(socket, raw) {
+    // Enforce persisted wall-clock rematch expiry before every message, not
+    // only when an alarm happens to wake the Durable Object.
+    await this.expireRematch(Date.now());
+    await this.persist();
     if (typeof raw !== "string" || new TextEncoder().encode(raw).byteLength > MAX_MESSAGE_BYTES) return this.violation(socket, "invalid message");
     const attachment = socket.deserializeAttachment();
     if (!attachment?.playerId || attachment.superseded) return this.violation(socket, "invalid session");
@@ -97,6 +111,35 @@ export class EpochLobby extends DurableObject {
 
     if (message.type === "ping") {
       this.send(socket, { type: "pong", ...(message.nonce === undefined ? {} : { nonce: message.nonce }) });
+      return;
+    }
+    if (message.type === "leave" || message.type === "requeue") {
+      const result = message.type === "requeue"
+        ? requeuePlayer(this.state, player.playerId)
+        : leaveMatch(this.state, player.playerId);
+      await this.persist();
+      this.broadcast({ type: "match_exit", destination: "main_menu", reason: result.reason, roster: result.roster });
+      if (message.type === "requeue") {
+        // Re-Queue is explicit and applies only to its requester; former
+        // opponents are sent to menu and are never silently queued.
+        this.send(socket, { type: "requeue", status: "waiting" });
+        const start = startNextEpoch(this.state, randomHex(), "explicit_requeue");
+        if (start) this.broadcastStart(start); else this.sendStatus(socket, player);
+      }
+      return;
+    }
+    if (message.type === "rematch_request" || message.type === "rematch_response") {
+      const now = Date.now();
+      const result = message.type === "rematch_request"
+        ? requestRematch(this.state, player.playerId, message.generation, message.nonce, now)
+        : respondRematch(this.state, player.playerId, message.generation, message.nonce, message.accept);
+      await this.persist();
+      if (result.type === "pending") this.broadcast({ type: "rematch_pending", generation: result.generation, nonce: result.nonce, requestedBy: result.requestedBy, deadline: result.deadline, accepted: result.accepted, required: result.required });
+      else if (result.type === "accepted") {
+        this.broadcast({ type: "rematch_accepted", generation: result.generation, nonce: result.nonce });
+        this.broadcastStart(result.next);
+      } else if (result.type === "denied") this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
+      else this.sendError(socket, result.code);
       return;
     }
     if (message.type === "profile") {
@@ -129,6 +172,7 @@ export class EpochLobby extends DurableObject {
       if (result.type === "ack") this.send(socket, reportAckMessage(result));
       else if (result.type === "commit") {
         this.broadcast(commitMessage(result));
+        if (result.matchOver) this.broadcast({ type: "match_over", generation: result.matchGeneration, rematchGeneration: result.matchGeneration + 1 });
         if (result.next) this.broadcastStart(result.next);
       } else if (result.type === "abort") {
         this.broadcast(abortMessage(result));
@@ -139,13 +183,17 @@ export class EpochLobby extends DurableObject {
 
   async webSocketClose(socket) { await this.disconnect(socket); }
   async webSocketError(socket) { await this.disconnect(socket); }
-  async alarm() { await this.expire(Date.now()); await this.persist(); }
+  async alarm() { const now = Date.now(); await this.expire(now); await this.expireRematch(now); await this.persist(); }
 
   async disconnect(socket) {
     const attachment = socket.deserializeAttachment();
     if (!attachment?.playerId || attachment.superseded || this.socket(attachment.playerId, socket)) return;
     const player = this.state.players[attachment.playerId];
     if (player) {
+      if (this.state.rematch && this.state.lastRoster.includes(player.playerId)) {
+        const result = denyRematch(this.state, "disconnect");
+        if (result.type === "denied") this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
+      }
       player.connected = false;
       player.reconnectUntil = Date.now() + RECONNECT_GRACE_MS;
       await this.persist();
@@ -163,17 +211,19 @@ export class EpochLobby extends DurableObject {
       player.reconnectUntil = null;
       this.broadcastPresence(player);
       if (this.isActive(player.playerId)) {
-        const result = abort(this.state, "roster_member_expired", randomHex());
-        if (result.type === "abort") {
-          this.broadcast(abortMessage(result));
-          if (result.next) this.broadcastStart(result.next);
-        }
+        const result = leaveMatch(this.state, player.playerId, "disconnect");
+        this.broadcast({ type: "match_exit", destination: "main_menu", reason: result.reason, roster: result.roster });
       }
     }
   }
 
+  async expireRematch(now) {
+    const result = expireRematch(this.state, now);
+    if (result?.type === "denied") this.broadcast({ type: "rematch_denied", generation: result.generation, nonce: result.nonce, reason: result.reason, destination: "main_menu" });
+  }
+
   startMessage(active) {
-    return { type: "start", protocol: 3, epoch: active.epoch, round: active.round, mode: this.state.mode, capacity: this.state.capacity, seed: active.seed, roster: active.roster };
+    return { type: "start", protocol: 3, epoch: active.epoch, round: active.round, matchGeneration: this.state.matchGeneration, mode: this.state.mode, capacity: this.state.capacity, seed: active.seed, roster: active.roster };
   }
   broadcastStart(active) { this.broadcast(this.startMessage(active)); }
   sendStatus(socket, player) {
@@ -197,8 +247,10 @@ export class EpochLobby extends DurableObject {
   violation(socket, error) { this.sendError(socket, error); socket.close(1008, error.slice(0, 123)); }
   async persist() {
     await this.ctx.storage.put(KEY, this.state);
-    const next = Object.values(this.state.players).reduce((nearest, player) =>
+    const reconnectDeadline = Object.values(this.state.players).reduce((nearest, player) =>
       player.reconnectUntil === null ? nearest : Math.min(nearest, player.reconnectUntil), Infinity);
+    // Persisted rematch deadlines share the alarm with reconnect expiry.
+    const next = Math.min(reconnectDeadline, this.state.rematch?.deadline ?? Infinity);
     if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next); else await this.ctx.storage.deleteAlarm();
   }
 }

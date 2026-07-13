@@ -1,6 +1,7 @@
 use crate::mobile_input::{self, MobileInputKind};
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
     assets::sounds::AudioConfig,
@@ -8,8 +9,9 @@ use super::{
     networking::{sanitize_room_code, LocalPlayerHandle, MatchmakingRoom},
     progression::{CasualProfile, COSMETICS},
     session::{mode_label, PlayerProfile, RoundBootstrap, MATCH_POINTS_TO_WIN},
-    GameState, MatchFlow, PendingPlayerProfile, RollbackState, Scores,
+    GameState, MatchFlow, PendingPlayerProfile, RematchFlow, RollbackState, Scores,
 };
+use crate::cloudflare_net::CloudflareSocket;
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub enum MenuState {
@@ -201,43 +203,36 @@ pub fn update_main_menu(
                         {
                             *button_style = FontId::new(28.0 * scale, FontFamily::Proportional);
                         }
-                        if ui.button("▶ Start Matchmaking").clicked() {
+                        ui.heading("Last Ghost Standing");
+                        ui.label("The prominent default: survive a 3–8 ghost arena. Last ghost alive scores; first to 3 wins.");
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(room.mode == super::session::GameMode::Deathmatch, "Last Ghost Standing (3–8)").clicked() {
+                                room.mode = super::session::GameMode::Deathmatch;
+                                room.capacity = room.capacity.clamp(3, 8);
+                                room.use_lobby_v2 = true;
+                            }
+                            if ui.selectable_label(room.mode == super::session::GameMode::Duel, "Dueling Ghosts (2)").clicked() {
+                                room.mode = super::session::GameMode::Duel;
+                                room.capacity = 2;
+                                room.use_lobby_v2 = true;
+                            }
+                        });
+                        if room.mode == super::session::GameMode::Deathmatch {
+                            ui.add(Slider::new(&mut room.capacity, 3..=8).text("Ghosts required"));
+                        }
+                        ui.small(match room.mode {
+                            super::session::GameMode::Duel => "Opt-in head-to-head rules • exactly 2 players • first to 3",
+                            super::session::GameMode::Deathmatch => "3–8 players • last survivor scores • selected capacity is an immutable roster • first to 3",
+                        });
+                        if ui.button("▶ Queue Selected Mode").clicked() {
                             room.private_code = None;
                             next_menu_state.set(MenuState::Main);
                             next_game_state.set(GameState::Matchmaking);
                         }
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut room.use_lobby_v2, "Multiplayer mode selection");
-                            if room.use_lobby_v2 {
-                                if ui
-                                    .selectable_label(
-                                        room.mode == super::session::GameMode::Duel,
-                                        "Duel",
-                                    )
-                                    .clicked()
-                                {
-                                    room.mode = super::session::GameMode::Duel;
-                                    room.capacity = 2;
-                                }
-                                if ui
-                                    .selectable_label(
-                                        room.mode == super::session::GameMode::Deathmatch,
-                                        "4P Last Ghost Standing",
-                                    )
-                                    .clicked()
-                                {
-                                    room.mode = super::session::GameMode::Deathmatch;
-                                    room.capacity = 4;
-                                }
-                            }
-                        });
-                        if room.use_lobby_v2 {
-                            ui.small(match room.mode {
-                                super::session::GameMode::Duel => "2 players • First to 3",
-                                super::session::GameMode::Deathmatch => {
-                                    "4 players • Last Ghost Standing • First to 3"
-                                }
-                            });
+                        if room.mode == super::session::GameMode::Duel {
+                            ui.checkbox(&mut room.use_lobby_v2, "Modern lobby (disable for legacy duel fallback)");
+                        } else {
+                            room.use_lobby_v2 = true;
                         }
                         if ui.button("🔒 Private Match").clicked() {
                             next_menu_state.set(MenuState::DirectConnect);
@@ -305,6 +300,8 @@ pub fn update_direct_connect_ui(
 pub fn update_in_game_controls_ui(
     mut contexts: EguiContexts,
     mut next_menu_state: ResMut<NextState<MenuState>>,
+    socket: Res<CloudflareSocket>,
+    mut next_game: ResMut<NextState<GameState>>,
 ) {
     Area::new("controls menu")
         .anchor(Align2::LEFT_TOP, (25., 25.))
@@ -315,6 +312,10 @@ pub fn update_in_game_controls_ui(
 
             if ui.button("⚙").clicked() {
                 next_menu_state.set(MenuState::Settings);
+            }
+            if ui.button("Exit Lobby").clicked() {
+                socket.leave_lobby(false);
+                next_game.set(GameState::MainMenu);
             }
         });
 }
@@ -584,6 +585,8 @@ pub fn update_match_status_ui(
         Option<&MarkedForDeath>,
     )>,
     mut next_game: ResMut<NextState<GameState>>,
+    socket: Res<CloudflareSocket>,
+    mut rematch: ResMut<RematchFlow>,
 ) {
     let (Some(bootstrap), Some(local)) = (bootstrap, local) else {
         return;
@@ -669,12 +672,37 @@ pub fn update_match_status_ui(
                 ui.label(format!(
                     "{winner_name} is the first ghost to {MATCH_POINTS_TO_WIN} points."
                 ));
-                ui.label("Rematch returns to matchmaking with the same selected mode.");
-                ui.horizontal(|ui| {
-                    if ui.button("Rematch").clicked() {
+                match &*rematch {
+                    RematchFlow::Idle => ui.label("Rematch keeps this lobby and roster. Every opponent must accept within 10 seconds."),
+                    RematchFlow::Pending { deadline_ms, accepted, required, .. } => {
+                        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
+                        let seconds = deadline_ms.saturating_sub(now).saturating_add(999) / 1000;
+                        ui.label(format!("Rematch requested — {accepted}/{required} accepted • {seconds}s. Accept or deny."))
+                    }
+                };
+                ui.horizontal_wrapped(|ui| {
+                    match rematch.clone() {
+                        RematchFlow::Idle => {
+                            if ui.button("Rematch (Same Lobby)").clicked() {
+                                let generation = socket.match_generation().unwrap_or(0).saturating_add(1);
+                                let nonce = format!("{:032x}", bootstrap.match_id.0 ^ generation as u128 ^ local_id.unwrap_or_default().0);
+                                if socket.request_rematch(generation, &nonce) {
+                                    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
+                                    *rematch = RematchFlow::Pending { generation, nonce, deadline_ms: now + 10_000, accepted: 1, required: bootstrap.roster.len() as u8 };
+                                }
+                            }
+                        }
+                        RematchFlow::Pending { generation, nonce, .. } => {
+                            if ui.button("Accept Rematch").clicked() { socket.respond_rematch(generation, &nonce, true); }
+                            if ui.button("Deny").clicked() { socket.respond_rematch(generation, &nonce, false); }
+                        }
+                    }
+                    if ui.button("Re-Queue (General Queue)").clicked() {
+                        socket.leave_lobby(true);
                         next_game.set(GameState::Matchmaking);
                     }
-                    if ui.button("Leave Match").clicked() {
+                    if ui.button("Main Menu").clicked() {
+                        socket.leave_lobby(false);
                         next_game.set(GameState::MainMenu);
                     }
                 });

@@ -15,6 +15,7 @@ pub struct SessionEpoch(pub u32);
 pub struct RoundNumber(pub u32);
 
 pub const LOBBY_PROTOCOL_VERSION: u16 = 3;
+pub const MAX_LOBBY_PLAYERS: usize = 8;
 
 /// Pure continuity rule shared by bootstrap installation and source tests.
 /// An unchanged canonical roster stays in the epoch and advances the round;
@@ -44,7 +45,7 @@ pub const MATCH_POINTS_TO_WIN: u32 = 3;
 /// last-survivor mode, not an unlimited respawn deathmatch.
 pub fn mode_label(mode: GameMode) -> &'static str {
     match mode {
-        GameMode::Duel => "Duel — First to 3",
+        GameMode::Duel => "Dueling Ghosts — First to 3",
         GameMode::Deathmatch => "Last Ghost Standing — First to 3",
     }
 }
@@ -122,7 +123,7 @@ pub fn round_outcome(
                 .collect();
             RoundOutcome::Complete { point_winners }
         }
-        GameMode::Deathmatch if roster.len() == 4 => {
+        GameMode::Deathmatch if (2..=MAX_LOBBY_PLAYERS).contains(&roster.len()) => {
             let survivors: Vec<_> = roster.difference(&unavailable).copied().collect();
             if survivors.len() > 1 {
                 RoundOutcome::InProgress
@@ -175,7 +176,7 @@ impl PlayerProfile {
     pub fn is_canonical(&self) -> bool {
         !self.name.is_empty()
             && self.name == Self::sanitized_name(&self.name)
-            && self.palette_id < 4
+            && self.palette_id < MAX_LOBBY_PLAYERS as u8
             && self.cosmetic_id < 4
     }
 }
@@ -237,9 +238,7 @@ impl RoundBootstrap {
         }
         let valid_count = match mode {
             GameMode::Duel => roster.len() == 2,
-            // Competitive selection intentionally supports only a duel or a
-            // full four-ghost Last Ghost Standing roster.
-            GameMode::Deathmatch => roster.len() == 4,
+            GameMode::Deathmatch => (3..=MAX_LOBBY_PLAYERS).contains(&roster.len()),
         };
         if !valid_count {
             return Err(BootstrapError::InvalidPlayerCount);
@@ -502,6 +501,7 @@ mod tests {
             mode_label(GameMode::Deathmatch),
             "Last Ghost Standing — First to 3"
         );
+        assert_eq!(mode_label(GameMode::Duel), "Dueling Ghosts — First to 3");
     }
 
     #[test]
@@ -578,19 +578,25 @@ mod tests {
             bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 1)], &[1, 3]),
             Err(BootstrapError::InvalidScores)
         );
+        assert!(bootstrap(
+            GameMode::Deathmatch,
+            (0..3).map(|id| entry(id, id as usize)).collect(),
+            &[0, 1, 2]
+        )
+        .is_ok());
+        for count in 3..=MAX_LOBBY_PLAYERS {
+            assert!(bootstrap(
+                GameMode::Deathmatch,
+                (0..count).map(|id| entry(id as u128, id)).collect(),
+                &(0..count as u128).collect::<Vec<_>>()
+            )
+            .is_ok());
+        }
         assert_eq!(
             bootstrap(
                 GameMode::Deathmatch,
-                (0..3).map(|id| entry(id, id as usize)).collect(),
-                &[0, 1, 2]
-            ),
-            Err(BootstrapError::InvalidPlayerCount)
-        );
-        assert_eq!(
-            bootstrap(
-                GameMode::Deathmatch,
-                (0..5).map(|id| entry(id, id as usize)).collect(),
-                &[0, 1, 2, 3, 4]
+                (0..9).map(|id| entry(id, id as usize)).collect(),
+                &(0..9).collect::<Vec<_>>()
             ),
             Err(BootstrapError::InvalidPlayerCount)
         );

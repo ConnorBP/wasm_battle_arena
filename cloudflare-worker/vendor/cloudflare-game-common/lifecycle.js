@@ -48,6 +48,11 @@ export function createLifecycleState(mode, capacity, now) {
     active: null,
     lastRoster: [],
     decisions: {},
+    matchGeneration: 0,
+    matchSeed: null,
+    matchOver: false,
+    rematch: null,
+    rematchDecision: null,
   };
 }
 
@@ -140,6 +145,7 @@ export function startLifecycleRound(state, seed, reason) {
     };
   });
   state.lastRoster = [...ids];
+  state.matchSeed ??= seed.padStart(32, "0").slice(-32);
   state.active = { epoch: state.epoch, round: state.round, seed, reason, roster, proposal: null, reports: {} };
   return state.active;
 }
@@ -206,7 +212,15 @@ export function submitLifecycleReport(state, playerId, epoch, round, outcomes, s
   };
   state.decisions[key] = { type: "commit", roster, outcomes: encoded };
   state.active = null;
-  completed.next = startLifecycleRound(state, seedForNext, "round_complete");
+  const reachedMatchPoint = completed.scores.some((entry) => entry.score >= 3);
+  if (reachedMatchPoint) {
+    state.matchOver = true;
+    completed.next = null;
+    completed.matchOver = true;
+    completed.matchGeneration = state.matchGeneration;
+  } else {
+    completed.next = startLifecycleRound(state, seedForNext, "round_complete");
+  }
   return completed;
 }
 
@@ -232,6 +246,112 @@ export function abortLifecycleRound(state, reason, seedForNext) {
     type: "abort", epoch: previous.epoch, round: previous.round, reason,
     next: startLifecycleRound(state, seedForNext, "epoch_abort"),
   };
+}
+
+export const REMATCH_DEADLINE_MS = 10_000;
+
+/** Deterministically advances the 128-bit match seed without platform RNG. */
+export function advanceMatchSeed(seed, generation) {
+  let value = BigInt(`0x${seed}`) ^ (BigInt(generation) << 64n) ^ 0x9e3779b97f4a7c15n;
+  const mask = (1n << 128n) - 1n;
+  value = ((value ^ (value >> 30n)) * 0xbf58476d1ce4e5b9n) & mask;
+  value = ((value ^ (value >> 27n)) * 0x94d049bb133111ebn) & mask;
+  value ^= value >> 31n;
+  return (value & mask).toString(16).padStart(32, "0");
+}
+
+function rematchRoster(state) {
+  return state.lastRoster.filter((id) => {
+    const player = state.players[id];
+    return player && player.connected && !player.expired;
+  });
+}
+
+function finishRematch(state) {
+  const proposal = state.rematch;
+  const ids = rematchRoster(state);
+  if (!proposal || ids.length !== state.capacity || proposal.accepted.length !== ids.length) return null;
+  for (const id of ids) state.players[id].score = 0;
+  state.matchGeneration = proposal.generation;
+  state.matchSeed = advanceMatchSeed(state.matchSeed, state.matchGeneration);
+  state.epoch += 1;
+  state.round = 0;
+  const roster = [...ids].sort().map((playerId, index) => {
+    const player = state.players[playerId];
+    return { playerId, index, profile: cloneProfile(player.profile), score: 0 };
+  });
+  state.lastRoster = roster.map((entry) => entry.playerId);
+  state.active = { epoch: state.epoch, round: 0, seed: state.matchSeed, reason: "rematch_accepted", roster, proposal: null, reports: {} };
+  state.matchOver = false;
+  const result = { type: "accepted", generation: proposal.generation, nonce: proposal.nonce, roster: [...state.lastRoster], next: state.active };
+  state.rematchDecision = { ...result, next: null };
+  state.rematch = null;
+  return result;
+}
+
+/**
+ * Opens (or idempotently joins) a server-authoritative rematch vote. A request
+ * is also an acceptance. Concurrent requests for the same next generation are
+ * therefore mutual acceptances, regardless of which request reaches the DO
+ * first; the first nonce becomes authoritative.
+ */
+export function requestLifecycleRematch(state, playerId, generation, nonce, now) {
+  if (state.rematchDecision?.generation === generation) return { ...state.rematchDecision, duplicate: true };
+  if (!state.matchOver || generation !== state.matchGeneration + 1 || !state.lastRoster.includes(playerId)) return { type: "error", code: "stale_rematch" };
+  if (state.rematch?.deadline <= now) return denyLifecycleRematch(state, "timeout");
+  if (!state.rematch) state.rematch = { generation, nonce, deadline: now + REMATCH_DEADLINE_MS, requestedBy: playerId, accepted: [] };
+  if (state.rematch.generation !== generation) return { type: "error", code: "stale_rematch" };
+  const duplicate = state.rematch.accepted.includes(playerId);
+  if (!duplicate) state.rematch.accepted.push(playerId);
+  state.rematch.accepted.sort();
+  return finishRematch(state) ?? { type: "pending", ...state.rematch, duplicate, required: state.capacity };
+}
+
+export function respondLifecycleRematch(state, playerId, generation, nonce, accept) {
+  if (state.rematchDecision?.generation === generation) return { ...state.rematchDecision, duplicate: true };
+  const proposal = state.rematch;
+  if (!proposal || proposal.generation !== generation || proposal.nonce !== nonce || !state.lastRoster.includes(playerId)) return { type: "error", code: "stale_rematch" };
+  if (!accept) return denyLifecycleRematch(state, "denied");
+  const duplicate = proposal.accepted.includes(playerId);
+  if (!duplicate) proposal.accepted.push(playerId);
+  proposal.accepted.sort();
+  return finishRematch(state) ?? { type: "pending", ...proposal, duplicate, required: state.capacity };
+}
+
+/** A denial/timeout/disconnect releases the entire immutable roster to menu. */
+export function denyLifecycleRematch(state, reason) {
+  const proposal = state.rematch;
+  if (!proposal) return { type: "error", code: "no_rematch" };
+  const result = { type: "denied", generation: proposal.generation, nonce: proposal.nonce, reason, roster: [...state.lastRoster] };
+  state.rematchDecision = result;
+  state.rematch = null;
+  state.matchOver = false;
+  state.active = null;
+  for (const id of state.lastRoster) if (state.players[id]) state.players[id].ready = false;
+  return result;
+}
+
+export function expireLifecycleRematch(state, now) {
+  return state.rematch && state.rematch.deadline <= now ? denyLifecycleRematch(state, "timeout") : null;
+}
+
+/** Explicit exit never promotes a waiter into the current epoch. */
+export function leaveLifecycleMatch(state, playerId, reason = "exit") {
+  if (!state.lastRoster.includes(playerId)) return { type: "left", destination: "main_menu", roster: [playerId], reason };
+  const roster = [...state.lastRoster];
+  state.active = null;
+  state.matchOver = false;
+  state.rematch = null;
+  for (const id of roster) if (state.players[id]) state.players[id].ready = false;
+  return { type: "left", destination: "main_menu", roster, reason };
+}
+
+/** Explicit requeue releases the old roster and readies only the requester. */
+export function requeueLifecyclePlayer(state, playerId) {
+  const result = leaveLifecycleMatch(state, playerId, "requeue");
+  if (state.players[playerId]) state.players[playerId].ready = true;
+  state.lastRoster = [];
+  return { ...result, destination: "requeue", requester: playerId };
 }
 
 function cloneProfile(profile) {

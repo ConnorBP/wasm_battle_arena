@@ -22,13 +22,31 @@ pub struct MatchInfo {
     pub seed: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LobbyControlEvent {
+    RematchPending {
+        generation: u32,
+        nonce: String,
+        deadline_ms: u64,
+        accepted: u8,
+        required: u8,
+    },
+    RematchAccepted {
+        generation: u32,
+    },
+    ReturnToMenu {
+        reason: String,
+    },
+}
+
 pub struct LobbyMatchInfo {
     pub local_player: PlayerId,
+    pub mode: u32,
     pub seed: u64,
     pub match_id: u128,
     pub epoch: u32,
     pub round: u32,
+    pub match_generation: u32,
     pub roster: Vec<(PlayerId, usize)>,
 }
 
@@ -117,7 +135,7 @@ impl CloudflareSocket {
             self.native_error = Some("invalid lobby room".into());
             return;
         }
-        if !((mode == 0 && capacity == 2) || (mode == 1 && (2..=4).contains(&capacity))) {
+        if !((mode == 0 && capacity == 2) || (mode == 1 && (3..=8).contains(&capacity))) {
             self.native_error = Some("invalid lobby mode or capacity".into());
             return;
         }
@@ -202,7 +220,8 @@ impl CloudflareSocket {
             let match_id = u128::from_str_radix(&seed_hex, 16).ok()?;
             let seed = match_id as u64;
             let len = cloudflare_lobby_roster_len(self.transport_id) as usize;
-            if len != 2 && len != 4 {
+            let mode = cloudflare_lobby_mode(self.transport_id);
+            if !((mode == 0 && len == 2) || (mode == 1 && (3..=8).contains(&len))) {
                 return None;
             }
             let mut roster = Vec::with_capacity(len);
@@ -213,23 +232,102 @@ impl CloudflareSocket {
                 ));
             }
             roster.sort_by_key(|entry| entry.0);
-            if roster
-                .iter()
-                .enumerate()
-                .any(|(handle, entry)| entry.1 != handle)
-                || !roster.iter().any(|entry| entry.0 == local_player)
-            {
+            // Handles are canonical identity order, independent of the wire
+            // array's arrival ordering.
+            for (handle, entry) in roster.iter_mut().enumerate() {
+                entry.1 = handle;
+            }
+            if !roster.iter().any(|entry| entry.0 == local_player) {
                 return None;
             }
             let epoch = cloudflare_lobby_epoch(self.transport_id);
             Some(LobbyMatchInfo {
                 local_player,
+                mode,
                 seed,
                 match_id,
                 epoch,
                 round: cloudflare_lobby_round(self.transport_id),
+                match_generation: cloudflare_lobby_generation(self.transport_id),
                 roster,
             })
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        None
+    }
+
+    pub fn request_rematch(&self, generation: u32, nonce: &str) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            return cloudflare_lobby_rematch_request(self.transport_id, generation, nonce);
+        }
+        false
+    }
+
+    pub fn respond_rematch(&self, generation: u32, nonce: &str, accept: bool) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            return cloudflare_lobby_rematch_response(self.transport_id, generation, nonce, accept);
+        }
+        false
+    }
+
+    pub fn leave_lobby(&self, requeue: bool) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            return cloudflare_lobby_leave(self.transport_id, requeue);
+        }
+        false
+    }
+
+    pub fn match_generation(&self) -> Option<u32> {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            return Some(cloudflare_lobby_generation(self.transport_id));
+        }
+        None
+    }
+
+    pub fn poll_control(&self) -> Option<LobbyControlEvent> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let value = cloudflare_lobby_control(self.transport_id);
+            if value.is_null() || value.is_undefined() {
+                return None;
+            }
+            let kind = js_sys::Reflect::get(&value, &"type".into())
+                .ok()?
+                .as_string()?;
+            let number = |key: &str| {
+                js_sys::Reflect::get(&value, &key.into())
+                    .ok()?
+                    .as_f64()
+                    .map(|v| v as u64)
+            };
+            return match kind.as_str() {
+                "rematch_pending" => Some(LobbyControlEvent::RematchPending {
+                    generation: number("generation")? as u32,
+                    nonce: js_sys::Reflect::get(&value, &"nonce".into())
+                        .ok()?
+                        .as_string()?,
+                    deadline_ms: number("deadline")?,
+                    accepted: js_sys::Reflect::get(&value, &"accepted".into())
+                        .ok()
+                        .map(|v| js_sys::Array::from(&v).length() as u8)
+                        .unwrap_or(0),
+                    required: number("required")? as u8,
+                }),
+                "rematch_accepted" => Some(LobbyControlEvent::RematchAccepted {
+                    generation: number("generation")? as u32,
+                }),
+                "rematch_denied" | "match_exit" => Some(LobbyControlEvent::ReturnToMenu {
+                    reason: js_sys::Reflect::get(&value, &"reason".into())
+                        .ok()
+                        .and_then(|v| v.as_string())
+                        .unwrap_or_else(|| "match ended".into()),
+                }),
+                _ => None,
+            };
         }
         #[cfg(not(target_arch = "wasm32"))]
         None
@@ -713,7 +811,7 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}`;
     const ws = new WebSocket(url);
     const id = nextTransportId++ || nextTransportId++;
-    const session = { id, ws, status: 0, error: "", lobby: true, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, telemetry: [0,0,0,0,reconnect ? 1 : 0,0] };
+    const session = { id, ws, status: 0, error: "", lobby: true, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, telemetry: [0,0,0,0,reconnect ? 1 : 0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, "lobby matchmaking timed out"), MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
@@ -734,7 +832,7 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
                 if (session.roster.length && (message.epoch < session.epoch || (message.epoch === session.epoch && message.round < session.round))) return;
                 const roster = [...message.roster].sort((a,b) => a.playerId.localeCompare(b.playerId));
                 if (roster.some((entry,index) => entry.index !== index || !/^[0-9a-f]{32}$/.test(entry.playerId))) throw new Error("invalid lobby roster");
-                session.roster = roster; session.seed = message.seed; session.epoch = message.epoch; session.round = message.round;
+                session.roster = roster; session.seed = message.seed; session.epoch = message.epoch; session.round = message.round; session.matchGeneration = message.matchGeneration ?? session.matchGeneration;
                 for (const channel of session.channels.values()) channel.close();
                 for (const peer of session.peers.values()) peer.close();
                 session.channels.clear(); session.peers.clear(); session.pendingIce.clear(); session.openPeers.clear(); session.inbox.length = 0;
@@ -742,6 +840,9 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
             } else if (message.type === "signal") {
                 if (!Number.isInteger(message.epoch) || message.epoch !== session.epoch) return;
                 await lobbyHandleSignal(session, message);
+            } else if (message.type === "rematch_pending" || message.type === "rematch_accepted" || message.type === "rematch_denied" || message.type === "match_exit" || message.type === "match_over" || message.type === "requeue") {
+                if (session.control.length >= 32) session.control.shift();
+                session.control.push(message);
             } else if (message.type === "round_commit" || message.type === "round_abort" || message.type === "presence" || message.type === "status" || message.type === "profile_accepted" || message.type === "report_ack" || message.type === "pong") {
                 return; // validated type-specific state is consumed only when needed
             } else if (message.type === "error") {
@@ -755,6 +856,12 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
 }
 
 export function cloudflare_lobby_local_id(id) { return current(id)?.localPlayerId || ""; }
+export function cloudflare_lobby_mode(id) { return current(id)?.mode ?? 0; }
+export function cloudflare_lobby_generation(id) { return current(id)?.matchGeneration ?? 0; }
+export function cloudflare_lobby_control(id) { return current(id)?.control.shift() ?? null; }
+export function cloudflare_lobby_rematch_request(id, generation, nonce) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:"rematch_request",generation,nonce})); return true; }
+export function cloudflare_lobby_rematch_response(id, generation, nonce, accept) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:"rematch_response",generation,nonce,accept})); return true; }
+export function cloudflare_lobby_leave(id, requeue) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:requeue?"requeue":"leave"})); return true; }
 export function cloudflare_lobby_seed(id) { return current(id)?.seed || ""; }
 export function cloudflare_lobby_epoch(id) { return current(id)?.epoch ?? 0; }
 export function cloudflare_lobby_round(id) { return current(id)?.round ?? 0; }
@@ -844,6 +951,17 @@ extern "C" {
         cosmetic_id: u32,
     ) -> u32;
     fn cloudflare_lobby_local_id(id: u32) -> String;
+    fn cloudflare_lobby_mode(id: u32) -> u32;
+    fn cloudflare_lobby_generation(id: u32) -> u32;
+    fn cloudflare_lobby_control(id: u32) -> wasm_bindgen::JsValue;
+    fn cloudflare_lobby_rematch_request(id: u32, generation: u32, nonce: &str) -> bool;
+    fn cloudflare_lobby_rematch_response(
+        id: u32,
+        generation: u32,
+        nonce: &str,
+        accept: bool,
+    ) -> bool;
+    fn cloudflare_lobby_leave(id: u32, requeue: bool) -> bool;
     fn cloudflare_lobby_seed(id: u32) -> String;
     fn cloudflare_lobby_epoch(id: u32) -> u32;
     fn cloudflare_lobby_round(id: u32) -> u32;
