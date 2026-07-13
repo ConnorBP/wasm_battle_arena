@@ -55,7 +55,15 @@
   </head>
   <script type="module">
     import init from './out/wasm_battle_arena.js'
-    init()
+    window.__ghostSmokeReady = false
+    init().then(() => {
+      window.__ghostSmokeReady = true
+    }).catch((error) => {
+      if (!String(error).includes("Using exceptions for control flow")) {
+        console.error(error)
+        throw error
+      }
+    })
   </script>
 
   <!-- from https://github.com/jakobhellermann/wasm-server-runner/blob/main/static/index.html -->

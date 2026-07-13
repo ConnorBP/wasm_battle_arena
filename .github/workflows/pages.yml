@@ -57,6 +57,12 @@ jobs:
             du -h site/out/wasm_battle_arena_bg.wasm
             find site/assets -type f -printf '%s\n' | awk '{n+=$1} END {print "Runtime assets: " n " bytes"}'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install smoke-test browser
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: In-game sync-test smoke
+        run: bash scripts/run-ingame-smoke.sh
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site

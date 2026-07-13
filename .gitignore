@@ -4,4 +4,5 @@
 /.wrangler/
 **/.wrangler/
 **/node_modules/
+/.smoke-ingame/
 desktop.ini

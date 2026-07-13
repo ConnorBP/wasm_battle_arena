@@ -1,0 +1,11 @@
+{
+  "name": "wasm-battle-arena-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke:ingame": "node scripts/smoke-ingame.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1"
+  }
+}

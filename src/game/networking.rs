@@ -78,6 +78,7 @@ pub fn start_sync_test(
     mut next_menu_state: ResMut<NextState<super::MenuState>>,
 ) {
     const SYNC_TEST_SEED: u64 = 0x5a17_cafe_d00d_beef;
+    info!("starting local sync-test session");
     let bootstrap = RoundBootstrap::duel(SYNC_TEST_SEED);
     let session = ggrs::SessionBuilder::<GgrsConfig>::new()
         .with_num_players(2)
@@ -100,6 +101,7 @@ pub fn start_sync_test(
     commands.insert_resource(GameSeed(SYNC_TEST_SEED));
     next_menu_state.set(super::MenuState::Main);
     next_game_state.set(GameState::InGame);
+    info!("local sync-test session ready");
 }
 
 pub fn stop_cloudflare_socket(

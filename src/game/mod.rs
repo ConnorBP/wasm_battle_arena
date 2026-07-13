@@ -219,6 +219,8 @@ pub fn run() {
 
     #[cfg(feature = "sync_test")]
     app.add_systems(OnEnter(MenuState::SyncTest), start_sync_test);
+    #[cfg(feature = "auto_sync_test")]
+    app.add_systems(OnEnter(GameState::MainMenu), enter_sync_test_automatically);
 
     #[cfg(feature="debug_render")]
     {
@@ -452,6 +454,11 @@ pub fn run() {
             .distributive_run_if(in_state(RollbackState::RoundEnd))
             .after(apply_state_transition::<RollbackState>),
     ).run();
+}
+
+#[cfg(feature = "auto_sync_test")]
+fn enter_sync_test_automatically(mut state: ResMut<NextState<MenuState>>) {
+    state.set(MenuState::SyncTest);
 }
 
 fn setup(mut commands: Commands) {

@@ -148,10 +148,9 @@ pub(crate) fn splitmix64(mut value: u64) -> u64 {
 pub fn generate_map(
     mut commands: Commands,
     mut seed: ResMut<GameSeed>,
-    mut progress: ResMut<RoundProgress>,
     mut state: ResMut<NextState<RollbackState>>,
 ) {
-    *progress = RoundProgress::default();
+    commands.insert_resource(RoundProgress::default());
     commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(seed.0));
     seed.0 = splitmix64(seed.0 ^ MAP_DOMAIN);
     state.set(RollbackState::InRound);

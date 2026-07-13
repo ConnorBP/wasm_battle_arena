@@ -66,6 +66,7 @@ local = []
 no_delay = []
 debug_render = ["dep:bevy-inspector-egui"]
 sync_test = []
+auto_sync_test = ["sync_test"]
 bindgen = []
 # connects to a separate development matchmaking room
 dev_net = []
