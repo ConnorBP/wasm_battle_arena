@@ -216,6 +216,7 @@ export class EpochLobby extends DurableObject {
   }
 
   async expireRematch(now) {
+    if (!this.state) return;
     const result = expireRematch(this.state, now);
     if (result?.type === "denied") {
       await this.persist();
