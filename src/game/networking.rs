@@ -71,6 +71,37 @@ pub fn start_cloudflare_socket(
     socket.connect(SIGNALING_URL, &room_name);
 }
 
+#[cfg(feature = "sync_test")]
+pub fn start_sync_test(
+    mut commands: Commands,
+    mut next_game_state: ResMut<NextState<GameState>>,
+    mut next_menu_state: ResMut<NextState<super::MenuState>>,
+) {
+    const SYNC_TEST_SEED: u64 = 0x5a17_cafe_d00d_beef;
+    let bootstrap = RoundBootstrap::duel(SYNC_TEST_SEED);
+    let session = ggrs::SessionBuilder::<GgrsConfig>::new()
+        .with_num_players(2)
+        .with_check_distance(2)
+        .with_max_prediction_window(40)
+        .with_input_delay(0)
+        .add_player(PlayerType::Local, 0)
+        .expect("adding sync-test player 0")
+        .add_player(PlayerType::Local, 1)
+        .expect("adding sync-test player 1")
+        .start_synctest_session()
+        .expect("starting sync-test session");
+
+    commands.insert_resource(LocalPlayerHandle(0));
+    commands.insert_resource(SoundIdSeed::new(SYNC_TEST_SEED, 2));
+    commands.insert_resource(Scores::from_bootstrap(&bootstrap));
+    commands.insert_resource(super::RoundProgress::default());
+    commands.insert_resource(bootstrap);
+    commands.insert_resource(Session::SyncTest(session));
+    commands.insert_resource(GameSeed(SYNC_TEST_SEED));
+    next_menu_state.set(super::MenuState::Main);
+    next_game_state.set(GameState::InGame);
+}
+
 pub fn stop_cloudflare_socket(
     mut socket: ResMut<CloudflareSocket>,
     mut room: ResMut<MatchmakingRoom>,

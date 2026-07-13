@@ -204,6 +204,9 @@ pub fn run() {
         CloudflareNetPlugin,
     ));
 
+    #[cfg(feature = "sync_test")]
+    app.add_systems(OnEnter(MenuState::SyncTest), start_sync_test);
+
     #[cfg(feature="debug_render")]
     {
         use bevy_inspector_egui::{

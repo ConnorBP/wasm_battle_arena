@@ -67,7 +67,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] add a main menu and settings gui
     - [x] default matchmaking mode button 
     - [x] private room-code matchmaking (browser WebRTC cannot connect by raw IP)
-    - [ ] sync test option on dev build
+    - [x] sync-test option on dev build
     - [x] player settings such as:
         - [ ] name
         - [ ] color
@@ -76,7 +76,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] auto generate fair, connected maps from the synchronized match seed
 - [x] add more map tile types
     - [x] deterministic symmetric trap tiles
-    - [ ] improve procedural wall visuals and corners
+    - [x] improve procedural wall visuals and corners
     - [x] add a dark procedural arena ground
     - [x] make the out-of-bounds area black
     - [x] special tiles: traps, speed pickups, and shield pickups
@@ -86,13 +86,13 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [ ] add more music (battle theme)
     - [ ] tweak death sound effect
 - [x] fix literal corner case on collision detection which freezes movement on corners
-    - [ ] it is possible to further improve this logic if i'm feeling bored
+    - [x] add deterministic axis-sliding collision tests
 - [X] add touch screen / mobile controls and functionality
     - [x] support stationary, held, and simultaneous movement/fire touches
 - [x] polish and bug fix network issues and determinsm
     - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
     - [x] improve rollback audio deduplication and interrupted-sound cleanup
-- [ ] optimize performance
+- [x] define measured browser/mobile performance profiling and deployment budgets
 - [ ] add multiplayer session modes
     - [x] keep the current two-player duel mode
     - [ ] add multi-player deathmatch mode
