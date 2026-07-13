@@ -346,6 +346,7 @@ pub fn run() {
 
             // for rollback audio
             .register_rollback_component::<RollbackSound>()
+            .register_rollback_component::<ExplosionCue>()
             // .register_rollback_component::<AudioEmitter>()
 
             // rollback names of entities
@@ -354,10 +355,7 @@ pub fn run() {
             // register sprite bundle as rollback components
             // Temp fix until bevy_ggrs fixes rollback
             .register_rollback_component::<Sprite>()
-            .register_rollback_component::<GlobalTransform>()
             .register_rollback_component::<Handle<Image>>()
-            .register_rollback_component::<Visibility>()
-            .register_rollback_component::<ComputedVisibility>()
             .register_rollback_component::<Handle<TextureAtlas>>()       
             .register_rollback_component::<TextureAtlasSprite>() 
     )
@@ -371,6 +369,7 @@ pub fn run() {
     .init_resource::<Scores>()
     .init_resource::<GGFrameCount>()
     .init_resource::<PlaybackStates>()
+    .init_resource::<PresentedExplosions>()
     .init_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
     .init_resource::<RoundProgress>()
     .init_resource::<ReportedOutcome>()
@@ -384,7 +383,7 @@ pub fn run() {
     .add_systems(OnExit(GameState::Matchmaking), stop_cloudflare_socket)
     .add_systems(
         OnExit(GameState::InGame),
-        (clear_sounds, cleanup_network_session).chain(),
+        (clear_sounds, clear_explosion_presentations, cleanup_network_session).chain(),
     )
     .add_systems(
         Update,
@@ -415,7 +414,12 @@ pub fn run() {
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             report_confirmed_outcome.run_if(in_state(GameState::InGame)),
             watch_lobby_epoch.run_if(in_state(GameState::InGame)),
-            (player_look, camera_follow, ears_follow, update_score_ui, animate_effects).run_if(in_state(GameState::InGame)),
+            repair_presentation_components.run_if(in_state(GameState::InGame)),
+            player_look.after(repair_presentation_components).run_if(in_state(GameState::InGame)),
+            follow_local_player.run_if(in_state(GameState::InGame)),
+            update_score_ui.run_if(in_state(GameState::InGame)),
+            (sync_rollback_sounds, reconcile_rollback_sounds).chain().run_if(in_state(GameState::InGame)),
+            (sync_explosion_cues, animate_effects).chain().run_if(in_state(GameState::InGame)),
         ),
     )
     .add_roll_state::<RollbackState>(GgrsSchedule)
@@ -454,9 +458,9 @@ pub fn run() {
             move_bullets,
             kill_players,
             remove_finished_sounds,
+            remove_finished_explosion_cues,
             apply_deferred,
             process_deaths,
-            sync_rollback_sounds,
             increase_frame_system,
         )
         .chain()
@@ -468,6 +472,7 @@ pub fn run() {
         (
             count_points_and_despawn,
             clear_sounds,
+            clear_explosion_presentations,
         )
     )
     .add_systems(OnEnter(RollbackState::RoundEnd), reset_round_end_timer)
@@ -551,57 +556,6 @@ fn setup(mut commands: Commands) {
     }
 }
 
-fn camera_follow(
-    player_handle: Option<Res<LocalPlayerHandle>>,
-    players: Query<(&Player, &Transform)>,
-    mut cameras: Query<&mut Transform, (With<Camera>,Without<Player>)>,
-) {
-    let player_handle = match player_handle {
-        Some(handle) => handle.0,
-        None => return, // Session hasn't started yet
-    };
-
-    for (player, player_transform) in &players {
-        if player.handle != player_handle {
-            continue;
-        }
-
-        let pos = player_transform.translation;
-
-        for mut transform in &mut cameras {
-            transform.translation.x = pos.x;
-            transform.translation.y = pos.y;
-        }
-        // break out early because we are only one local player
-        break;
-    }
-}
-
-fn ears_follow(
-    player_handle: Option<Res<LocalPlayerHandle>>,
-    players: Query<(&Player, &Transform)>,
-    mut ears: Query<&mut Transform, (With<AudioReceiver>,Without<Player>)>,
-) {
-    let player_handle = match player_handle {
-        Some(handle) => handle.0,
-        None => return, // Session hasn't started yet
-    };
-
-    for (player, player_transform) in &players {
-        if player.handle != player_handle {
-            continue;
-        }
-
-        let pos = player_transform.translation;
-
-        for mut transform in &mut ears {
-            transform.translation = pos;
-        }
-        // break out early because we are only one local player
-        break;
-    }
-}
-
 fn reset_round_end_timer(mut timer: ResMut<RoundEndTimer>) {
     timer.reset();
 }
@@ -648,12 +602,71 @@ mod tests {
             move_bullets,
             kill_players,
             remove_finished_sounds,
+            remove_finished_explosion_cues,
             apply_deferred,
             process_deaths,
-            sync_rollback_sounds,
             increase_frame_system,
         ).chain());
 
         assert!(schedule.initialize(&mut World::new()).is_ok());
+    }
+}
+
+fn repair_presentation_components(
+    mut commands: Commands,
+    missing_global: Query<Entity, (With<Transform>, Without<GlobalTransform>)>,
+    sprites: Query<(
+        Entity,
+        Option<&Visibility>,
+        Option<&ComputedVisibility>,
+        Option<&LookTowardsParentMove>,
+        Option<&AnimateOnce>,
+        Option<&TextureAtlasSprite>,
+    ), Or<(With<Sprite>, With<TextureAtlasSprite>)>>,
+) {
+    for entity in &missing_global {
+        commands.entity(entity).insert(GlobalTransform::default());
+    }
+    for (entity, visibility, computed, eye_marker, animation, atlas_sprite) in &sprites {
+        let mut entity_commands = commands.entity(entity);
+        if visibility.is_none() {
+            entity_commands.insert(Visibility::Inherited);
+        }
+        if computed.is_none() {
+            entity_commands.insert(ComputedVisibility::default());
+        }
+        if atlas_sprite.is_some() && eye_marker.is_none() && animation.is_none() {
+            entity_commands.insert(LookTowardsParentMove);
+        }
+    }
+}
+
+
+fn follow_local_player(
+    player_handle: Option<Res<LocalPlayerHandle>>,
+    players: Query<(&Player, &Transform)>,
+    mut followers: ParamSet<(
+        Query<&mut Transform, (With<Camera>, Without<Player>, Without<AudioReceiver>)>,
+        Query<&mut Transform, (With<AudioReceiver>, Without<Player>, Without<Camera>)>,
+    )>,
+) {
+    let Some(player_handle) = player_handle else { return; };
+    let local_handle = player_handle.0;
+    let Some(position) = players
+        .iter()
+        .find(|(player, _)| player.handle == local_handle)
+        .map(|(_, transform)| transform.translation)
+    else {
+        return;
+    };
+
+    let mut cameras = followers.p0();
+    for mut transform in &mut cameras {
+        transform.translation.x = position.x;
+        transform.translation.y = position.y;
+    }
+    let mut ears = followers.p1();
+    for mut transform in &mut ears {
+        transform.translation = position;
     }
 }
