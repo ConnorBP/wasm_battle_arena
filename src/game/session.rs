@@ -20,6 +20,33 @@ pub enum GameMode {
     Deathmatch,
 }
 
+pub const MATCH_POINTS_TO_WIN: u32 = 3;
+
+/// Public-facing mode copy. The internal `Deathmatch` variant is a round-based
+/// last-survivor mode, not an unlimited respawn deathmatch.
+pub fn mode_label(mode: GameMode) -> &'static str {
+    match mode {
+        GameMode::Duel => "Duel — First to 3",
+        GameMode::Deathmatch => "Last Ghost Standing — First to 3",
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatchWinner {
+    pub player_id: PlayerId,
+    pub score: u32,
+}
+
+/// Returns the winner only after the first-to-three endpoint is reached.
+/// Canonical identity ordering makes malformed ties deterministic.
+pub pub fn match_winner(scores: &[PlayerScore]) -> Option<MatchWinner> {
+    scores
+        .iter()
+        .filter(|entry| entry.score >= MATCH_POINTS_TO_WIN)
+        .min_by_key(|entry| entry.player_id)
+        .map(|entry| MatchWinner { player_id: entry.player_id, score: entry.score })
+}
+
 /// The deterministic result of applying eliminations to a round roster.
 #[derive(Debug, Clone, PartialEq, Eq, Reflect)]
 pub enum RoundOutcome {
@@ -74,7 +101,7 @@ pub fn round_outcome(
                 .collect();
             RoundOutcome::Complete { point_winners }
         }
-        GameMode::Deathmatch if (2..=4).contains(&roster.len()) => {
+        GameMode::Deathmatch if roster.len() == 4 => {
             let survivors: Vec<_> = roster.difference(&unavailable).copied().collect();
             if survivors.len() > 1 {
                 RoundOutcome::InProgress
@@ -179,7 +206,9 @@ impl RoundBootstrap {
         }
         let valid_count = match mode {
             GameMode::Duel => roster.len() == 2,
-            GameMode::Deathmatch => (2..=4).contains(&roster.len()),
+            // Competitive selection intentionally supports only a duel or a
+            // full four-ghost Last Ghost Standing roster.
+            GameMode::Deathmatch => roster.len() == 4,
         };
         if !valid_count {
             return Err(BootstrapError::InvalidPlayerCount);
@@ -352,26 +381,33 @@ mod tests {
     }
 
     #[test]
-    fn deathmatch_scores_the_sole_survivor_for_two_three_and_four_players() {
-        for roster in [&[1, 2][..], &[1, 2, 3], &[1, 2, 3, 4]] {
-            let roster = ids(roster);
-            let eliminated = roster[..roster.len() - 1].to_vec();
-            assert_eq!(
-                winners(round_outcome(GameMode::Deathmatch, &roster, &eliminated, &[])),
-                vec![*roster.last().unwrap()],
-            );
-        }
+    fn last_ghost_standing_scores_the_sole_survivor() {
+        let roster = ids(&[1, 2, 3, 4]);
+        let eliminated = roster[..roster.len() - 1].to_vec();
+        assert_eq!(
+            winners(round_outcome(GameMode::Deathmatch, &roster, &eliminated, &[])),
+            vec![*roster.last().unwrap()],
+        );
     }
 
     #[test]
-    fn simultaneous_outcomes_keep_duel_semantics_but_deathmatch_has_no_winner() {
+    fn match_endpoint_is_first_to_three_and_tie_safe() {
+        let scores = |values: &[(u128, u32)]| values.iter().map(|(id, score)| PlayerScore {
+            player_id: PlayerId(*id), score: *score,
+        }).collect::<Vec<_>>();
+        assert_eq!(match_winner(&scores(&[(1, 2), (2, 2)])), None);
+        assert_eq!(match_winner(&scores(&[(1, 3), (2, 2)])), Some(MatchWinner { player_id: PlayerId(1), score: 3 }));
+        assert_eq!(match_winner(&scores(&[(9, 3), (2, 3)])), Some(MatchWinner { player_id: PlayerId(2), score: 3 }));
+        assert_eq!(mode_label(GameMode::Deathmatch), "Last Ghost Standing — First to 3");
+    }
+
+    #[test]
+    fn simultaneous_outcomes_keep_duel_semantics_but_last_ghost_standing_has_no_winner() {
         let roster = ids(&[10, 20]);
         assert_eq!(
             winners(round_outcome(GameMode::Duel, &roster, &roster, &[])),
             roster,
         );
-        assert!(winners(round_outcome(GameMode::Deathmatch, &roster, &roster, &[])).is_empty());
-
         let four = ids(&[1, 2, 3, 4]);
         assert!(winners(round_outcome(GameMode::Deathmatch, &four, &four, &[])).is_empty());
     }
@@ -401,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn deathmatch_stays_in_progress_while_multiple_players_survive() {
+    fn last_ghost_standing_stays_in_progress_while_multiple_players_survive() {
         assert_eq!(
             round_outcome(GameMode::Deathmatch, &ids(&[1, 2, 3, 4]), &ids(&[2]), &[]),
             RoundOutcome::InProgress,
@@ -414,6 +450,7 @@ mod tests {
         assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0), entry(1, 1)], &[1, 1]), Err(BootstrapError::DuplicatePlayer));
         assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 2)], &[1, 2]), Err(BootstrapError::InvalidHandles));
         assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 1)], &[1, 3]), Err(BootstrapError::InvalidScores));
+        assert_eq!(bootstrap(GameMode::Deathmatch, (0..3).map(|id| entry(id, id as usize)).collect(), &[0, 1, 2]), Err(BootstrapError::InvalidPlayerCount));
         assert_eq!(bootstrap(GameMode::Deathmatch, (0..5).map(|id| entry(id, id as usize)).collect(), &[0, 1, 2, 3, 4]), Err(BootstrapError::InvalidPlayerCount));
     }
 }

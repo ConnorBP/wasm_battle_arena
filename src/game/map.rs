@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_ggrs::AddRollbackCommandExtension;
 
 use super::{
-    assets::procedural::{shield_pickup_color, speed_pickup_color, trap_color, wall_face_color, wall_foundation_color, PICKUP_SIZE, TRAP_SIZE},
+    assets::procedural::{shield_pickup_color, speed_pickup_color, trap_color, void_color, wall_face_color, wall_foundation_color, PICKUP_SIZE, TRAP_SIZE},
     components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world,
     session::{GameMode, RoundBootstrap}, GameSeed, RollbackState, RoundProgress, MAP_SIZE,
 };
@@ -182,6 +182,18 @@ pub fn generate_map(
     state.set(RollbackState::InRound);
 }
 
+fn is_void_boundary<const SIZE: usize>(map: &Map<CellType, SIZE, SIZE>, x: usize, y: usize) -> bool {
+    map.cells[x][y] == CellType::Void
+        && [
+            (x.wrapping_sub(1), y),
+            (x + 1, y),
+            (x, y.wrapping_sub(1)),
+            (x, y + 1),
+        ]
+        .into_iter()
+        .any(|(next_x, next_y)| next_x < SIZE && next_y < SIZE && map.cells[next_x][next_y] != CellType::Void)
+}
+
 pub fn spawn_map_sprites(
     mut commands: Commands,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
@@ -234,7 +246,8 @@ pub fn spawn_map_sprites(
                     )).add_rollback();
                     continue;
                 }
-                CellType::Empty | CellType::Void => continue,
+                CellType::Void if is_void_boundary(&map_data, x, y) => (void_color(), Vec2::splat(0.96)),
+                CellType::Void | CellType::Empty => continue,
             };
             commands.spawn((
                 MapBlock,
@@ -301,6 +314,10 @@ mod tests {
         let duel = Map::<CellType, MAP_SIZE, MAP_SIZE>::generated_with_size(42, 21);
         assert_eq!(duel.active_size, 21);
         assert_eq!(duel.cells[0][0], CellType::Void);
+        assert_ne!(void_color(), Color::BLACK);
+        assert!(!is_void_boundary(&duel, 0, 0));
+        let edge = MAP_SIZE / 2 - duel.active_size / 2;
+        assert!(is_void_boundary(&duel, edge - 1, MAP_SIZE / 2));
         assert_eq!(duel.cells[MAP_SIZE / 2][MAP_SIZE / 2], CellType::Empty);
     }
 }

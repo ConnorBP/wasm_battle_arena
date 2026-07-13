@@ -1,6 +1,6 @@
 # ![ghost](assets/textures/character/ghost.png "Sleepy") GHOST BATTLE ![ghost](assets/textures/character/ghost.png "Wheepy")
 
-A one versus one ghost battling game to the (extra?)death.
+A competitive ghost battling game: two-player Duel or four-player Last Ghost Standing, first to three round wins.
 
 Designed in Bevy game engine initially based on the following game design tutorial series: https://johanhelsing.studio/posts/extreme-bevy
 Project for me to learn the basics of the bevy ecs system as well as: peer2peer deterministic synchronized game states utilizing ggrs rollback, wave function map generation, deterministic random generation, and other novel game design concepts.
@@ -14,7 +14,7 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - peer to peer networking
 - non authoritative deterministic net code and game logic
 - desktop, mobile, and web (wasm) support
-- two player versus mode
+- two-player Duel and four-player Last Ghost Standing modes (first to 3)
 - deterministic seeded map generation
 - game music
 - retro sound effects

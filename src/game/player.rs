@@ -204,7 +204,7 @@ fn spawn_player(
 ) {
     let parent = commands.spawn((
         Player { handle, player_id },
-        BulletReady(true),
+        BulletReady(0),
         MoveDir(move_dir),
         SpriteBundle {
             texture: match cosmetic_id {
@@ -358,6 +358,22 @@ mod spawn_tests {
     }
 
     #[test]
+    fn held_fire_cooldown_is_exactly_twelve_frames() {
+        assert!((10..=12).contains(&FIRE_COOLDOWN_FRAMES));
+        let mut cooldown = FIRE_COOLDOWN_FRAMES;
+        let mut shot_frames = vec![0];
+        for frame in 1..=FIRE_COOLDOWN_FRAMES as usize * 2 {
+            cooldown = tick_fire_cooldown(cooldown);
+            if cooldown == 0 {
+                shot_frames.push(frame);
+                cooldown = FIRE_COOLDOWN_FRAMES;
+            }
+        }
+        assert_eq!(shot_frames, vec![0, 12, 24]);
+        assert_eq!(tick_fire_cooldown(0), 0);
+    }
+
+    #[test]
     fn speed_boost_runs_for_exactly_300_deterministic_frames() {
         let mut frames = Some(SPEED_BOOST_FRAMES);
         let mut distance = 0.0;
@@ -404,6 +420,15 @@ mod spawn_tests {
     }
 }
 
+/// One shot every 12 rollback frames while fire is held (5 shots/second at
+/// 60 Hz). The cooldown is sampled from the shared input bit, so desktop and
+/// mobile have identical deterministic behavior.
+pub const FIRE_COOLDOWN_FRAMES: u8 = 12;
+
+fn tick_fire_cooldown(frames_left: u8) -> u8 {
+    frames_left.saturating_sub(1)
+}
+
 pub fn fire_bullets(
     mut commands: Commands,
     frame: Res<GGFrameCount>,
@@ -415,7 +440,7 @@ pub fn fire_bullets(
 ) {
     let mut firing: Vec<_> = players.iter().filter_map(|(entity, transform, player, ready, direction)| {
         let (input, _) = inputs[player.handle];
-        (input::fire(input) && ready.0).then_some((player.player_id, player.handle, entity, *transform, *direction))
+        (input::fire(input) && ready.0 == 0).then_some((player.player_id, player.handle, entity, *transform, *direction))
     }).collect();
     firing.sort_by_key(|entry| entry.0);
     for (player_id, handle, entity, transform, move_dir) in firing {
@@ -457,20 +482,14 @@ pub fn fire_bullets(
             
 
             if let Ok((_, _, _, mut ready, _)) = players.get_mut(entity) {
-                ready.0 = false;
+                ready.0 = FIRE_COOLDOWN_FRAMES;
             }
     }
 }
 
-pub fn reload_bullet(
-    inputs: Res<PlayerInputs<GgrsConfig>>,
-    mut bullets: Query<(&mut BulletReady, &Player)>
-) {
-    for (mut can_fire, player) in &mut bullets {
-        let (input, _) = inputs[player.handle];
-        if !input::fire(input) {
-            can_fire.0 = true;
-        }
+pub fn reload_bullet(mut bullets: Query<&mut BulletReady, With<Player>>) {
+    for mut cooldown in &mut bullets {
+        cooldown.0 = tick_fire_cooldown(cooldown.0);
     }
 }
 

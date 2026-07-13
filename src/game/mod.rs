@@ -34,7 +34,7 @@ use assets::sounds::*;
 use gui::*;
 use toasts::*;
 use ggrs_framecount::*;
-use session::{PlayerScore, RoundBootstrap, RoundOutcome};
+use session::{match_winner, PlayerScore, RoundBootstrap, RoundOutcome};
 
 use seeded_random::Random;
 use seeded_random::Seed;
@@ -94,6 +94,16 @@ pub struct RoundProgress {
 
 #[derive(Resource, Default)]
 pub struct ReportedOutcome(pub Option<(u32, u32, u32)>);
+
+/// Match endpoint state. It is rollback-registered because the endpoint is
+/// derived from rollback scores; UI reads it to gate the next round.
+#[derive(Resource, Reflect, Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[reflect(Resource)]
+pub enum MatchFlow {
+    #[default]
+    Playing,
+    MatchOver { winner: session::PlayerId },
+}
 
 impl RoundProgress {
     pub fn record_elimination(&mut self, elimination: Elimination) {
@@ -319,6 +329,7 @@ pub fn run() {
             .register_rollback_resource::<SoundIdSeed>()
             .register_rollback_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
             .register_rollback_resource::<RoundProgress>()
+            .register_rollback_resource::<MatchFlow>()
             // .rollback_resource_with_copy::<FrameCount>()
             .register_rollback_resource::<GGFrameCount>()
             .register_rollback_component::<Player>()
@@ -363,6 +374,7 @@ pub fn run() {
     .init_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
     .init_resource::<RoundProgress>()
     .init_resource::<ReportedOutcome>()
+    .init_resource::<MatchFlow>()
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()
@@ -391,8 +403,11 @@ pub fn run() {
                 .run_if(in_state(GameState::MainMenu).and_then(in_state(MenuState::DirectConnect))),
             update_in_game_controls_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
+            update_match_status_ui
+                .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
-            update_respawn_ui.run_if(in_state(RollbackState::RoundEnd)),
+            update_respawn_ui
+                .run_if(in_state(GameState::InGame).and_then(in_state(RollbackState::RoundEnd))),
 
             // audio volume update in response to ui
             update_volume,
@@ -455,6 +470,7 @@ pub fn run() {
             clear_sounds,
         )
     )
+    .add_systems(OnEnter(RollbackState::RoundEnd), reset_round_end_timer)
     .add_systems(
         GgrsSchedule,
         round_end_timeout
@@ -586,14 +602,26 @@ fn ears_follow(
     }
 }
 
+fn reset_round_end_timer(mut timer: ResMut<RoundEndTimer>) {
+    timer.reset();
+}
+
 fn round_end_timeout(
     mut timer: ResMut<RoundEndTimer>,
-    mut state: ResMut<NextState<RollbackState>>
+    scores: Res<Scores>,
+    mut match_flow: ResMut<MatchFlow>,
+    mut state: ResMut<NextState<RollbackState>>,
 ) {
     timer.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
 
     if timer.just_finished() {
-        state.set(RollbackState::PreRound);
+        if let Some(winner) = match_winner(scores.entries()) {
+            *match_flow = MatchFlow::MatchOver { winner: winner.player_id };
+            // Stay at RoundEnd until the local player chooses rematch or leave.
+        } else {
+            *match_flow = MatchFlow::Playing;
+            state.set(RollbackState::PreRound);
+        }
     }
 }
 

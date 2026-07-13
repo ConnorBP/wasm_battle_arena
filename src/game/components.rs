@@ -9,8 +9,11 @@ pub struct Player {
     pub player_id: PlayerId,
 }
 
+/// Deterministic number of rollback frames until this player may fire again.
+/// Zero means ready. This is frame-based so held keyboard and touch fire use
+/// exactly the same cadence.
 #[derive(Component, Reflect, Default)]
-pub struct BulletReady(pub bool);
+pub struct BulletReady(pub u8);
 
 #[derive(Component, Reflect, Default, Clone, Copy)]
 pub struct Bullet {

@@ -4,9 +4,10 @@ use crate::mobile_input::{self, MobileInputKind};
 
 use super::{
     assets::sounds::AudioConfig,
-    networking::{sanitize_room_code, MatchmakingRoom},
-    session::PlayerProfile,
-    GameState, PendingPlayerProfile, Scores,
+    components::{MarkedForDeath, Player, ShieldCharges, SpeedBoost},
+    networking::{sanitize_room_code, LocalPlayerHandle, MatchmakingRoom},
+    session::{mode_label, PlayerProfile, RoundBootstrap, MATCH_POINTS_TO_WIN},
+    GameState, MatchFlow, PendingPlayerProfile, RollbackState, Scores,
 };
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default)]
@@ -117,6 +118,12 @@ pub fn update_main_menu(
             .font(FontId::monospace(24.0)), "https://on.soundcloud.com/bF9zR");
             ui.label(RichText::new(".").font(FontId::monospace(24.0)));
         });
+        ui.separator();
+        ui.label(RichText::new("HOW TO PLAY").strong().color(Color32::WHITE));
+        ui.label("Move: WASD / arrow keys   •   Fire: hold Space or Enter");
+        ui.label("Touch: drag on the LEFT to move   •   hold the RIGHT side to fire");
+        ui.label("Win rounds by eliminating rivals. First ghost to 3 points wins the match.");
+        ui.label("Cyan = speed boost (5 seconds)   •   Gold = one-hit shield   •   Red = trap   •   Purple = Void boundary");
     });
         
 
@@ -142,18 +149,21 @@ pub fn update_main_menu(
             next_game_state.set(GameState::Matchmaking);
         }
         ui.horizontal(|ui| {
-            ui.checkbox(&mut room.use_lobby_v2, "Lobby v2 / Deathmatch preview");
+            ui.checkbox(&mut room.use_lobby_v2, "Multiplayer mode selection");
             if room.use_lobby_v2 {
                 if ui.selectable_label(room.mode == super::session::GameMode::Duel, "Duel").clicked() {
                     room.mode = super::session::GameMode::Duel; room.capacity = 2;
                 }
-                if ui.selectable_label(room.mode == super::session::GameMode::Deathmatch, "Deathmatch").clicked() {
-                    room.mode = super::session::GameMode::Deathmatch; room.capacity = room.capacity.max(3);
+                if ui.selectable_label(room.mode == super::session::GameMode::Deathmatch, "4P Last Ghost Standing").clicked() {
+                    room.mode = super::session::GameMode::Deathmatch; room.capacity = 4;
                 }
             }
         });
-        if room.use_lobby_v2 && room.mode == super::session::GameMode::Deathmatch {
-            ui.add(Slider::new(&mut room.capacity, 3..=4).text("Players"));
+        if room.use_lobby_v2 {
+            ui.small(match room.mode {
+                super::session::GameMode::Duel => "2 players • First to 3",
+                super::session::GameMode::Deathmatch => "4 players • Last Ghost Standing • First to 3",
+            });
         }
         if ui.button("🔒 Private Match").clicked() {
             next_menu_state.set(MenuState::DirectConnect);
@@ -343,23 +353,87 @@ pub fn update_settings_ui(
 }
 
 
-pub fn update_score_ui(mut contexts: EguiContexts, scores: Res<Scores>) {
-    let score_text = scores
-        .entries()
-        .iter()
-        .map(|entry| entry.score.to_string())
-        .collect::<Vec<_>>()
-        .join(" : ");
+fn palette_color(id: u8) -> Color32 {
+    [Color32::from_rgb(204, 51, 51), Color32::from_rgb(38, 64, 204), Color32::from_rgb(51, 191, 77), Color32::from_rgb(191, 64, 191)]
+        .get(id as usize).copied().unwrap_or(Color32::WHITE)
+}
 
+pub fn update_score_ui(
+    mut contexts: EguiContexts,
+    scores: Res<Scores>,
+    bootstrap: Option<Res<RoundBootstrap>>,
+    local: Option<Res<LocalPlayerHandle>>,
+) {
+    let Some(bootstrap) = bootstrap else { return; };
     Area::new("score")
-    .anchor(Align2::CENTER_TOP, (0., 25.))
+    .anchor(Align2::CENTER_TOP, (0., 18.))
     .show(contexts.ctx_mut(), |ui| {
-        ui.label(
-            RichText::new(score_text)
-                .color(Color32::WHITE)
-                .font(FontId::proportional(72.0)),
-        );
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new(mode_label(bootstrap.mode)).strong().color(Color32::WHITE));
+            ui.horizontal(|ui| {
+                for score in scores.entries() {
+                    let profile = bootstrap.profiles.iter().find(|profile| profile.player_id == score.player_id);
+                    let roster = bootstrap.roster.iter().find(|entry| entry.player_id == score.player_id);
+                    let name = profile.map(|profile| profile.name.as_str()).unwrap_or("Ghost");
+                    let marker = if roster.map(|entry| local.as_ref().map(|local| entry.handle == local.0).unwrap_or(false)).unwrap_or(false) { "YOU • " } else { "" };
+                    ui.label(RichText::new(format!("{marker}{name}: {}/{}", score.score, MATCH_POINTS_TO_WIN))
+                        .strong().color(profile.map(|profile| palette_color(profile.palette_id)).unwrap_or(Color32::WHITE)));
+                }
+            });
+        });
     });
+}
+
+pub fn update_match_status_ui(
+    mut contexts: EguiContexts,
+    bootstrap: Option<Res<RoundBootstrap>>,
+    local: Option<Res<LocalPlayerHandle>>,
+    flow: Res<MatchFlow>,
+    rollback: Res<State<RollbackState>>,
+    progress: Res<super::RoundProgress>,
+    players: Query<(&Player, Option<&SpeedBoost>, Option<&ShieldCharges>, Option<&MarkedForDeath>)>,
+    mut next_game: ResMut<NextState<GameState>>,
+) {
+    let (Some(bootstrap), Some(local)) = (bootstrap, local) else { return; };
+    let local_id = bootstrap.roster.iter().find(|entry| entry.handle == local.0).map(|entry| entry.player_id);
+    let local_player = players.iter().find(|(player, _, _, _)| player.handle == local.0);
+
+    Area::new("player status").anchor(Align2::LEFT_BOTTOM, (18., -18.)).show(contexts.ctx_mut(), |ui| {
+        if let Some((_, boost, shield, marked)) = local_player {
+            if marked.is_some() {
+                ui.label(RichText::new("ELIMINATED — spectating until the next round").color(Color32::LIGHT_RED).strong());
+            } else {
+                if let Some(boost) = boost {
+                    ui.label(RichText::new(format!("⚡ SPEED  {:.1}s", boost.frames_left as f32 / 60.0)).color(Color32::LIGHT_BLUE).strong());
+                }
+                if shield.is_some() {
+                    ui.label(RichText::new("◆ SHIELD  blocks 1 hit").color(Color32::GOLD).strong());
+                }
+            }
+        } else if local_id.map(|id| progress.eliminated.iter().any(|entry| entry.player_id == id)).unwrap_or(false) {
+            ui.label(RichText::new("ELIMINATED — spectating until the next round").color(Color32::LIGHT_RED).strong());
+        } else if rollback.get() == &RollbackState::InRound {
+            ui.label(RichText::new("SPECTATING — waiting for the active ghosts").color(Color32::LIGHT_RED).strong());
+        }
+    });
+
+    if let MatchFlow::MatchOver { winner } = *flow {
+        let winner_name = bootstrap.profiles.iter().find(|profile| profile.player_id == winner)
+            .map(|profile| profile.name.as_str()).unwrap_or("Ghost");
+        Window::new("MATCH OVER").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(contexts.ctx_mut(), |ui| {
+            ui.heading(if Some(winner) == local_id { "YOU WIN!" } else { "MATCH OVER" });
+            ui.label(format!("{winner_name} is the first ghost to {MATCH_POINTS_TO_WIN} points."));
+            ui.label("Rematch returns to matchmaking with the same selected mode.");
+            ui.horizontal(|ui| {
+                if ui.button("Rematch").clicked() {
+                    next_game.set(GameState::Matchmaking);
+                }
+                if ui.button("Leave Match").clicked() {
+                    next_game.set(GameState::MainMenu);
+                }
+            });
+        });
+    }
 }
 
 #[cfg(test)]
@@ -403,7 +477,8 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
     });
 }
 
-pub fn update_respawn_ui(mut contexts: EguiContexts) {
+pub fn update_respawn_ui(mut contexts: EguiContexts, flow: Res<MatchFlow>) {
+    if matches!(*flow, MatchFlow::MatchOver { .. }) { return; }
     Area::new("matchmaking info")
     .anchor(Align2::CENTER_CENTER, (0., 25.))
     .show(contexts.ctx_mut(), |ui| {

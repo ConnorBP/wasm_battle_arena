@@ -78,8 +78,11 @@ pub fn start_cloudflare_socket(
     let room_name = versioned_room_name(room.private_code.as_deref());
     info!("connecting to Cloudflare matchmaking");
     if room.use_lobby_v2 {
-        let mode = match room.mode { super::session::GameMode::Duel => 0, super::session::GameMode::Deathmatch => 1 };
-        socket.connect_lobby(SIGNALING_URL, &format!("v2-{room_name}-{mode}-{}", room.capacity), mode, room.capacity as u32);
+        let (mode, capacity) = match room.mode {
+            super::session::GameMode::Duel => (0, 2),
+            super::session::GameMode::Deathmatch => (1, 4),
+        };
+        socket.connect_lobby(SIGNALING_URL, &format!("v2-{room_name}-{mode}-{capacity}"), mode, capacity);
     } else {
         socket.connect(SIGNALING_URL, &room_name);
     }
@@ -109,6 +112,7 @@ pub fn start_sync_test(
     commands.insert_resource(LocalPlayerHandle(0));
     commands.insert_resource(SoundIdSeed::new(SYNC_TEST_SEED, 2));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
+    commands.insert_resource(super::MatchFlow::Playing);
     commands.insert_resource(super::RoundProgress::default());
     commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
@@ -148,6 +152,7 @@ pub fn cleanup_network_session(
         MAP_SIZE,
     >>();
     commands.insert_resource(super::Scores::default());
+    commands.insert_resource(super::MatchFlow::Playing);
     commands.insert_resource(super::RoundEndTimer::default());
     commands.insert_resource(super::ggrs_framecount::GGFrameCount::default());
     rollback_state.set(super::RollbackState::PreRound);
@@ -227,6 +232,9 @@ pub fn wait_for_players(
     commands.insert_resource(LocalPlayerHandle(local_handle));
     commands.insert_resource(SoundIdSeed::new(match_info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
+    commands.insert_resource(super::MatchFlow::Playing);
+    commands.insert_resource(super::RoundProgress::default());
+    commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
     commands.insert_resource(GameSeed(match_info.seed));
@@ -253,7 +261,14 @@ fn start_lobby_session(
     mut toasts: ResMut<Toasts>,
     info: crate::cloudflare_net::LobbyMatchInfo,
 ) {
-    let mode = if info.roster.len() == 2 { GameMode::Duel } else { GameMode::Deathmatch };
+    // Competitive rosters are intentionally only 2-player Duel or full
+    // 4-player Last Ghost Standing; never silently turn a 3-player lobby into
+    // a competitive match.
+    let mode = match info.roster.len() {
+        2 => GameMode::Duel,
+        4 => GameMode::Deathmatch,
+        _ => { toasts.error("Competitive matches require exactly 2 or 4 players.".into()); next_state.set(GameState::MainMenu); return; }
+    };
     let roster: Vec<_> = info.roster.iter().map(|(player_id, handle)| RosterEntry { player_id: *player_id, handle: *handle }).collect();
     let profiles = roster.iter().map(|entry| PlayerProfile {
         player_id: entry.player_id,
@@ -283,6 +298,7 @@ fn start_lobby_session(
     commands.insert_resource(LocalPlayerHandle(local.handle));
     commands.insert_resource(SoundIdSeed::new(info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
+    commands.insert_resource(super::MatchFlow::Playing);
     commands.insert_resource(super::RoundProgress::default());
     commands.insert_resource(super::ReportedOutcome::default());
     commands.insert_resource(bootstrap);
@@ -312,10 +328,17 @@ pub fn watch_lobby_epoch(
     socket: Res<CloudflareSocket>,
     bootstrap: Option<Res<RoundBootstrap>>,
     progress: Res<super::RoundProgress>,
+    scores: Res<Scores>,
+    mut flow: ResMut<super::MatchFlow>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let (Some(current), Some(server_epoch)) = (bootstrap, socket.lobby_epoch()) else { return; };
-    if progress.resolved.is_some() && server_epoch > current.epoch.0 {
+    if progress.resolved.is_none() || server_epoch <= current.epoch.0 { return; }
+    // Scores have already been applied by the rollback RoundEnd transition;
+    // check the first-to-three endpoint before allowing epoch replacement.
+    if let Some(winner) = super::session::match_winner(scores.entries()) {
+        *flow = super::MatchFlow::MatchOver { winner: winner.player_id };
+    } else {
         next_state.set(GameState::Matchmaking);
     }
 }

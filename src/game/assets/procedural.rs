@@ -24,3 +24,9 @@ pub fn speed_pickup_color() -> Color {
 pub fn shield_pickup_color() -> Color {
     Color::rgb(0.95, 0.75, 0.15)
 }
+
+/// Visible warning field outside the compact duel arena. Deliberately distinct
+/// from the black world background and solid green walls.
+pub fn void_color() -> Color {
+    Color::rgb(0.20, 0.035, 0.25)
+}
