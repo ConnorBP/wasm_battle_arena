@@ -37,7 +37,7 @@ impl Default for AudioConfig {
     fn default() -> Self {
         Self { 
             master_volume: 100.0,
-            music_volume: 100.0,
+            music_volume: 55.0,
             sfx_volume: 100.0,
         }
     }
@@ -65,7 +65,6 @@ const MAX_MUSIC_VOL: f64 = 0.3;
 pub fn start_main_music(
     sounds: Res<SoundAssets>,
     audio: Res<AudioChannel<MusicChannel>>,
-    mut cfg: ResMut<AudioConfig>,
     mut started: Local<bool>,
 ) {
     if *started {
@@ -74,8 +73,4 @@ pub fn start_main_music(
     audio.play(sounds.menu_music.clone())
         .looped();
     *started = true;
-        //.with_volume(MAX_MUSIC_VOL);
-        // .fade_in(AudioTween::linear(std::time::Duration::from_secs(4)).with_easing(AudioEasing::InOutPowf(2.4)));
-        // set the music volume to default. This triggers the update_volume system
-        cfg.music_volume = 100.0;
 }
