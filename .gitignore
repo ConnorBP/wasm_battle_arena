@@ -5,4 +5,5 @@
 **/.wrangler/
 **/node_modules/
 /.smoke-ingame/
+/.smoke-mobile-input/
 desktop.ini

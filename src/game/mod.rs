@@ -221,6 +221,8 @@ pub fn run() {
     app.add_systems(OnEnter(MenuState::SyncTest), start_sync_test);
     #[cfg(feature = "auto_sync_test")]
     app.add_systems(OnEnter(GameState::MainMenu), enter_sync_test_automatically);
+    #[cfg(feature = "auto_mobile_input_test")]
+    app.add_systems(OnEnter(GameState::MainMenu), enter_mobile_input_test_automatically);
 
     #[cfg(feature="debug_render")]
     {
@@ -454,6 +456,11 @@ pub fn run() {
             .distributive_run_if(in_state(RollbackState::RoundEnd))
             .after(apply_state_transition::<RollbackState>),
     ).run();
+}
+
+#[cfg(feature = "auto_mobile_input_test")]
+fn enter_mobile_input_test_automatically(mut state: ResMut<NextState<MenuState>>) {
+    state.set(MenuState::DirectConnect);
 }
 
 #[cfg(feature = "auto_sync_test")]

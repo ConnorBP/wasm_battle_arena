@@ -63,6 +63,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: In-game sync-test smoke
         run: bash scripts/run-ingame-smoke.sh
+      - name: Mobile input smoke
+        run: bash scripts/run-mobile-input-smoke.sh
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site

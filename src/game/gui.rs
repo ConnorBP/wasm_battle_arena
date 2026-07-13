@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
+use crate::mobile_input::{self, MobileInputKind};
 
 use super::{
     assets::sounds::AudioConfig,
@@ -80,6 +81,7 @@ pub fn update_main_menu(
     mut next_menu_state: ResMut<NextState<MenuState>>,
     mut room: ResMut<MatchmakingRoom>,
 ) {
+    mobile_input::hide();
     let scale = responsive_scale(contexts.ctx_mut());
     TopBottomPanel::top("main menu top")
     .show(contexts.ctx_mut(), |ui| {
@@ -175,6 +177,10 @@ pub fn update_direct_connect_ui(
     mut room: ResMut<MatchmakingRoom>,
     mut code: Local<String>,
 ) {
+    mobile_input::show(MobileInputKind::RoomCode, &code, 16);
+    if let Some(value) = mobile_input::value(MobileInputKind::RoomCode) {
+        *code = sanitize_room_code(&value);
+    }
     let scale = responsive_scale(contexts.ctx_mut());
     CentralPanel::default()
         .frame(Frame::none().inner_margin(panel_margin(contexts.ctx_mut())).fill(Color32::from_rgb(66, 69, 73)))
@@ -224,6 +230,11 @@ pub fn update_settings_ui(
     mut audio_config: ResMut<AudioConfig>,
     mut profile: ResMut<PendingPlayerProfile>,
 ) {
+    mobile_input::show(MobileInputKind::PlayerName, &profile.name, 24);
+    if let Some(value) = mobile_input::value(MobileInputKind::PlayerName) {
+        let value = PlayerProfile::sanitized_name(&value);
+        if !value.is_empty() { profile.name = value; }
+    }
     let scale = responsive_scale(contexts.ctx_mut());
     bevy_egui::egui::CentralPanel::default()
     .frame(

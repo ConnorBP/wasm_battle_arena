@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "smoke:ingame": "node scripts/smoke-ingame.mjs"
+    "smoke:ingame": "node scripts/smoke-ingame.mjs",
+    "smoke:mobile-input": "node scripts/smoke-mobile-input.mjs"
   },
   "devDependencies": {
     "playwright": "1.61.1"
