@@ -56,10 +56,36 @@ async function assigned(client, mode, capacity) {
   assert(/^q4_[0-9a-f]{32}$/.test(value.room) && /^[0-9a-f]{64}$/.test(value.token), "unbounded assignment scalars");
   return value;
 }
+async function verifyHandoff(page, assignments) {
+  return page.evaluate(async ({ worker, assignments }) => {
+    const open = (assignment, replay = false) => new Promise((resolve, reject) => {
+      const query = `protocol=3&mode=${assignment.mode}&capacity=${assignment.capacity}&queueTicket=${assignment.ticket}&queueExpires=${assignment.expiresAt}&queueToken=${assignment.token}`;
+      const ws = new WebSocket(`${worker}/lobby/${assignment.room}?${query}`);
+      const timer = setTimeout(() => { ws.close(); reject(new Error("handoff timeout")); }, 15000);
+      let hasIce = false;
+      ws.onmessage = event => {
+        const message = JSON.parse(event.data);
+        if (message.type === "welcome") {
+          hasIce = Array.isArray(message.iceServers);
+          if (!replay) {
+            ws.send(JSON.stringify({ type: "profile", name: "QueueGhost", paletteId: 0, cosmeticId: 0 }));
+            ws.send(JSON.stringify({ type: "ready" }));
+          }
+        }
+        if (message.type === "start") { clearTimeout(timer); ws.close(); resolve({ started: true, hasIce, roster: message.roster.map(e => e.playerId).sort() }); }
+      };
+      ws.onclose = event => { if (replay) { clearTimeout(timer); resolve({ rejected: event.code !== 1000 || !hasIce }); } };
+      ws.onerror = () => { if (replay) { clearTimeout(timer); resolve({ rejected: true }); } };
+    });
+    const starts = await Promise.all(assignments.map(a => open(a)));
+    const replay = await open(assignments[0], true);
+    return { sameStart: starts.every(s => s.started && JSON.stringify(s.roster) === JSON.stringify(starts[0].roster)), hasIce: starts.every(s => s.hasIce), replayRejected: replay.rejected === true };
+  }, { worker, assignments });
+}
 async function scenario(page, specs, expectedMode, expectedCapacity) {
   const group = [];
   for (const [preference, target] of specs) group.push(await connect(page, preference, target));
-  await Promise.all(group.map(c => assigned(c, expectedMode, expectedCapacity)));
+  return Promise.all(group.map(c => assigned(c, expectedMode, expectedCapacity)));
 }
 async function resetQueue(page) {
   await Promise.allSettled(clients.map(client => client.close()));
@@ -70,7 +96,9 @@ async function resetQueue(page) {
 
 try {
   const page = await setup();
-  await scenario(page, [["any", 8], ["duel", 8]], "duel", 2);                 // Any+Duel immediate
+  const handoffAssignments = await scenario(page, [["any", 8], ["duel", 8]], "duel", 2); // Any+Duel immediate
+  const handoff = await verifyHandoff(page, handoffAssignments);
+  assert(handoff.sameStart && handoff.hasIce && handoff.replayRejected, "signed queue-to-lobby handoff failed");
   await resetQueue(page);
   await scenario(page, [["duel", 8], ["duel", 8]], "duel", 2);              // Duel+Duel
   await resetQueue(page);

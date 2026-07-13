@@ -1422,6 +1422,7 @@ extern "C" {
     fn cloudflare_close(id: u32);
     fn cloudflare_connect_queue(
         base_url: &str,
+        compatibility_room: &str,
         preference: &str,
         target: u32,
         profile_name: &str,

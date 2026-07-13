@@ -33,6 +33,11 @@ export class EpochLobby extends DurableObject {
     // expire may have aborted a round / expired identities; persist those side
     // effects even if this request later early-returns.
     if (this.state) await this.persist();
+    // Reject new identities at capacity before consuming a one-use assignment.
+    // Reconnects are checked against the superseded identity below.
+    if (!parsed.value.playerId && this.live().length >= MAX_LOBBY_SOCKETS) {
+      return text("Lobby busy", 503);
+    }
     let assignmentAdmitted = false;
     if (!this.state) {
       // Authenticate reserved-room creation first so an invalid request cannot
