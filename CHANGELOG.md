@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 - 2026-07-13
+
+- Added Any Mode as the recommended default public queue with flexible Duel and Last Ghost Standing assignment.
+- Removed the ordinary two-minute matchmaking timeout; heartbeat liveness now permits long target-practice waits.
+- Added deterministic three-second two-player holds and two-second Last Ghost Standing expansion windows up to eight players.
+- Added version-isolated queue pools and short-lived one-use signed queue-to-lobby assignments.
+- Added queue status feedback for searching, waiting briefly for a third ghost, forming a larger arena, and secure handoff.
+
 ## 0.6.0 - 2026-07-13
 
 - Added local target practice with moving targets, score, streaks, and desktop/touch controls while waiting in matchmaking.
