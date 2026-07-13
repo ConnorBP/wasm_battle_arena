@@ -589,8 +589,10 @@ pub fn update_match_status_ui(
         Option<&MarkedForDeath>,
     )>,
     mut next_game: ResMut<NextState<GameState>>,
-    socket: Res<CloudflareSocket>,
+    mut socket: ResMut<CloudflareSocket>,
     mut rematch: ResMut<RematchFlow>,
+    mut room: ResMut<MatchmakingRoom>,
+    mut toasts: ResMut<super::toasts::Toasts>,
 ) {
     let (Some(bootstrap), Some(local)) = (bootstrap, local) else {
         return;
@@ -693,16 +695,30 @@ pub fn update_match_status_ui(
                                 if socket.request_rematch(generation, &nonce) {
                                     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
                                     *rematch = RematchFlow::Pending { generation, nonce, deadline_ms: now + 10_000, accepted: 1, required: bootstrap.roster.len() as u8 };
+                                } else {
+                                    toasts.error("Could not send rematch request; returning to menu.".into());
+                                    next_game.set(GameState::MainMenu);
                                 }
                             }
                         }
                         RematchFlow::Pending { generation, nonce, .. } => {
-                            if ui.button("Accept Rematch").clicked() { socket.respond_rematch(generation, &nonce, true); }
-                            if ui.button("Deny").clicked() { socket.respond_rematch(generation, &nonce, false); }
+                            if ui.button("Accept Rematch").clicked() && !socket.respond_rematch(generation, &nonce, true) {
+                                toasts.error("Could not send rematch response; returning to menu.".into());
+                                next_game.set(GameState::MainMenu);
+                            }
+                            if ui.button("Deny").clicked() && !socket.respond_rematch(generation, &nonce, false) {
+                                toasts.error("Could not send rematch denial; returning to menu.".into());
+                                next_game.set(GameState::MainMenu);
+                            }
                         }
                     }
                     if ui.button("Re-Queue (General Queue)").clicked() {
                         socket.leave_lobby(true);
+                        room.private_code = None;
+                        room.mode = super::session::GameMode::Deathmatch;
+                        room.capacity = 8;
+                        socket.disconnect();
+                        *rematch = RematchFlow::Idle;
                         next_game.set(GameState::Matchmaking);
                     }
                     if ui.button("Main Menu").clicked() {

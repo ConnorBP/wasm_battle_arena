@@ -816,7 +816,7 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}`;
     const ws = new WebSocket(url);
     const id = nextTransportId++ || nextTransportId++;
-    const session = { id, ws, status: 0, error: "", lobby: true, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, telemetry: [0,0,0,0,reconnect ? 1 : 0,0] };
+    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, telemetry: [0,0,0,0,reconnect ? 1 : 0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, "lobby matchmaking timed out"), MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
@@ -904,6 +904,7 @@ export function cloudflare_lobby_close_epoch(id) {
 export function cloudflare_close_lobby(id) {
     const session = current(id); if (!session) return;
     networks.delete(id); window.clearTimeout(session.timeout);
+    try { if (session.identityKey) sessionStorage.removeItem(session.identityKey); } catch (_) {}
     for (const channel of session.channels.values()) channel.close();
     for (const peer of session.peers.values()) peer.close();
     session.ws.close(1000, "client closed");
