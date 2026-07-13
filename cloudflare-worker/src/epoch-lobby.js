@@ -9,6 +9,7 @@ import {
   applyMessageRateLimit, parseEpochClientMessage, parseEpochLobbyQuery, randomHex,
 } from "./protocol.js";
 import { generateIceServers } from "./turn.js";
+import { consumeAssignment } from "./assignment.js";
 
 const KEY = "lobby-v3";
 
@@ -22,15 +23,25 @@ export class EpochLobby extends DurableObject {
   async fetch(request) {
     if (request.method !== "GET") return text("Method not allowed", 405);
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return text("WebSocket required", 426);
-    const parsed = parseEpochLobbyQuery(new URL(request.url).searchParams);
+    const requestUrl = new URL(request.url);
+    const parsed = parseEpochLobbyQuery(requestUrl.searchParams);
     if (!parsed.ok) return text(parsed.error, 400);
+    const room = requestUrl.pathname.split("/").pop();
     const now = Date.now();
     await this.expire(now);
     await this.expireRematch(now);
     // expire may have aborted a round / expired identities; persist those side
     // effects even if this request later early-returns.
     if (this.state) await this.persist();
-    if (!this.state) this.state = createEpochState(parsed.value.mode, parsed.value.capacity, now);
+    let assignmentAdmitted = false;
+    if (!this.state) {
+      // Authenticate reserved-room creation first so an invalid request cannot
+      // pin an assigned room to attacker-chosen mode/capacity.
+      const admission = await this.admitAssignment(parsed.value, room, now);
+      if (!admission.ok) return text(admission.error, admission.status);
+      assignmentAdmitted = true;
+      this.state = createEpochState(parsed.value.mode, parsed.value.capacity, now);
+    }
     // Forward-compatible defaults for Durable Objects persisted before Wave C.
     this.state.matchGeneration ??= 0;
     this.state.matchSeed ??= this.state.active?.seed ?? null;
@@ -38,6 +49,10 @@ export class EpochLobby extends DurableObject {
     this.state.rematch ??= null;
     this.state.rematchDecision ??= null;
     if (this.state.mode !== parsed.value.mode || this.state.capacity !== parsed.value.capacity) return text("Lobby configuration mismatch", 409);
+    if (!assignmentAdmitted) {
+      const admission = await this.admitAssignment(parsed.value, room, now);
+      if (!admission.ok) return text(admission.error, admission.status);
+    }
 
     let player;
     let token;
@@ -94,6 +109,31 @@ export class EpochLobby extends DurableObject {
     }
     await this.persist();
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async admitAssignment(options, room, now) {
+    // Ordinary/private protocol-v3 rooms are deliberately unchanged. Assigned
+    // q4_* rooms are never public: exact canonical queue admission is required.
+    const assignedRoom = /^q4_[0-9a-f]{32}$/.test(room ?? "");
+    if (!assignedRoom && !options.assignment) return { ok: true };
+    // Once admitted, normal v3 rotating reconnect credentials are sufficient;
+    // requiring the already-consumed assignment would make reconnect impossible.
+    if (assignedRoom && options.playerId && !options.assignment) return { ok: true };
+    if (!assignedRoom || !options.assignment) return { ok: false, status: 401, error: "Queue assignment required" };
+    const fields = {
+      room,
+      mode: options.mode,
+      capacity: options.capacity,
+      ticket: options.assignment.ticket,
+      expiresAt: options.assignment.expiresAt,
+    };
+    const consumed = await consumeAssignment(
+      this.env.QUEUE_ASSIGNMENT_SECRET, fields, options.assignment.token, now, this.ctx.storage,
+    );
+    if (consumed.ok) return consumed;
+    if (consumed.code === "expired") return { ok: false, status: 410, error: "Queue assignment expired" };
+    if (consumed.code === "replay") return { ok: false, status: 409, error: "Queue assignment already used" };
+    return { ok: false, status: 401, error: "Invalid queue assignment" };
   }
 
   async webSocketMessage(socket, raw) {
@@ -256,6 +296,13 @@ export class EpochLobby extends DurableObject {
     await this.ctx.storage.put(KEY, this.state);
     const reconnectDeadline = Object.values(this.state.players).reduce((nearest, player) =>
       player.reconnectUntil === null ? nearest : Math.min(nearest, player.reconnectUntil), Infinity);
+    // Assignment consumption markers only need to outlive their signed expiry.
+    // Delete expired markers opportunistically; they are not token material.
+    const listed = await this.ctx.storage.list({ prefix: "queue-assignment:" });
+    const now = Date.now();
+    for (const [key, value] of listed) {
+      if ((value?.expiresAt ?? Infinity) <= now) await this.ctx.storage.delete(key);
+    }
     // Persisted rematch deadlines share the alarm with reconnect expiry.
     const next = Math.min(reconnectDeadline, this.state.rematch?.deadline ?? Infinity);
     if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next); else await this.ctx.storage.deleteAlarm();

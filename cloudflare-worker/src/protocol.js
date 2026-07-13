@@ -1,6 +1,10 @@
 export const PROTOCOL_VERSION = 2;
 export const EPOCH_PROTOCOL_VERSION = 3;
+export const QUEUE_PROTOCOL_VERSION = 4;
 export const PLAYER_ID_PATTERN = /^[0-9a-f]{32}$/i;
+export const QUEUE_TICKET_PATTERN = /^[0-9a-f]{32}$/i;
+export const QUEUE_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
+export const ASSIGNED_ROOM_PATTERN = /^q4_[0-9a-f]{32}$/;
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 export const MAX_MESSAGES_PER_SECOND = 60;
 export const RECONNECT_GRACE_MS = 30_000;
@@ -13,6 +17,9 @@ export function routePath(pathname) {
   if (match) return { kind: "match", room: match[1] };
   const lobby = /^\/lobby\/([A-Za-z0-9_-]{1,64})$/.exec(pathname);
   if (lobby) return { kind: "lobby", room: lobby[1] };
+  // Protocol 4 intentionally has one public pool. Arbitrary queue room names
+  // would create private/fragmented queues and are therefore not routed.
+  if (pathname === "/queue/public-v4") return { kind: "queue", room: "public-v4" };
   return null;
 }
 
@@ -24,7 +31,50 @@ export function parseEpochLobbyQuery(searchParams) {
   const copy = new URLSearchParams(searchParams);
   if (copy.getAll("protocol").length !== 1 || copy.get("protocol") !== "3") return fail("protocol must be 3");
   copy.delete("protocol");
-  return parseLobbyQuery(copy);
+
+  const assignmentKeys = ["queueTicket", "queueExpires", "queueToken"];
+  const present = assignmentKeys.filter((key) => copy.has(key));
+  let assignment = null;
+  if (present.length !== 0) {
+    if (present.length !== assignmentKeys.length || assignmentKeys.some((key) => copy.getAll(key).length !== 1)) {
+      return fail("queue assignment fields must be supplied exactly once together");
+    }
+    const ticket = copy.get("queueTicket");
+    const expiresText = copy.get("queueExpires");
+    const token = copy.get("queueToken");
+    if (!QUEUE_TICKET_PATTERN.test(ticket ?? "")) return fail("invalid queue ticket");
+    if (!/^[0-9]{13}$/.test(expiresText ?? "") || !Number.isSafeInteger(Number(expiresText))) {
+      return fail("invalid queue assignment expiry");
+    }
+    if (!QUEUE_TOKEN_PATTERN.test(token ?? "")) return fail("invalid queue assignment token");
+    assignment = {
+      ticket: ticket.toLowerCase(),
+      expiresAt: Number(expiresText),
+      token: token.toLowerCase(),
+    };
+    for (const key of assignmentKeys) copy.delete(key);
+  }
+
+  const lobby = parseLobbyQuery(copy);
+  return lobby.ok ? { ok: true, value: { ...lobby.value, assignment } } : lobby;
+}
+
+export function parseQueueQuery(searchParams) {
+  const allowed = new Set(["protocol", "preference", "target"]);
+  const seen = new Set();
+  for (const key of searchParams.keys()) {
+    if (!allowed.has(key)) return fail(`unknown query parameter: ${key}`);
+    if (seen.has(key)) return fail(`duplicate query parameter: ${key}`);
+    seen.add(key);
+  }
+  if (searchParams.get("protocol") !== "4") return fail("protocol must be 4");
+  const preference = searchParams.get("preference");
+  if (!new Set(["any", "duel", "deathmatch"]).has(preference)) {
+    return fail("preference must be any, duel, or deathmatch");
+  }
+  const targetText = searchParams.get("target");
+  if (!/^[3-8]$/.test(targetText ?? "")) return fail("target must be between 3 and 8");
+  return { ok: true, value: { preference, target: Number(targetText) } };
 }
 
 export function parseLobbyQuery(searchParams) {

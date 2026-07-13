@@ -1,6 +1,6 @@
 # Ghost Battle signaling worker
 
-This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lobby` protocol v2 compatibility, and lifecycle-safe `/lobby?...&protocol=3`. Protocol 3 supports opt-in two-player Dueling Ghosts and default Last Ghost Standing at 3–8 players, explicit exit/requeue, and server-authoritative same-roster rematches with a persisted 10-second vote deadline. All relay only WebRTC SDP/ICE; game packets remain peer-to-peer except when a restrictive network requires Cloudflare TURN relay. New clients use [protocol v3](../docs/lobby-v3.md); [v2](../docs/lobby-v2.md) remains for older clients. The v3 lifecycle reducer is vendored dependency-free in [`vendor/cloudflare-game-common`](vendor/cloudflare-game-common/README.md) so the Worker and `car_game_ai` share byte-for-byte transition semantics.
+This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lobby` protocol v2 compatibility, lifecycle-safe `/lobby?...&protocol=3`, and the public protocol-v4 flexible queue. Protocol 3 supports opt-in two-player Dueling Ghosts and Last Ghost Standing at 3–8 players. Protocol 4 arbitrates Duel/Deathmatch/Any preferences and securely hands an exact roster to v3. All relay only WebRTC SDP/ICE; game packets remain peer-to-peer except when a restrictive network requires Cloudflare TURN relay. See [protocol v4](../docs/matchmaking-v4.md), [protocol v3](../docs/lobby-v3.md), and legacy [v2](../docs/lobby-v2.md).
 
 ## Deploy
 
@@ -11,15 +11,18 @@ This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lob
    ```text
    npx wrangler secret put TURN_KEY_ID
    npx wrangler secret put TURN_KEY_API_TOKEN
+   npx wrangler secret put QUEUE_ASSIGNMENT_SECRET
    ```
 
-   Enter each value only at Wrangler's interactive prompt. **Do not paste either secret into `wrangler.jsonc`, source, documentation, logs, issues, or browser configuration/storage.** `TURN_KEY_API_TOKEN` needs permission to generate credentials for the key identified by `TURN_KEY_ID`.
+   `QUEUE_ASSIGNMENT_SECRET` must be an independently generated high-entropy value of at least 32 bytes. It signs short-lived, one-use queue assignments. Configure the same secret for the `MatchQueue` and `EpochLobby` bindings (they are classes in this Worker deployment). Rotate it only when outstanding 30-second assignments may safely be invalidated.
+
+   Enter each value only at Wrangler's interactive prompt. **Do not paste any secret into `wrangler.jsonc`, source, documentation, logs, issues, or browser configuration/storage.** `TURN_KEY_API_TOKEN` needs permission to generate credentials for the key identified by `TURN_KEY_ID`.
 4. Run `npx wrangler@latest deploy` from this directory (Wrangler 4.110+ is pinned in `package.json`).
-5. If the game host is Cloudflare-proxied, route the Worker under `/match/*` and `/lobby/*`. Otherwise compile the game with `GHOST_BATTLE_SIGNALING_URL=wss://your-worker.workers.dev/match`; the client derives `/lobby` for protocol 3 and keeps `/match` as its legacy fallback.
+5. If the game host is Cloudflare-proxied, route the Worker under `/match/*`, `/lobby/*`, and `/queue/*`. Otherwise compile the game with `GHOST_BATTLE_SIGNALING_URL=wss://your-worker.workers.dev/match`; clients can derive `/lobby` and `/queue` routes while keeping `/match` as the legacy fallback.
 
 ## Tests
 
-`npm test` runs the pure source tests under `test/` with Node's built-in test runner. They cover protocol parsing/validation and the vendored lifecycle reducer (2–8 supported capacities, active-ready immutability, roster/epoch continuity, mid-round joins, report consensus, terminal idempotence, reconnect token rotation/expiry/supersession, epoch signal validation, rematch generation/nonce idempotence, simultaneous requests, timeout/deny/disconnect, exit, and deterministic seed advancement) without a Workers runtime.
+`npm test` runs the pure source tests under `test/` with Node's built-in test runner. They cover protocol parsing/validation, all v4 arbitration combinations/deadlines/cancellation/disconnect/3–8 expansion, assignment HMAC tamper/replay/expiry semantics, and the vendored lifecycle reducer (2–8 supported capacities, active-ready immutability, roster/epoch continuity, mid-round joins, report consensus, terminal idempotence, reconnect token rotation/expiry/supersession, epoch signal validation, rematch generation/nonce idempotence, simultaneous requests, timeout/deny/disconnect, exit, and deterministic seed advancement) without a Workers runtime.
 
 For local development, run `npx wrangler dev` and add the exact local game origin to `ALLOWED_ORIGINS`. The game's `local` Cargo feature uses `ws://127.0.0.1:8787/match`.
 

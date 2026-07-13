@@ -11,6 +11,7 @@ import {
   validateSignalData,
   parseEpochClientMessage,
   parseEpochLobbyQuery,
+  parseQueueQuery,
 } from "../src/protocol.js";
 
 test("routePath preserves the legacy /match route and adds /lobby", () => {
@@ -19,6 +20,23 @@ test("routePath preserves the legacy /match route and adds /lobby", () => {
   assert.equal(routePath("/match"), null);
   assert.equal(routePath("/lobby/a/b"), null);
   assert.equal(routePath(`/lobby/${"a".repeat(65)}`), null);
+  assert.deepEqual(routePath("/queue/public-v4"), { kind: "queue", room: "public-v4" });
+  assert.equal(routePath("/queue/private-room"), null);
+});
+
+test("queue query is protocol 4 public flexible matchmaking only", () => {
+  for (const preference of ["any", "duel", "deathmatch"]) {
+    for (let target = 3; target <= 8; target += 1) {
+      assert.deepEqual(parseQueueQuery(new URLSearchParams(`protocol=4&preference=${preference}&target=${target}`)), {
+        ok: true, value: { preference, target },
+      });
+    }
+  }
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=3&preference=any&target=3")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=2")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=9")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=unknown&target=4")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=4&extra=x")).ok, false);
 });
 
 test("lobby query validates mode, capacity, and reconnect pair", () => {
@@ -59,6 +77,22 @@ test("directed signal schema accepts bounded SDP and ICE only", () => {
   }).ok, false);
   assert.equal(parseClientMessage(JSON.stringify({ type: "signal", to: target, data: {}, extra: 1 })).ok, false);
   assert.equal(parseClientMessage("not-json").ok, false);
+});
+
+test("epoch query accepts bounded assignment handoff only as an all-or-none set", () => {
+  const ticket = "a".repeat(32);
+  const token = "b".repeat(64);
+  const parsed = parseEpochLobbyQuery(new URLSearchParams(
+    `protocol=3&mode=deathmatch&capacity=4&queueTicket=${ticket}&queueExpires=2000000000000&queueToken=${token}`,
+  ));
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.value.assignment, { ticket, expiresAt: 2_000_000_000_000, token });
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams(
+    `protocol=3&mode=deathmatch&capacity=4&queueTicket=${ticket}`,
+  )).ok, false);
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams(
+    `protocol=3&mode=deathmatch&capacity=4&queueTicket=${ticket}&queueExpires=bad&queueToken=${token}`,
+  )).ok, false);
 });
 
 test("epoch protocol validates profiles and reports", () => {

@@ -3,6 +3,7 @@ import { routePath } from "./protocol.js";
 import { generateIceServers } from "./turn.js";
 export { Lobby } from "./lobby.js";
 export { EpochLobby } from "./epoch-lobby.js";
+export { MatchQueue } from "./match-queue.js";
 
 const MAX_CLIENTS = 64;
 const MAX_MESSAGE_BYTES = 16 * 1024;
@@ -35,9 +36,16 @@ export default {
     const { success } = await env.MATCHMAKING_RATE_LIMITER.limit({ key: rateKey });
     if (!success) return new Response("Too many matchmaking attempts", { status: 429 });
 
+    // Reserved assignment rooms cannot be opened through the v2 binding.
+    if (route.kind === "lobby" && /^q4_[0-9a-f]{32}$/.test(route.room) && url.searchParams.get("protocol") !== "3") {
+      return new Response("Protocol 3 queue assignment required", { status: 400 });
+    }
     const binding = route.kind === "match"
       ? env.MATCHMAKER
-      : url.searchParams.get("protocol") === "3" ? env.EPOCH_LOBBY : env.LOBBY;
+      : route.kind === "queue"
+        ? env.MATCH_QUEUE
+        : url.searchParams.get("protocol") === "3" ? env.EPOCH_LOBBY : env.LOBBY;
+    if (!binding) return new Response("Matchmaking service unavailable", { status: 503 });
     return binding.get(binding.idFromName(route.room)).fetch(request);
   },
 };
