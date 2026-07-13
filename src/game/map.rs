@@ -12,7 +12,7 @@ const PICKUP_DOMAIN: u64 = 0x7069_636b_7570_7061;
 const SHIELD_DOMAIN: u64 = 0x7368_6965_6c64_7061;
 const WALL_PERCENT: u64 = 23;
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Reflect)]
 pub enum CellType {
     #[default]
     Empty,
@@ -22,9 +22,16 @@ pub enum CellType {
     ShieldPickup,
 }
 
-#[derive(Resource)]
-pub struct Map<T: Sized, const WIDTH: usize, const HEIGHT: usize> {
+#[derive(Resource, Reflect, Clone)]
+#[reflect(Resource)]
+pub struct Map<T: Sized + Default + Copy, const WIDTH: usize, const HEIGHT: usize> {
     pub cells: [[T; WIDTH]; HEIGHT],
+}
+
+impl<T: Default + Copy, const WIDTH: usize, const HEIGHT: usize> Default for Map<T, WIDTH, HEIGHT> {
+    fn default() -> Self {
+        Self { cells: [[T::default(); WIDTH]; HEIGHT] }
+    }
 }
 
 impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
@@ -86,10 +93,12 @@ fn place_feature_pair<const SIZE: usize>(
         }
     }
 
-    if let Some(pair) = candidates.get((splitmix64(seed) as usize) % candidates.len().max(1)) {
-        for &(x, y) in pair {
-            cells[x][y] = feature;
-        }
+    if candidates.is_empty() {
+        return;
+    }
+    let index = (splitmix64(seed) % candidates.len() as u64) as usize;
+    for &(x, y) in &candidates[index] {
+        cells[x][y] = feature;
     }
 }
 

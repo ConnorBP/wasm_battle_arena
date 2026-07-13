@@ -227,7 +227,7 @@ pub fn spawn_players(
         let position = positions[entry.handle];
         let world = grid_to_world(position);
         let look = if bootstrap.roster.len() == 2 {
-            if entry.handle == 0 { -Vec2::X } else { Vec2::X }
+            (grid_to_world(positions[1 - entry.handle]) - world).normalize_or_zero()
         } else {
             (-world).normalize_or_zero()
         };
@@ -335,11 +335,11 @@ fn generate_spawn_positions(
         }
     }
 
-    let first_index = (splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN) as usize) % pairs.len().max(1);
-    let first = pairs
-        .get(first_index)
-        .copied()
-        .unwrap_or([(0, 0), ((MAP_SIZE - 1) as u32, (MAP_SIZE - 1) as u32)]);
+    let first = if pairs.is_empty() {
+        [(0, 0), ((MAP_SIZE - 1) as u32, (MAP_SIZE - 1) as u32)]
+    } else {
+        pairs[(splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN) % pairs.len() as u64) as usize]
+    };
     let mut positions = vec![first[0], first[1]];
 
     if count == 3 {
@@ -357,10 +357,14 @@ fn generate_spawn_positions(
                 })
             })
             .collect();
-        let second = second_candidates
-            .get((splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN ^ 1) as usize) % second_candidates.len().max(1))
-            .copied()
-            .unwrap_or([(0, (MAP_SIZE - 1) as u32), ((MAP_SIZE - 1) as u32, 0)]);
+        let second = if second_candidates.is_empty() {
+            [(0, (MAP_SIZE - 1) as u32), ((MAP_SIZE - 1) as u32, 0)]
+        } else {
+            second_candidates[
+                (splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN ^ 1)
+                    % second_candidates.len() as u64) as usize
+            ]
+        };
         positions.extend(second);
     }
 
@@ -415,7 +419,7 @@ pub fn fire_bullets(
         let (input, _) = inputs[player.handle];
         if input::fire(input) && bullet_ready.0 {
             let player_pos = transform.translation.xy();
-            let pos = player_pos + move_dir.0 * PLAYER_RADIUS + BULLET_RADIUS;
+            let pos = player_pos + move_dir.0 * (PLAYER_RADIUS + BULLET_RADIUS);
             // spawn bullet entity
             commands.spawn((
                 Bullet { id: frame.frame as u64, owner: player.handle, active: true },

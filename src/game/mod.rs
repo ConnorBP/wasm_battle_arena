@@ -247,6 +247,7 @@ pub fn run() {
             .register_rollback_resource::<Scores>()
             .register_rollback_resource::<GameSeed>()
             .register_rollback_resource::<SoundIdSeed>()
+            .register_rollback_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
             // .rollback_resource_with_copy::<FrameCount>()
             .register_rollback_resource::<GGFrameCount>()
             .register_rollback_component::<Player>()
@@ -286,6 +287,7 @@ pub fn run() {
     .init_resource::<Scores>()
     .init_resource::<GGFrameCount>()
     .init_resource::<PlaybackStates>()
+    .init_resource::<Map<CellType, MAP_SIZE, MAP_SIZE>>()
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()
