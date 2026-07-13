@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { routePath } from "./protocol.js";
+export { Lobby } from "./lobby.js";
 
 const MAX_CLIENTS = 64;
 const MAX_MESSAGE_BYTES = 16 * 1024;
@@ -10,8 +12,8 @@ export default {
   async fetch(request, env) {
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     const url = new URL(request.url);
-    const match = /^\/match\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-    if (!match) return new Response("Not found", { status: 404 });
+    const route = routePath(url.pathname);
+    if (!route) return new Response("Not found", { status: 404 });
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("WebSocket upgrade required", { status: 426 });
     }
@@ -24,13 +26,15 @@ export default {
       return new Response("Origin not allowed", { status: 403 });
     }
 
-    const rateKey = request.headers.get("CF-Connecting-IP") || "unknown";
-    if (env.MATCHMAKING_RATE_LIMITER) {
-      const { success } = await env.MATCHMAKING_RATE_LIMITER.limit({ key: rateKey });
-      if (!success) return new Response("Too many matchmaking attempts", { status: 429 });
+    if (!env.MATCHMAKING_RATE_LIMITER) {
+      return new Response("Rate limiter unavailable", { status: 503 });
     }
+    const rateKey = request.headers.get("CF-Connecting-IP") || "unknown";
+    const { success } = await env.MATCHMAKING_RATE_LIMITER.limit({ key: rateKey });
+    if (!success) return new Response("Too many matchmaking attempts", { status: 429 });
 
-    return env.MATCHMAKER.get(env.MATCHMAKER.idFromName(match[1])).fetch(request);
+    const binding = route.kind === "match" ? env.MATCHMAKER : env.LOBBY;
+    return binding.get(binding.idFromName(route.room)).fetch(request);
   },
 };
 

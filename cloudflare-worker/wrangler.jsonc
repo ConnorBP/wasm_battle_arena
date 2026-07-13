@@ -12,13 +12,13 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "MATCHMAKER", "class_name": "Matchmaker" }
+      { "name": "MATCHMAKER", "class_name": "Matchmaker" },
+      { "name": "LOBBY", "class_name": "Lobby" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["Matchmaker"] }
+    { "tag": "v1", "new_sqlite_classes": ["Matchmaker"] },
+    { "tag": "v2", "new_sqlite_classes": ["Lobby"] }
   ],
-  "vars": {
-    "ALLOWED_ORIGINS": "https://ghost.segfault.site"
-  }
+  "vars": { "ALLOWED_ORIGINS": "https://ghost.segfault.site" }
 }
