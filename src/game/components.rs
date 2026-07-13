@@ -1,4 +1,3 @@
-
 use bevy::prelude::*;
 
 use super::session::PlayerId;
@@ -72,7 +71,6 @@ impl MarkedForDeath {
 // marker component for map blocks
 #[derive(Component)]
 pub struct MapBlock;
-
 
 // non synced for animation only
 

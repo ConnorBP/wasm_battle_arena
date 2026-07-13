@@ -1,11 +1,10 @@
-use bevy::{prelude::*, utils::{HashMap, HashSet}};
+use bevy::{
+    prelude::*,
+    utils::{HashMap, HashSet},
+};
 use bevy_kira_audio::{prelude::*, AudioSource};
 
-use super::{
-    assets::sounds::SfxChannel,
-    ggrs_framecount::GGFrameCount,
-    networking::ROLLBACK_FPS,
-};
+use super::{assets::sounds::SfxChannel, ggrs_framecount::GGFrameCount, networking::ROLLBACK_FPS};
 
 #[derive(Component, Reflect, Default)]
 pub struct RollbackSound {
@@ -69,7 +68,6 @@ pub fn sync_rollback_sounds(
             commands.entity(entity).insert(emitter);
         }
     }
-
 }
 
 fn stop_interrupted(
@@ -97,7 +95,9 @@ pub fn reconcile_rollback_sounds(
     sounds: Query<&RollbackSound>,
 ) {
     current_state.live.clear();
-    current_state.live.extend(sounds.iter().map(RollbackSound::key));
+    current_state
+        .live
+        .extend(sounds.iter().map(RollbackSound::key));
     stop_interrupted(&mut current_state, &mut audio_instances);
 }
 

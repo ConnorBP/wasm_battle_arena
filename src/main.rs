@@ -1,8 +1,8 @@
 mod cloudflare_net;
 mod game;
-mod mobile_input;
-#[cfg(feature="bindgen")]
+#[cfg(feature = "bindgen")]
 mod interface;
+mod mobile_input;
 
 fn main() {
     game::run();

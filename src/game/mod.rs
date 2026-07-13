@@ -1,40 +1,42 @@
 use std::time::Duration;
 
+use crate::cloudflare_net::CloudflareNetPlugin;
 use bevy::{prelude::*, render::camera::ScalingMode};
-use bevy_ggrs::{GgrsAppExtension, GgrsPlugin, GgrsSchedule};
 use bevy_asset_loader::prelude::*;
+use bevy_egui::EguiPlugin;
+use bevy_ggrs::{GgrsAppExtension, GgrsPlugin, GgrsSchedule};
 use bevy_kira_audio::prelude::*;
 use bevy_roll_safe::prelude::*;
-use bevy_egui::EguiPlugin;
-use crate::cloudflare_net::CloudflareNetPlugin;
 
-mod components;
-mod map;
-mod player;
-mod input;
-mod networking;
-pub(crate) mod session;
-mod rollback_audio;
 mod assets;
-mod gui;
-mod toasts;
+mod components;
 mod ggrs_framecount;
+mod gui;
+mod input;
+mod map;
+mod networking;
+mod player;
+mod progression;
+mod rollback_audio;
+pub(crate) mod session;
+mod toasts;
 
-#[cfg(feature="debug_render")]
+#[cfg(feature = "debug_render")]
 mod debug_render;
 
-use components::*;
-use map::*;
-use player::*;
-use input::*;
-use networking::*;
-use rollback_audio::*;
-use assets::textures::*;
 use assets::sounds::*;
-use gui::*;
-use toasts::*;
+use assets::textures::*;
+use components::*;
 use ggrs_framecount::*;
+use gui::*;
+use input::*;
+use map::*;
+use networking::*;
+use player::*;
+use progression::*;
+use rollback_audio::*;
 use session::{match_winner, PlayerScore, RoundBootstrap, RoundOutcome};
+use toasts::*;
 
 use seeded_random::Random;
 use seeded_random::Seed;
@@ -102,12 +104,18 @@ pub struct ReportedOutcome(pub Option<(u32, u32, u32)>);
 pub enum MatchFlow {
     #[default]
     Playing,
-    MatchOver { winner: session::PlayerId },
+    MatchOver {
+        winner: session::PlayerId,
+    },
 }
 
 impl RoundProgress {
     pub fn record_elimination(&mut self, elimination: Elimination) {
-        if self.eliminated.iter().any(|entry| entry.player_id == elimination.player_id) {
+        if self
+            .eliminated
+            .iter()
+            .any(|entry| entry.player_id == elimination.player_id)
+        {
             return;
         }
         self.eliminated.push(elimination);
@@ -147,7 +155,11 @@ pub struct PendingPlayerProfile {
 
 impl Default for PendingPlayerProfile {
     fn default() -> Self {
-        Self { name: "Ghost".into(), palette_id: 0, cosmetic_id: 0 }
+        Self {
+            name: "Ghost".into(),
+            palette_id: 0,
+            cosmetic_id: 0,
+        }
     }
 }
 
@@ -174,7 +186,6 @@ impl SoundIdSeed {
             .expect("sound seed exists for every roster handle")
             .next()
     }
-
 }
 
 #[derive(Reflect, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,53 +209,52 @@ impl SoundSeed {
 pub fn run() {
     let mut app = App::new();
 
-    #[cfg(feature="debug_render")]
+    #[cfg(feature = "debug_render")]
     {
         app.add_systems(Startup, debug_render::spawn_debug_sprites);
         app.add_systems(Update, debug_render::update_debug_sprites);
         app.init_resource::<debug_render::DebugEntitiesList>();
     }
 
-    app
-    .add_state::<GameState>()
-    .add_state::<MenuState>()
-    .add_loading_state(
-        LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::MainMenu)
-    )
-    .add_collection_to_loading_state::<_, ImageAssets>(GameState::AssetLoading)
-    .add_collection_to_loading_state::<_, SoundAssets>(GameState::AssetLoading)
-    .add_plugins((
-        DefaultPlugins
-        .set(WindowPlugin {
-            primary_window: Some(Window {
-                // fill the entire browser window
-                fit_canvas_to_parent: true,
-                // don't hijack keyboard shortcuts like F5 CTRL+R
-                prevent_default_event_handling: false,
-                ..default()
-            }),
-            ..default()
-        })
-        .set(ImagePlugin::default_nearest()),// set pixel art render mode
-        EguiPlugin,
-        AudioPlugin,
-        CloudflareNetPlugin,
-    ));
+    app.add_state::<GameState>()
+        .add_state::<MenuState>()
+        .add_loading_state(
+            LoadingState::new(GameState::AssetLoading).continue_to_state(GameState::MainMenu),
+        )
+        .add_collection_to_loading_state::<_, ImageAssets>(GameState::AssetLoading)
+        .add_collection_to_loading_state::<_, SoundAssets>(GameState::AssetLoading)
+        .add_plugins((
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        // fill the entire browser window
+                        fit_canvas_to_parent: true,
+                        // don't hijack keyboard shortcuts like F5 CTRL+R
+                        prevent_default_event_handling: false,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()), // set pixel art render mode
+            EguiPlugin,
+            AudioPlugin,
+            CloudflareNetPlugin,
+        ));
 
     #[cfg(feature = "sync_test")]
     app.add_systems(OnEnter(MenuState::SyncTest), start_sync_test);
     #[cfg(feature = "auto_sync_test")]
     app.add_systems(OnEnter(GameState::MainMenu), enter_sync_test_automatically);
     #[cfg(feature = "auto_mobile_input_test")]
-    app.add_systems(OnEnter(GameState::MainMenu), enter_mobile_input_test_automatically);
+    app.add_systems(
+        OnEnter(GameState::MainMenu),
+        enter_mobile_input_test_automatically,
+    );
 
-    #[cfg(feature="debug_render")]
+    #[cfg(feature = "debug_render")]
     {
-        use bevy_inspector_egui::{
-            prelude::*,
-            quick::WorldInspectorPlugin,
-        };
-        use bevy_egui::{egui, EguiPlugin, EguiContexts};
+        use bevy_egui::{egui, EguiContexts, EguiPlugin};
+        use bevy_inspector_egui::{prelude::*, quick::WorldInspectorPlugin};
         // add the inspector plugin after default plugins are added
         // app.add_plugins((WorldInspectorPlugin::new()));
 
@@ -257,63 +267,45 @@ pub fn run() {
             AfterRound,
         }
 
-
-        app.add_plugins((
-            bevy_inspector_egui::DefaultInspectorConfigPlugin,
-        ))
-        .configure_sets(Update,
-            (DebugSet::BeforeRound, DebugSet::Round, DebugSet::AfterRound).chain(),
-        )
-        .add_systems(Update, (
-            inspector_ui.in_set(DebugSet::BeforeRound),
-        ));
-        
+        app.add_plugins((bevy_inspector_egui::DefaultInspectorConfigPlugin,))
+            .configure_sets(
+                Update,
+                (DebugSet::BeforeRound, DebugSet::Round, DebugSet::AfterRound).chain(),
+            )
+            .add_systems(Update, (inspector_ui.in_set(DebugSet::BeforeRound),));
 
         fn inspector_ui(world: &mut World) {
             let egui_context = {
                 let mut query = world.query::<&mut bevy_egui::EguiContext>();
 
                 query
-                .get_single_mut(world)
-                .expect("getting EGUI context for inspector")
-                .get_mut()
-                .clone()
+                    .get_single_mut(world)
+                    .expect("getting EGUI context for inspector")
+                    .get_mut()
+                    .clone()
             };
-        
-            
 
-            egui::Window::new("DEBUG")
-            .show(&egui_context, |ui| {
+            egui::Window::new("DEBUG").show(&egui_context, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     // equivalent to `WorldInspectorPlugin`
                     // bevy_inspector_egui::bevy_inspector::ui_for_world(world, ui);
-        
+
                     // egui::CollapsingHeader::new("Materials").show(ui, |ui| {
                     //     bevy_inspector_egui::bevy_inspector::ui_for_assets::<StandardMaterial>(world, ui);
                     // });
 
                     ui.heading("Players");
-                    bevy_inspector_egui::bevy_inspector::ui_for_world_entities_filtered
-                    ::<With<Player>>
-                    (
-                        world,
-                        ui,
-                        true
-                    );
-        
+                    bevy_inspector_egui::bevy_inspector::ui_for_world_entities_filtered::<
+                        With<Player>,
+                    >(world, ui, true);
+
                     // ui.heading("Other Entities");
-                    egui::CollapsingHeader::new("Other Entities")
-                    .show(ui, |ui| {
+                    egui::CollapsingHeader::new("Other Entities").show(ui, |ui| {
                         ui.label("Body");
-                        bevy_inspector_egui::bevy_inspector::ui_for_world_entities_filtered
-                        ::<Without<Player>>
-                        (
-                            world,
-                            ui,
-                            true
-                        );
+                        bevy_inspector_egui::bevy_inspector::ui_for_world_entities_filtered::<
+                            Without<Player>,
+                        >(world, ui, true);
                     });
-                    
                 });
             });
         }
@@ -343,27 +335,25 @@ pub fn run() {
             .register_rollback_component::<MoveDir>()
             .register_rollback_component::<LookTowardsParentMove>()
             .register_rollback_component::<MarkedForDeath>()
-
             // for rollback audio
             .register_rollback_component::<RollbackSound>()
             .register_rollback_component::<ExplosionCue>()
             // .register_rollback_component::<AudioEmitter>()
-
             // rollback names of entities
             .register_rollback_component::<Name>()
-
             // register sprite bundle as rollback components
             // Temp fix until bevy_ggrs fixes rollback
             .register_rollback_component::<Sprite>()
             .register_rollback_component::<Handle<Image>>()
-            .register_rollback_component::<Handle<TextureAtlas>>()       
-            .register_rollback_component::<TextureAtlasSprite>() 
+            .register_rollback_component::<Handle<TextureAtlas>>()
+            .register_rollback_component::<TextureAtlasSprite>(),
     )
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<AudioConfig>()
     .init_resource::<MatchmakingRoom>()
     .init_resource::<PendingPlayerProfile>()
+    .init_resource::<CasualProfile>()
     .init_resource::<toasts::Toasts>()
     .init_resource::<RoundEndTimer>()
     .init_resource::<Scores>()
@@ -377,15 +367,26 @@ pub fn run() {
     // add custom audio channels
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()
-    .add_systems(Startup, setup)
-    .add_systems(OnEnter(GameState::MainMenu), (start_main_music, stop_cloudflare_socket))
+    .add_systems(Startup, (setup, load_persistent_profile))
+    .add_systems(
+        OnEnter(GameState::MainMenu),
+        (start_main_music, stop_cloudflare_socket),
+    )
     .add_systems(OnEnter(GameState::Matchmaking), start_cloudflare_socket)
     // Protocol-3 lobby control intentionally survives Matchmaking -> InGame;
     // legacy matchmaking is closed after handing its transport to GGRS.
-    .add_systems(OnExit(GameState::Matchmaking), stop_legacy_matchmaking_socket)
+    .add_systems(
+        OnExit(GameState::Matchmaking),
+        stop_legacy_matchmaking_socket,
+    )
     .add_systems(
         OnExit(GameState::InGame),
-        (clear_sounds, clear_explosion_presentations, cleanup_network_session).chain(),
+        (
+            clear_sounds,
+            clear_explosion_presentations,
+            cleanup_network_session,
+        )
+            .chain(),
     )
     .add_systems(
         Update,
@@ -398,8 +399,7 @@ pub fn run() {
             update_main_menu
                 .run_if(in_state(GameState::MainMenu))
                 .run_if(in_state(MenuState::Main)),
-            update_settings_ui
-                .run_if(in_state(MenuState::Settings)),
+            update_settings_ui.run_if(in_state(MenuState::Settings)),
             update_direct_connect_ui
                 .run_if(in_state(GameState::MainMenu).and_then(in_state(MenuState::DirectConnect))),
             update_in_game_controls_ui
@@ -409,10 +409,11 @@ pub fn run() {
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
             update_respawn_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(RollbackState::RoundEnd))),
-
+            // Persist only local casual preferences; reconnect credentials stay
+            // in the networking layer's sessionStorage.
+            sync_persistent_preferences,
             // audio volume update in response to ui
             update_volume,
-
         ),
     )
     .add_systems(
@@ -420,23 +421,28 @@ pub fn run() {
         (
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             report_confirmed_outcome.run_if(in_state(GameState::InGame)),
+            award_confirmed_progression.run_if(in_state(GameState::InGame)),
             update_network_telemetry.run_if(in_state(GameState::InGame)),
             watch_lobby_epoch.run_if(in_state(GameState::InGame)),
             repair_presentation_components.run_if(in_state(GameState::InGame)),
-            player_look.after(repair_presentation_components).run_if(in_state(GameState::InGame)),
+            apply_player_cosmetics
+                .after(repair_presentation_components)
+                .run_if(in_state(GameState::InGame)),
+            player_look
+                .after(apply_player_cosmetics)
+                .run_if(in_state(GameState::InGame)),
             follow_local_player.run_if(in_state(GameState::InGame)),
             update_score_ui.run_if(in_state(GameState::InGame)),
-            (sync_rollback_sounds, reconcile_rollback_sounds).chain().run_if(in_state(GameState::InGame)),
-            (sync_explosion_cues, animate_effects).chain().run_if(in_state(GameState::InGame)),
+            (sync_rollback_sounds, reconcile_rollback_sounds)
+                .chain()
+                .run_if(in_state(GameState::InGame)),
+            (sync_explosion_cues, animate_effects)
+                .chain()
+                .run_if(in_state(GameState::InGame)),
         ),
     )
     .add_roll_state::<RollbackState>(GgrsSchedule)
-    .add_systems(
-        OnEnter(RollbackState::PreRound),
-        (
-            clear_map_sprites,
-        )
-    )
+    .add_systems(OnEnter(RollbackState::PreRound), (clear_map_sprites,))
     .add_systems(
         GgrsSchedule,
         generate_map
@@ -448,10 +454,7 @@ pub fn run() {
     )
     .add_systems(
         OnEnter(RollbackState::InRound),
-        (
-            spawn_map_sprites,
-            spawn_players,
-        )
+        (spawn_map_sprites, spawn_players),
     )
     .add_systems(
         GgrsSchedule,
@@ -471,9 +474,9 @@ pub fn run() {
             process_deaths,
             increase_frame_system,
         )
-        .chain()
-        .after(apply_state_transition::<RollbackState>)
-        .distributive_run_if(in_state(RollbackState::InRound)),
+            .chain()
+            .after(apply_state_transition::<RollbackState>)
+            .distributive_run_if(in_state(RollbackState::InRound)),
     )
     .add_systems(
         OnExit(RollbackState::InRound),
@@ -481,7 +484,7 @@ pub fn run() {
             count_points_and_despawn,
             clear_sounds,
             clear_explosion_presentations,
-        )
+        ),
     )
     .add_systems(OnEnter(RollbackState::RoundEnd), reset_round_end_timer)
     .add_systems(
@@ -491,7 +494,8 @@ pub fn run() {
             .ambiguous_with(apply_deferred)
             .distributive_run_if(in_state(RollbackState::RoundEnd))
             .after(apply_state_transition::<RollbackState>),
-    ).run();
+    )
+    .run();
 }
 
 #[cfg(feature = "auto_mobile_input_test")]
@@ -506,18 +510,18 @@ fn enter_sync_test_automatically(mut state: ResMut<NextState<MenuState>>) {
 
 fn setup(mut commands: Commands) {
     let mut camera_bundle = Camera2dBundle::default();
-    camera_bundle.projection.scaling_mode = ScalingMode::AutoMax { max_width: 10., max_height: 10. };
-    commands
-    .spawn(camera_bundle);
+    camera_bundle.projection.scaling_mode = ScalingMode::AutoMax {
+        max_width: 10.,
+        max_height: 10.,
+    };
+    commands.spawn(camera_bundle);
 
     // spawn our "ears" entity which we will make follow the players position
-    commands.spawn(
-        (
-            AudioReceiver,
-            Transform::default(),
-            GlobalTransform::default(),
-        )
-    );
+    commands.spawn((
+        AudioReceiver,
+        Transform::default(),
+        GlobalTransform::default(),
+    ));
 
     commands.spawn(SpriteBundle {
         transform: Transform::from_xyz(0., 0., -2.),
@@ -574,11 +578,13 @@ fn round_end_timeout(
     mut match_flow: ResMut<MatchFlow>,
     mut state: ResMut<NextState<RollbackState>>,
 ) {
-    timer.tick(Duration::from_secs_f64(1. / 60.));// tick at the ggrs network framerate of 60 fps
+    timer.tick(Duration::from_secs_f64(1. / 60.)); // tick at the ggrs network framerate of 60 fps
 
     if timer.just_finished() {
         if let Some(winner) = match_winner(scores.entries()) {
-            *match_flow = MatchFlow::MatchOver { winner: winner.player_id };
+            *match_flow = MatchFlow::MatchOver {
+                winner: winner.player_id,
+            };
             // Stay at RoundEnd until the local player chooses rematch or leave.
         } else {
             *match_flow = MatchFlow::Playing;
@@ -599,22 +605,25 @@ mod tests {
             ambiguity_detection: LogLevel::Error,
             ..default()
         });
-        schedule.add_systems((
-            tick_speed_boost,
-            move_players,
-            reload_bullet,
-            collect_speed_pickups,
-            collect_shield_pickups,
-            trigger_traps,
-            fire_bullets,
-            move_bullets,
-            kill_players,
-            remove_finished_sounds,
-            remove_finished_explosion_cues,
-            apply_deferred,
-            process_deaths,
-            increase_frame_system,
-        ).chain());
+        schedule.add_systems(
+            (
+                tick_speed_boost,
+                move_players,
+                reload_bullet,
+                collect_speed_pickups,
+                collect_shield_pickups,
+                trigger_traps,
+                fire_bullets,
+                move_bullets,
+                kill_players,
+                remove_finished_sounds,
+                remove_finished_explosion_cues,
+                apply_deferred,
+                process_deaths,
+                increase_frame_system,
+            )
+                .chain(),
+        );
 
         assert!(schedule.initialize(&mut World::new()).is_ok());
     }
@@ -623,14 +632,17 @@ mod tests {
 fn repair_presentation_components(
     mut commands: Commands,
     missing_global: Query<Entity, (With<Transform>, Without<GlobalTransform>)>,
-    sprites: Query<(
-        Entity,
-        Option<&Visibility>,
-        Option<&ComputedVisibility>,
-        Option<&LookTowardsParentMove>,
-        Option<&AnimateOnce>,
-        Option<&TextureAtlasSprite>,
-    ), Or<(With<Sprite>, With<TextureAtlasSprite>)>>,
+    sprites: Query<
+        (
+            Entity,
+            Option<&Visibility>,
+            Option<&ComputedVisibility>,
+            Option<&LookTowardsParentMove>,
+            Option<&AnimateOnce>,
+            Option<&TextureAtlasSprite>,
+        ),
+        Or<(With<Sprite>, With<TextureAtlasSprite>)>,
+    >,
 ) {
     for entity in &missing_global {
         commands.entity(entity).insert(GlobalTransform::default());
@@ -649,7 +661,6 @@ fn repair_presentation_components(
     }
 }
 
-
 fn follow_local_player(
     player_handle: Option<Res<LocalPlayerHandle>>,
     players: Query<(&Player, &Transform)>,
@@ -658,7 +669,9 @@ fn follow_local_player(
         Query<&mut Transform, (With<AudioReceiver>, Without<Player>, Without<Camera>)>,
     )>,
 ) {
-    let Some(player_handle) = player_handle else { return; };
+    let Some(player_handle) = player_handle else {
+        return;
+    };
     let local_handle = player_handle.0;
     let Some(position) = players
         .iter()

@@ -5,9 +5,14 @@ use bevy::prelude::*;
 use bevy_ggrs::AddRollbackCommandExtension;
 
 use super::{
-    assets::procedural::{shield_pickup_color, speed_pickup_color, trap_color, void_color, wall_face_color, wall_foundation_color, PICKUP_SIZE, TRAP_SIZE},
-    components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world,
-    session::{GameMode, RoundBootstrap}, GameSeed, RollbackState, RoundProgress, MAP_SIZE,
+    assets::procedural::{
+        shield_pickup_color, speed_pickup_color, trap_color, void_color, wall_face_color,
+        wall_foundation_color, PICKUP_SIZE, TRAP_SIZE,
+    },
+    components::{MapBlock, ShieldPickup, SpeedPickup},
+    player::grid_to_world,
+    session::{GameMode, RoundBootstrap},
+    GameSeed, RollbackState, RoundProgress, MAP_SIZE,
 };
 
 const MAP_DOMAIN: u64 = 0x6d61_705f_726f_756e;
@@ -36,7 +41,10 @@ pub struct Map<T: Sized + Default + Copy, const WIDTH: usize, const HEIGHT: usiz
 
 impl<T: Default + Copy, const WIDTH: usize, const HEIGHT: usize> Default for Map<T, WIDTH, HEIGHT> {
     fn default() -> Self {
-        Self { cells: [[T::default(); WIDTH]; HEIGHT], active_size: WIDTH.min(HEIGHT) }
+        Self {
+            cells: [[T::default(); WIDTH]; HEIGHT],
+            active_size: WIDTH.min(HEIGHT),
+        }
     }
 }
 
@@ -90,9 +98,30 @@ impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
             }
         }
 
-        place_feature_pair(&mut cells, seed ^ TRAP_DOMAIN, center, start, end, CellType::Trap);
-        place_feature_pair(&mut cells, seed ^ PICKUP_DOMAIN, center, start, end, CellType::SpeedPickup);
-        place_feature_pair(&mut cells, seed ^ SHIELD_DOMAIN, center, start, end, CellType::ShieldPickup);
+        place_feature_pair(
+            &mut cells,
+            seed ^ TRAP_DOMAIN,
+            center,
+            start,
+            end,
+            CellType::Trap,
+        );
+        place_feature_pair(
+            &mut cells,
+            seed ^ PICKUP_DOMAIN,
+            center,
+            start,
+            end,
+            CellType::SpeedPickup,
+        );
+        place_feature_pair(
+            &mut cells,
+            seed ^ SHIELD_DOMAIN,
+            center,
+            start,
+            end,
+            CellType::ShieldPickup,
+        );
         Self { cells, active_size }
     }
 }
@@ -177,12 +206,19 @@ pub fn generate_map(
         GameMode::Deathmatch => MAP_SIZE,
     };
     commands.insert_resource(RoundProgress::default());
-    commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated_with_size(seed.0, active_size));
+    commands.insert_resource(Map::<CellType, MAP_SIZE, MAP_SIZE>::generated_with_size(
+        seed.0,
+        active_size,
+    ));
     seed.0 = splitmix64(seed.0 ^ MAP_DOMAIN);
     state.set(RollbackState::InRound);
 }
 
-fn is_void_boundary<const SIZE: usize>(map: &Map<CellType, SIZE, SIZE>, x: usize, y: usize) -> bool {
+fn is_void_boundary<const SIZE: usize>(
+    map: &Map<CellType, SIZE, SIZE>,
+    x: usize,
+    y: usize,
+) -> bool {
     map.cells[x][y] == CellType::Void
         && [
             (x.wrapping_sub(1), y),
@@ -191,13 +227,12 @@ fn is_void_boundary<const SIZE: usize>(map: &Map<CellType, SIZE, SIZE>, x: usize
             (x, y + 1),
         ]
         .into_iter()
-        .any(|(next_x, next_y)| next_x < SIZE && next_y < SIZE && map.cells[next_x][next_y] != CellType::Void)
+        .any(|(next_x, next_y)| {
+            next_x < SIZE && next_y < SIZE && map.cells[next_x][next_y] != CellType::Void
+        })
 }
 
-pub fn spawn_map_sprites(
-    mut commands: Commands,
-    map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
-) {
+pub fn spawn_map_sprites(mut commands: Commands, map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>) {
     for x in 0..MAP_SIZE {
         for y in 0..MAP_SIZE {
             let wall_neighbors = [
@@ -205,48 +240,65 @@ pub fn spawn_map_sprites(
                 x + 1 < MAP_SIZE && map_data.cells[x + 1][y] == CellType::WallBlock,
                 y > 0 && map_data.cells[x][y - 1] == CellType::WallBlock,
                 y + 1 < MAP_SIZE && map_data.cells[x][y + 1] == CellType::WallBlock,
-            ].into_iter().filter(|neighbor| *neighbor).count();
+            ]
+            .into_iter()
+            .filter(|neighbor| *neighbor)
+            .count();
             let (color, size) = match map_data.cells[x][y] {
                 CellType::WallBlock => (
-                    if wall_neighbors == 0 { wall_foundation_color() } else { wall_face_color(1.0 + wall_neighbors as f32 * 0.035) },
+                    if wall_neighbors == 0 {
+                        wall_foundation_color()
+                    } else {
+                        wall_face_color(1.0 + wall_neighbors as f32 * 0.035)
+                    },
                     Vec2::splat(if wall_neighbors < 2 { 0.86 } else { 0.96 }),
                 ),
                 CellType::Trap => (trap_color(), Vec2::splat(TRAP_SIZE)),
                 CellType::SpeedPickup => {
-                    commands.spawn((
-                        SpeedPickup { cell: (x as u16, y as u16) },
-                        SpriteBundle {
-                            transform: Transform::from_translation(
-                                grid_to_world((x as u32, y as u32)).extend(0.),
-                            ),
-                            sprite: Sprite {
-                                color: speed_pickup_color(),
-                                custom_size: Some(Vec2::splat(PICKUP_SIZE)),
+                    commands
+                        .spawn((
+                            SpeedPickup {
+                                cell: (x as u16, y as u16),
+                            },
+                            SpriteBundle {
+                                transform: Transform::from_translation(
+                                    grid_to_world((x as u32, y as u32)).extend(0.),
+                                ),
+                                sprite: Sprite {
+                                    color: speed_pickup_color(),
+                                    custom_size: Some(Vec2::splat(PICKUP_SIZE)),
+                                    ..default()
+                                },
                                 ..default()
                             },
-                            ..default()
-                        },
-                    )).add_rollback();
+                        ))
+                        .add_rollback();
                     continue;
                 }
                 CellType::ShieldPickup => {
-                    commands.spawn((
-                        ShieldPickup { cell: (x as u16, y as u16) },
-                        SpriteBundle {
-                            transform: Transform::from_translation(
-                                grid_to_world((x as u32, y as u32)).extend(0.),
-                            ),
-                            sprite: Sprite {
-                                color: shield_pickup_color(),
-                                custom_size: Some(Vec2::splat(PICKUP_SIZE)),
+                    commands
+                        .spawn((
+                            ShieldPickup {
+                                cell: (x as u16, y as u16),
+                            },
+                            SpriteBundle {
+                                transform: Transform::from_translation(
+                                    grid_to_world((x as u32, y as u32)).extend(0.),
+                                ),
+                                sprite: Sprite {
+                                    color: shield_pickup_color(),
+                                    custom_size: Some(Vec2::splat(PICKUP_SIZE)),
+                                    ..default()
+                                },
                                 ..default()
                             },
-                            ..default()
-                        },
-                    )).add_rollback();
+                        ))
+                        .add_rollback();
                     continue;
                 }
-                CellType::Void if is_void_boundary(&map_data, x, y) => (void_color(), Vec2::splat(0.96)),
+                CellType::Void if is_void_boundary(&map_data, x, y) => {
+                    (void_color(), Vec2::splat(0.96))
+                }
                 CellType::Void | CellType::Empty => continue,
             };
             commands.spawn((
@@ -292,8 +344,14 @@ mod tests {
         for x in 0..MAP_SIZE {
             for y in 0..MAP_SIZE {
                 assert_eq!(first.cells[x][y], second.cells[x][y]);
-                assert_eq!(first.cells[x][y], first.cells[MAP_SIZE - 1 - x][MAP_SIZE - 1 - y]);
-                if matches!(first.cells[x][y], CellType::Trap | CellType::SpeedPickup | CellType::ShieldPickup) {
+                assert_eq!(
+                    first.cells[x][y],
+                    first.cells[MAP_SIZE - 1 - x][MAP_SIZE - 1 - y]
+                );
+                if matches!(
+                    first.cells[x][y],
+                    CellType::Trap | CellType::SpeedPickup | CellType::ShieldPickup
+                ) {
                     assert!(x > 0 && y > 0 && x + 1 < MAP_SIZE && y + 1 < MAP_SIZE);
                     assert_ne!(x, MAP_SIZE / 2);
                     assert_ne!(y, MAP_SIZE / 2);

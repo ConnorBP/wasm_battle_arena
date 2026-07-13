@@ -19,10 +19,14 @@ pub fn value(kind: MobileInputKind) -> Option<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn value(_kind: MobileInputKind) -> Option<String> { None }
+pub fn value(_kind: MobileInputKind) -> Option<String> {
+    None
+}
 
 #[cfg(target_arch = "wasm32")]
-pub fn hide() { mobile_input_hide(); }
+pub fn hide() {
+    mobile_input_hide();
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn hide() {}

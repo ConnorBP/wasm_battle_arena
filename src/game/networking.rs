@@ -7,7 +7,14 @@ use crate::{
     game::{GameSeed, Scores, SoundIdSeed},
 };
 
-use super::{session::{GameMode, MatchId, PlayerId, PlayerProfile, PlayerScore, RosterEntry, RoundBootstrap, RoundNumber, SessionEpoch}, toasts::Toasts, GameState, MAP_SIZE};
+use super::{
+    session::{
+        GameMode, MatchId, PlayerId, PlayerProfile, PlayerScore, RosterEntry, RoundBootstrap,
+        RoundNumber, SessionEpoch,
+    },
+    toasts::Toasts,
+    GameState, MAP_SIZE,
+};
 
 pub const ROLLBACK_FPS: usize = 60;
 
@@ -35,7 +42,12 @@ pub struct MatchmakingRoom {
 
 impl Default for MatchmakingRoom {
     fn default() -> Self {
-        Self { private_code: None, mode: super::session::GameMode::Duel, capacity: 2, use_lobby_v2: false }
+        Self {
+            private_code: None,
+            mode: super::session::GameMode::Duel,
+            capacity: 2,
+            use_lobby_v2: false,
+        }
     }
 }
 
@@ -158,22 +170,23 @@ pub fn cleanup_network_session(
     bullets: Query<Entity, With<super::components::Bullet>>,
     blocks: Query<Entity, With<super::components::MapBlock>>,
     effects: Query<Entity, With<super::components::AnimateOnce>>,
-    pickups: Query<Entity, Or<(
-        With<super::components::SpeedPickup>,
-        With<super::components::ShieldPickup>,
-    )>>,
+    pickups: Query<
+        Entity,
+        Or<(
+            With<super::components::SpeedPickup>,
+            With<super::components::ShieldPickup>,
+        )>,
+    >,
 ) {
     // Atomically retire all epoch packet channels before deferred removal of
     // the old GGRS session/bootstrap. Persistent lobby control remains open.
-    if socket.lobby_epoch().is_some() { socket.close_epoch_transport(); }
+    if socket.lobby_epoch().is_some() {
+        socket.close_epoch_transport();
+    }
     commands.remove_resource::<Session<GgrsConfig>>();
     commands.remove_resource::<LocalPlayerHandle>();
     commands.remove_resource::<RoundBootstrap>();
-    commands.remove_resource::<super::map::Map<
-        super::map::CellType,
-        MAP_SIZE,
-        MAP_SIZE,
-    >>();
+    commands.remove_resource::<super::map::Map<super::map::CellType, MAP_SIZE, MAP_SIZE>>();
     commands.insert_resource(super::Scores::default());
     commands.insert_resource(super::MatchFlow::Playing);
     commands.insert_resource(super::RoundEndTimer::default());
@@ -236,12 +249,23 @@ pub fn wait_for_players(
         .unwrap()
         .add_player(
             PlayerType::Local,
-            bootstrap.handle(local_handle).expect("local handle in roster"),
+            bootstrap
+                .handle(local_handle)
+                .expect("local handle in roster"),
         )
         .expect("adding local player")
         .add_player(
-            PlayerType::Remote(bootstrap.roster.iter().find(|entry| entry.handle == remote_handle).expect("remote player in roster").player_id),
-            bootstrap.handle(remote_handle).expect("remote handle in roster"),
+            PlayerType::Remote(
+                bootstrap
+                    .roster
+                    .iter()
+                    .find(|entry| entry.handle == remote_handle)
+                    .expect("remote player in roster")
+                    .player_id,
+            ),
+            bootstrap
+                .handle(remote_handle)
+                .expect("remote handle in roster"),
         )
         .expect("adding remote player");
 
@@ -249,7 +273,10 @@ pub fn wait_for_players(
         .start_p2p_session(socket.take_transport())
         .expect("starting ggrs p2p session");
 
-    info!("started Cloudflare-signaled session {:#02x}", match_info.seed);
+    info!(
+        "started Cloudflare-signaled session {:#02x}",
+        match_info.seed
+    );
     commands.insert_resource(LocalPlayerHandle(local_handle));
     commands.insert_resource(SoundIdSeed::new(match_info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
@@ -270,7 +297,10 @@ mod tests {
     fn private_room_codes_are_canonical_and_bounded() {
         assert_eq!(sanitize_room_code(" ab-c_12! "), "ABC12");
         assert_eq!(sanitize_room_code("abcdefghijklmnopq"), "ABCDEFGHIJKLMNOP");
-        assert_eq!(versioned_room_name(Some("ROOM42")), versioned_room_name(Some("room42")));
+        assert_eq!(
+            versioned_room_name(Some("ROOM42")),
+            versioned_room_name(Some("room42"))
+        );
         assert!(versioned_room_name(Some("A")).len() <= 64);
     }
 }
@@ -288,35 +318,87 @@ fn start_lobby_session(
     let mode = match info.roster.len() {
         2 => GameMode::Duel,
         4 => GameMode::Deathmatch,
-        _ => { toasts.error("Competitive matches require exactly 2 or 4 players.".into()); next_state.set(GameState::MainMenu); return; }
+        _ => {
+            toasts.error("Competitive matches require exactly 2 or 4 players.".into());
+            next_state.set(GameState::MainMenu);
+            return;
+        }
     };
-    let roster: Vec<_> = info.roster.iter().map(|(player_id, handle)| RosterEntry { player_id: *player_id, handle: *handle }).collect();
-    let profiles = roster.iter().map(|entry| PlayerProfile {
-        player_id: entry.player_id,
-        name: format!("Player {}", entry.handle + 1),
-        palette_id: entry.handle as u8,
-        cosmetic_id: 0,
-    }).collect();
-    let scores = roster.iter().map(|entry| PlayerScore { player_id: entry.player_id, score: 0 }).collect();
-    let Ok(bootstrap) = RoundBootstrap::new(super::session::LOBBY_PROTOCOL_VERSION, MatchId(info.match_id), info.seed, SessionEpoch(info.epoch), RoundNumber(info.round), mode, roster, profiles, scores) else {
-        toasts.error("Invalid lobby assignment.".into()); next_state.set(GameState::MainMenu); return;
+    let roster: Vec<_> = info
+        .roster
+        .iter()
+        .map(|(player_id, handle)| RosterEntry {
+            player_id: *player_id,
+            handle: *handle,
+        })
+        .collect();
+    let profiles = roster
+        .iter()
+        .map(|entry| PlayerProfile {
+            player_id: entry.player_id,
+            name: format!("Player {}", entry.handle + 1),
+            palette_id: entry.handle as u8,
+            cosmetic_id: 0,
+        })
+        .collect();
+    let scores = roster
+        .iter()
+        .map(|entry| PlayerScore {
+            player_id: entry.player_id,
+            score: 0,
+        })
+        .collect();
+    let Ok(bootstrap) = RoundBootstrap::new(
+        super::session::LOBBY_PROTOCOL_VERSION,
+        MatchId(info.match_id),
+        info.seed,
+        SessionEpoch(info.epoch),
+        RoundNumber(info.round),
+        mode,
+        roster,
+        profiles,
+        scores,
+    ) else {
+        toasts.error("Invalid lobby assignment.".into());
+        next_state.set(GameState::MainMenu);
+        return;
     };
-    let Some(local) = bootstrap.roster.iter().find(|entry| entry.player_id == info.local_player) else {
-        toasts.error("Local player missing from lobby roster.".into()); next_state.set(GameState::MainMenu); return;
+    let Some(local) = bootstrap
+        .roster
+        .iter()
+        .find(|entry| entry.player_id == info.local_player)
+    else {
+        toasts.error("Local player missing from lobby roster.".into());
+        next_state.set(GameState::MainMenu);
+        return;
     };
     let mut builder = ggrs::SessionBuilder::<GgrsConfig>::new()
-        .with_fps(ROLLBACK_FPS).unwrap()
+        .with_fps(ROLLBACK_FPS)
+        .unwrap()
         .with_num_players(bootstrap.roster.len())
         .with_input_delay(if cfg!(feature = "no_delay") { 0 } else { 2 })
         .with_max_prediction_window(40)
-        .with_max_frames_behind(42).unwrap();
+        .with_max_frames_behind(42)
+        .unwrap();
     for entry in &bootstrap.roster {
-        let player_type = if entry.player_id == info.local_player { PlayerType::Local } else { PlayerType::Remote(entry.player_id) };
-        let Ok(next) = builder.add_player(player_type, entry.handle) else { toasts.error("Invalid lobby roster.".into()); next_state.set(GameState::MainMenu); return; };
+        let player_type = if entry.player_id == info.local_player {
+            PlayerType::Local
+        } else {
+            PlayerType::Remote(entry.player_id)
+        };
+        let Ok(next) = builder.add_player(player_type, entry.handle) else {
+            toasts.error("Invalid lobby roster.".into());
+            next_state.set(GameState::MainMenu);
+            return;
+        };
         builder = next;
     }
     socket.set_epoch(info.epoch);
-    let Ok(session) = builder.start_p2p_session(socket.take_transport()) else { toasts.error("Could not start lobby session.".into()); next_state.set(GameState::MainMenu); return; };
+    let Ok(session) = builder.start_p2p_session(socket.take_transport()) else {
+        toasts.error("Could not start lobby session.".into());
+        next_state.set(GameState::MainMenu);
+        return;
+    };
     commands.insert_resource(LocalPlayerHandle(local.handle));
     commands.insert_resource(SoundIdSeed::new(info.seed, bootstrap.roster.len()));
     commands.insert_resource(Scores::from_bootstrap(&bootstrap));
@@ -336,12 +418,28 @@ pub fn report_confirmed_outcome(
     progress: Res<super::RoundProgress>,
     mut reported: ResMut<super::ReportedOutcome>,
 ) {
-    let (Some(bootstrap), Some(outcome), Some(frame)) = (bootstrap, progress.resolved.as_ref(), progress.resolved_frame) else { return; };
-    let Session::P2P(p2p) = session.as_ref() else { return; };
-    if p2p.confirmed_frame() < frame as i32 { return; }
+    let (Some(bootstrap), Some(outcome), Some(frame)) = (
+        bootstrap,
+        progress.resolved.as_ref(),
+        progress.resolved_frame,
+    ) else {
+        return;
+    };
+    let Session::P2P(p2p) = session.as_ref() else {
+        return;
+    };
+    if p2p.confirmed_frame() < frame as i32 {
+        return;
+    }
     let fingerprint = (bootstrap.epoch.0, bootstrap.round.0, frame);
-    if reported.0 == Some(fingerprint) { return; }
-    if socket.report_round(bootstrap.epoch.0, bootstrap.round.0, outcome.point_winners()) {
+    if reported.0 == Some(fingerprint) {
+        return;
+    }
+    if socket.report_round(
+        bootstrap.epoch.0,
+        bootstrap.round.0,
+        outcome.point_winners(),
+    ) {
         reported.0 = Some(fingerprint);
     }
 }
@@ -355,8 +453,16 @@ pub fn watch_lobby_epoch(
     mut flow: ResMut<super::MatchFlow>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let (Some(current), Some(server_epoch), Some(server_round)) = (bootstrap, socket.lobby_epoch(), socket.lobby_round()) else { return; };
-    if progress.resolved.is_none() || (server_epoch, server_round) <= (current.epoch.0, current.round.0) { return; }
+    let (Some(current), Some(server_epoch), Some(server_round)) =
+        (bootstrap, socket.lobby_epoch(), socket.lobby_round())
+    else {
+        return;
+    };
+    if progress.resolved.is_none()
+        || (server_epoch, server_round) <= (current.epoch.0, current.round.0)
+    {
+        return;
+    }
     // Retire the old immutable epoch as one operation before returning to the
     // matchmaking installer. The persistent control socket remains open.
     socket.close_epoch_transport();
@@ -364,7 +470,9 @@ pub fn watch_lobby_epoch(
     // Scores have already been applied by the rollback RoundEnd transition;
     // check the first-to-three endpoint before allowing epoch replacement.
     if let Some(winner) = super::session::match_winner(scores.entries()) {
-        *flow = super::MatchFlow::MatchOver { winner: winner.player_id };
+        *flow = super::MatchFlow::MatchOver {
+            winner: winner.player_id,
+        };
     } else {
         next_state.set(GameState::Matchmaking);
     }

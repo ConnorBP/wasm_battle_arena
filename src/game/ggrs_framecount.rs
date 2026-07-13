@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 
-
-
 // for keeping track of Current GGRS frame until we upgrade to the bevy 0.12 compatible ggrs
 #[derive(Resource, Default, Reflect, Hash, Clone, Copy)]
 #[reflect(Hash)]

@@ -30,7 +30,7 @@ pub struct AudioConfig {
 
 impl Default for AudioConfig {
     fn default() -> Self {
-        Self { 
+        Self {
             master_volume: 100.0,
             music_volume: 55.0,
             sfx_volume: 100.0,
@@ -61,7 +61,6 @@ pub fn start_main_music(
     if *started {
         return;
     }
-    audio.play(sounds.menu_music.clone())
-        .looped();
+    audio.play(sounds.menu_music.clone()).looped();
     *started = true;
 }

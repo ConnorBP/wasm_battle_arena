@@ -1,8 +1,8 @@
+use crate::game::session::PlayerId;
 use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use bincode::Options;
 use ggrs::{Message, NonBlockingSocket};
-use crate::game::session::PlayerId;
 
 #[cfg(target_arch = "wasm32")]
 const MAX_PACKET_BYTES: usize = 64 * 1024;
@@ -108,7 +108,12 @@ impl CloudflareSocket {
         cosmetic_id: u8,
     ) {
         self.close();
-        if room.is_empty() || room.len() > 64 || !room.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        if room.is_empty()
+            || room.len() > 64
+            || !room
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
             self.native_error = Some("invalid lobby room".into());
             return;
         }
@@ -119,7 +124,13 @@ impl CloudflareSocket {
         #[cfg(target_arch = "wasm32")]
         {
             self.transport_id = cloudflare_connect_lobby(
-                signaling_url, room, mode, capacity, profile_name, palette_id as u32, cosmetic_id as u32,
+                signaling_url,
+                room,
+                mode,
+                capacity,
+                profile_name,
+                palette_id as u32,
+                cosmetic_id as u32,
             );
             self.mode = TransportMode::Lobby;
             self.epoch = 0;
@@ -127,7 +138,14 @@ impl CloudflareSocket {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = (signaling_url, mode, capacity, profile_name, palette_id, cosmetic_id);
+            let _ = (
+                signaling_url,
+                mode,
+                capacity,
+                profile_name,
+                palette_id,
+                cosmetic_id,
+            );
             self.native_error = Some("online play is only supported in browser builds".into());
         }
     }
@@ -176,21 +194,42 @@ impl CloudflareSocket {
     pub fn lobby_match_info(&self) -> Option<LobbyMatchInfo> {
         #[cfg(target_arch = "wasm32")]
         {
-            if self.mode != TransportMode::Lobby || self.state() != ConnectionState::Ready { return None; }
+            if self.mode != TransportMode::Lobby || self.state() != ConnectionState::Ready {
+                return None;
+            }
             let local_player = parse_player_id(&cloudflare_lobby_local_id(self.transport_id))?;
             let seed_hex = cloudflare_lobby_seed(self.transport_id);
             let match_id = u128::from_str_radix(&seed_hex, 16).ok()?;
             let seed = match_id as u64;
             let len = cloudflare_lobby_roster_len(self.transport_id) as usize;
-            if len != 2 && len != 4 { return None; }
+            if len != 2 && len != 4 {
+                return None;
+            }
             let mut roster = Vec::with_capacity(len);
             for index in 0..len {
-                roster.push((parse_player_id(&cloudflare_lobby_roster_id(self.transport_id, index as u32))?, index));
+                roster.push((
+                    parse_player_id(&cloudflare_lobby_roster_id(self.transport_id, index as u32))?,
+                    index,
+                ));
             }
             roster.sort_by_key(|entry| entry.0);
-            if roster.iter().enumerate().any(|(handle, entry)| entry.1 != handle) || !roster.iter().any(|entry| entry.0 == local_player) { return None; }
+            if roster
+                .iter()
+                .enumerate()
+                .any(|(handle, entry)| entry.1 != handle)
+                || !roster.iter().any(|entry| entry.0 == local_player)
+            {
+                return None;
+            }
             let epoch = cloudflare_lobby_epoch(self.transport_id);
-            Some(LobbyMatchInfo { local_player, seed, match_id, epoch, round: cloudflare_lobby_round(self.transport_id), roster })
+            Some(LobbyMatchInfo {
+                local_player,
+                seed,
+                match_id,
+                epoch,
+                round: cloudflare_lobby_round(self.transport_id),
+                roster,
+            })
         }
         #[cfg(not(target_arch = "wasm32"))]
         None
@@ -200,7 +239,12 @@ impl CloudflareSocket {
         #[cfg(target_arch = "wasm32")]
         if self.mode == TransportMode::Lobby && self.transport_id != 0 {
             let array = js_sys::Array::new();
-            for winner in winners { array.push(&wasm_bindgen::JsValue::from_str(&format!("{:032x}", winner.0))); }
+            for winner in winners {
+                array.push(&wasm_bindgen::JsValue::from_str(&format!(
+                    "{:032x}",
+                    winner.0
+                )));
+            }
             return cloudflare_lobby_report(self.transport_id, epoch, round, array.into());
         }
         false
@@ -208,13 +252,17 @@ impl CloudflareSocket {
 
     pub fn lobby_epoch(&self) -> Option<u32> {
         #[cfg(target_arch = "wasm32")]
-        if self.mode == TransportMode::Lobby && self.transport_id != 0 { return Some(cloudflare_lobby_epoch(self.transport_id)); }
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            return Some(cloudflare_lobby_epoch(self.transport_id));
+        }
         None
     }
 
     pub fn lobby_round(&self) -> Option<u32> {
         #[cfg(target_arch = "wasm32")]
-        if self.mode == TransportMode::Lobby && self.transport_id != 0 { return Some(cloudflare_lobby_round(self.transport_id)); }
+        if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+            return Some(cloudflare_lobby_round(self.transport_id));
+        }
         None
     }
 
@@ -244,14 +292,19 @@ impl CloudflareSocket {
         }
     }
 
-
     /// Creates the epoch packet adapter while retaining the owning lobby
     /// control handle in the Bevy resource. Dropping a GGRS epoch adapter must
     /// never close the persistent control WebSocket.
     pub fn take_transport(&mut self) -> Self {
         let owns_transport = self.mode == TransportMode::Legacy;
-        if owns_transport { self.owns_transport = false; }
-        let transport_id = if owns_transport { std::mem::take(&mut self.transport_id) } else { self.transport_id };
+        if owns_transport {
+            self.owns_transport = false;
+        }
+        let transport_id = if owns_transport {
+            std::mem::take(&mut self.transport_id)
+        } else {
+            self.transport_id
+        };
         Self {
             transport_id,
             native_error: self.native_error.clone(),
@@ -294,7 +347,9 @@ impl Drop for CloudflareSocket {
 }
 
 fn parse_player_id(value: &str) -> Option<PlayerId> {
-    if value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) { return None; }
+    if value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
     u128::from_str_radix(value, 16).ok().map(PlayerId)
 }
 
@@ -305,7 +360,12 @@ impl NonBlockingSocket<PlayerId> for CloudflareSocket {
             if let Ok(packet) = codec().serialize(message) {
                 match self.mode {
                     TransportMode::Legacy => cloudflare_send(self.transport_id, &packet),
-                    TransportMode::Lobby => cloudflare_lobby_send(self.transport_id, self.epoch, &format!("{:032x}", _address.0), &packet),
+                    TransportMode::Lobby => cloudflare_lobby_send(
+                        self.transport_id,
+                        self.epoch,
+                        &format!("{:032x}", _address.0),
+                        &packet,
+                    ),
                 }
             }
         }
@@ -321,20 +381,35 @@ impl NonBlockingSocket<PlayerId> for CloudflareSocket {
                 let mut messages = Vec::new();
                 loop {
                     let value = cloudflare_lobby_receive(self.transport_id);
-                    if value.is_null() || value.is_undefined() { break; }
+                    if value.is_null() || value.is_undefined() {
+                        break;
+                    }
                     let array = js_sys::Array::from(&value);
-                    if array.length() != 3 { continue; }
-                    let Some(packet_epoch) = array.get(0).as_f64().map(|value| value as u32) else { continue; };
-                    if packet_epoch != self.epoch { continue; }
-                    let Some(from) = parse_player_id(&array.get(1).as_string().unwrap_or_default()) else { continue; };
+                    if array.length() != 3 {
+                        continue;
+                    }
+                    let Some(packet_epoch) = array.get(0).as_f64().map(|value| value as u32) else {
+                        continue;
+                    };
+                    if packet_epoch != self.epoch {
+                        continue;
+                    }
+                    let Some(from) = parse_player_id(&array.get(1).as_string().unwrap_or_default())
+                    else {
+                        continue;
+                    };
                     let packet = js_sys::Uint8Array::new(&array.get(2)).to_vec();
                     if packet.len() <= MAX_PACKET_BYTES {
-                        if let Ok(message) = codec().deserialize(&packet) { messages.push((from, message)); }
+                        if let Ok(message) = codec().deserialize(&packet) {
+                            messages.push((from, message));
+                        }
                     }
                 }
                 return messages;
             }
-            let Some(info) = self.match_info() else { return Vec::new(); };
+            let Some(info) = self.match_info() else {
+                return Vec::new();
+            };
             let remote = *self.legacy_remote.get_or_insert_with(|| {
                 crate::game::session::RoundBootstrap::duel(info.seed)
                     .roster
@@ -759,7 +834,15 @@ extern "C" {
     fn cloudflare_send(id: u32, packet: &[u8]);
     fn cloudflare_receive(id: u32) -> wasm_bindgen::JsValue;
     fn cloudflare_close(id: u32);
-    fn cloudflare_connect_lobby(base_url: &str, room: &str, mode: u32, capacity: u32, profile_name: &str, palette_id: u32, cosmetic_id: u32) -> u32;
+    fn cloudflare_connect_lobby(
+        base_url: &str,
+        room: &str,
+        mode: u32,
+        capacity: u32,
+        profile_name: &str,
+        palette_id: u32,
+        cosmetic_id: u32,
+    ) -> u32;
     fn cloudflare_lobby_local_id(id: u32) -> String;
     fn cloudflare_lobby_seed(id: u32) -> String;
     fn cloudflare_lobby_epoch(id: u32) -> u32;
@@ -767,7 +850,12 @@ extern "C" {
     fn cloudflare_lobby_roster_len(id: u32) -> u32;
     fn cloudflare_lobby_roster_id(id: u32, index: u32) -> String;
     fn cloudflare_lobby_send(id: u32, epoch: u32, to: &str, packet: &[u8]);
-    fn cloudflare_lobby_report(id: u32, epoch: u32, round: u32, winners: wasm_bindgen::JsValue) -> bool;
+    fn cloudflare_lobby_report(
+        id: u32,
+        epoch: u32,
+        round: u32,
+        winners: wasm_bindgen::JsValue,
+    ) -> bool;
     fn cloudflare_lobby_receive(id: u32) -> wasm_bindgen::JsValue;
     fn cloudflare_lobby_close_epoch(id: u32);
     fn cloudflare_close_lobby(id: u32);

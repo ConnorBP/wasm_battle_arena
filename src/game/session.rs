@@ -62,7 +62,10 @@ pub fn match_winner(scores: &[PlayerScore]) -> Option<MatchWinner> {
         .iter()
         .filter(|entry| entry.score >= MATCH_POINTS_TO_WIN)
         .min_by_key(|entry| entry.player_id)
-        .map(|entry| MatchWinner { player_id: entry.player_id, score: entry.score })
+        .map(|entry| MatchWinner {
+            player_id: entry.player_id,
+            score: entry.score,
+        })
 }
 
 /// The deterministic result of applying eliminations to a round roster.
@@ -125,7 +128,9 @@ pub fn round_outcome(
                 RoundOutcome::InProgress
             } else {
                 // A sole survivor scores. A simultaneous wipe has no winner.
-                RoundOutcome::Complete { point_winners: survivors }
+                RoundOutcome::Complete {
+                    point_winners: survivors,
+                }
             }
         }
         _ => RoundOutcome::InProgress,
@@ -146,14 +151,22 @@ impl PlayerProfile {
     pub fn sanitized_name(value: &str) -> String {
         let mut output = String::new();
         let mut pending_space = false;
-        for character in value.trim().chars().filter(|character| !character.is_control()) {
+        for character in value
+            .trim()
+            .chars()
+            .filter(|character| !character.is_control())
+        {
             if character.is_whitespace() {
                 pending_space = !output.is_empty();
                 continue;
             }
-            if pending_space && output.len() < MAX_PLAYER_NAME_BYTES { output.push(' '); }
+            if pending_space && output.len() < MAX_PLAYER_NAME_BYTES {
+                output.push(' ');
+            }
             pending_space = false;
-            if output.len() + character.len_utf8() > MAX_PLAYER_NAME_BYTES { break; }
+            if output.len() + character.len_utf8() > MAX_PLAYER_NAME_BYTES {
+                break;
+            }
             output.push(character);
         }
         output
@@ -249,8 +262,14 @@ impl RoundBootstrap {
 
         if profiles.len() != roster.len()
             || profiles.iter().any(|profile| !profile.is_canonical())
-            || profiles.iter().map(|profile| profile.player_id).collect::<Vec<_>>()
-                != roster.iter().map(|entry| entry.player_id).collect::<Vec<_>>()
+            || profiles
+                .iter()
+                .map(|profile| profile.player_id)
+                .collect::<Vec<_>>()
+                != roster
+                    .iter()
+                    .map(|entry| entry.player_id)
+                    .collect::<Vec<_>>()
         {
             return Err(BootstrapError::InvalidProfiles);
         }
@@ -296,12 +315,15 @@ impl RoundBootstrap {
                 handle,
             })
             .collect();
-        let profiles = roster.iter().map(|entry| PlayerProfile {
-            player_id: entry.player_id,
-            name: format!("Player {}", entry.handle + 1),
-            palette_id: entry.handle as u8,
-            cosmetic_id: 0,
-        }).collect();
+        let profiles = roster
+            .iter()
+            .map(|entry| PlayerProfile {
+                player_id: entry.player_id,
+                name: format!("Player {}", entry.handle + 1),
+                palette_id: entry.handle as u8,
+                cosmetic_id: 0,
+            })
+            .collect();
         let scores = roster
             .iter()
             .map(|entry| PlayerScore {
@@ -330,16 +352,26 @@ mod tests {
     use crate::game::SoundIdSeed;
 
     fn entry(id: u128, handle: usize) -> RosterEntry {
-        RosterEntry { player_id: PlayerId(id), handle }
+        RosterEntry {
+            player_id: PlayerId(id),
+            handle,
+        }
     }
 
-    fn bootstrap(mode: GameMode, roster: Vec<RosterEntry>, score_ids: &[u128]) -> Result<RoundBootstrap, BootstrapError> {
-        let profiles = roster.iter().map(|entry| PlayerProfile {
-            player_id: entry.player_id,
-            name: format!("Player {}", entry.player_id.0),
-            palette_id: entry.handle as u8,
-            cosmetic_id: 0,
-        }).collect();
+    fn bootstrap(
+        mode: GameMode,
+        roster: Vec<RosterEntry>,
+        score_ids: &[u128],
+    ) -> Result<RoundBootstrap, BootstrapError> {
+        let profiles = roster
+            .iter()
+            .map(|entry| PlayerProfile {
+                player_id: entry.player_id,
+                name: format!("Player {}", entry.player_id.0),
+                palette_id: entry.handle as u8,
+                cosmetic_id: 0,
+            })
+            .collect();
         RoundBootstrap::new(
             1,
             MatchId(7),
@@ -349,19 +381,36 @@ mod tests {
             mode,
             roster,
             profiles,
-            score_ids.iter().map(|id| PlayerScore { player_id: PlayerId(*id), score: 0 }).collect(),
+            score_ids
+                .iter()
+                .map(|id| PlayerScore {
+                    player_id: PlayerId(*id),
+                    score: 0,
+                })
+                .collect(),
         )
     }
 
     #[test]
     fn profile_names_are_sanitized_and_validated() {
-        assert_eq!(PlayerProfile::sanitized_name("  Ghost\n  Rider  "), "Ghost Rider");
+        assert_eq!(
+            PlayerProfile::sanitized_name("  Ghost\n  Rider  "),
+            "Ghost Rider"
+        );
         assert!(PlayerProfile {
-            player_id: PlayerId(1), name: "Ghost Rider".into(), palette_id: 0, cosmetic_id: 0,
-        }.is_canonical());
+            player_id: PlayerId(1),
+            name: "Ghost Rider".into(),
+            palette_id: 0,
+            cosmetic_id: 0,
+        }
+        .is_canonical());
         assert!(!PlayerProfile {
-            player_id: PlayerId(1), name: " Ghost ".into(), palette_id: 0, cosmetic_id: 0,
-        }.is_canonical());
+            player_id: PlayerId(1),
+            name: " Ghost ".into(),
+            palette_id: 0,
+            cosmetic_id: 0,
+        }
+        .is_canonical());
     }
 
     #[test]
@@ -370,18 +419,28 @@ mod tests {
         assert_eq!(value.roster, vec![entry(1, 1), entry(2, 0)]);
         assert_eq!(value.handle(0), Ok(0));
         assert_eq!(value.handle(1), Ok(1));
-        assert_eq!(value.scores.iter().map(|score| score.player_id).collect::<Vec<_>>(), vec![PlayerId(1), PlayerId(2)]);
+        assert_eq!(
+            value
+                .scores
+                .iter()
+                .map(|score| score.player_id)
+                .collect::<Vec<_>>(),
+            vec![PlayerId(1), PlayerId(2)]
+        );
     }
 
     #[test]
     fn sound_streams_preserve_duel_seeds_and_advance_independently() {
         let mut streams = SoundIdSeed::new(10, 4);
-        assert_eq!(streams.0, vec![
-            crate::game::SoundSeed::from_seed(11),
-            crate::game::SoundSeed::from_seed(12),
-            crate::game::SoundSeed::from_seed(13),
-            crate::game::SoundSeed::from_seed(14),
-        ]);
+        assert_eq!(
+            streams.0,
+            vec![
+                crate::game::SoundSeed::from_seed(11),
+                crate::game::SoundSeed::from_seed(12),
+                crate::game::SoundSeed::from_seed(13),
+                crate::game::SoundSeed::from_seed(14),
+            ]
+        );
         let untouched = streams.0[1];
         streams.next(0);
         assert_eq!(streams.0[1], untouched);
@@ -403,20 +462,46 @@ mod tests {
         let roster = ids(&[1, 2, 3, 4]);
         let eliminated = roster[..roster.len() - 1].to_vec();
         assert_eq!(
-            winners(round_outcome(GameMode::Deathmatch, &roster, &eliminated, &[])),
+            winners(round_outcome(
+                GameMode::Deathmatch,
+                &roster,
+                &eliminated,
+                &[]
+            )),
             vec![*roster.last().unwrap()],
         );
     }
 
     #[test]
     fn match_endpoint_is_first_to_three_and_tie_safe() {
-        let scores = |values: &[(u128, u32)]| values.iter().map(|(id, score)| PlayerScore {
-            player_id: PlayerId(*id), score: *score,
-        }).collect::<Vec<_>>();
+        let scores = |values: &[(u128, u32)]| {
+            values
+                .iter()
+                .map(|(id, score)| PlayerScore {
+                    player_id: PlayerId(*id),
+                    score: *score,
+                })
+                .collect::<Vec<_>>()
+        };
         assert_eq!(match_winner(&scores(&[(1, 2), (2, 2)])), None);
-        assert_eq!(match_winner(&scores(&[(1, 3), (2, 2)])), Some(MatchWinner { player_id: PlayerId(1), score: 3 }));
-        assert_eq!(match_winner(&scores(&[(9, 3), (2, 3)])), Some(MatchWinner { player_id: PlayerId(2), score: 3 }));
-        assert_eq!(mode_label(GameMode::Deathmatch), "Last Ghost Standing — First to 3");
+        assert_eq!(
+            match_winner(&scores(&[(1, 3), (2, 2)])),
+            Some(MatchWinner {
+                player_id: PlayerId(1),
+                score: 3
+            })
+        );
+        assert_eq!(
+            match_winner(&scores(&[(9, 3), (2, 3)])),
+            Some(MatchWinner {
+                player_id: PlayerId(2),
+                score: 3
+            })
+        );
+        assert_eq!(
+            mode_label(GameMode::Deathmatch),
+            "Last Ghost Standing — First to 3"
+        );
     }
 
     #[test]
@@ -433,12 +518,7 @@ mod tests {
     #[test]
     fn round_policy_is_input_order_independent_and_disconnects_are_eliminations() {
         let roster = ids(&[40, 10, 30, 20]);
-        let first = round_outcome(
-            GameMode::Deathmatch,
-            &roster,
-            &ids(&[30, 10]),
-            &ids(&[20]),
-        );
+        let first = round_outcome(GameMode::Deathmatch, &roster, &ids(&[30, 10]), &ids(&[20]));
         let second = round_outcome(
             GameMode::Deathmatch,
             &ids(&[20, 30, 10, 40]),
@@ -449,7 +529,12 @@ mod tests {
         assert_eq!(winners(first), ids(&[40]));
 
         assert_eq!(
-            winners(round_outcome(GameMode::Duel, &ids(&[2, 1]), &[], &ids(&[1]))),
+            winners(round_outcome(
+                GameMode::Duel,
+                &ids(&[2, 1]),
+                &[],
+                &ids(&[1])
+            )),
             ids(&[2]),
         );
     }
@@ -465,17 +550,49 @@ mod tests {
     #[test]
     fn roster_continuity_advances_round_or_epoch() {
         let old = ids(&[1, 2]);
-        assert_eq!(next_epoch_round(SessionEpoch(4), RoundNumber(7), &old, &old), (SessionEpoch(4), RoundNumber(8)));
-        assert_eq!(next_epoch_round(SessionEpoch(4), RoundNumber(7), &old, &ids(&[1, 3])), (SessionEpoch(5), RoundNumber(0)));
+        assert_eq!(
+            next_epoch_round(SessionEpoch(4), RoundNumber(7), &old, &old),
+            (SessionEpoch(4), RoundNumber(8))
+        );
+        assert_eq!(
+            next_epoch_round(SessionEpoch(4), RoundNumber(7), &old, &ids(&[1, 3])),
+            (SessionEpoch(5), RoundNumber(0))
+        );
     }
 
     #[test]
     fn rejects_invalid_rosters() {
-        assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0)], &[1]), Err(BootstrapError::InvalidPlayerCount));
-        assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0), entry(1, 1)], &[1, 1]), Err(BootstrapError::DuplicatePlayer));
-        assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 2)], &[1, 2]), Err(BootstrapError::InvalidHandles));
-        assert_eq!(bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 1)], &[1, 3]), Err(BootstrapError::InvalidScores));
-        assert_eq!(bootstrap(GameMode::Deathmatch, (0..3).map(|id| entry(id, id as usize)).collect(), &[0, 1, 2]), Err(BootstrapError::InvalidPlayerCount));
-        assert_eq!(bootstrap(GameMode::Deathmatch, (0..5).map(|id| entry(id, id as usize)).collect(), &[0, 1, 2, 3, 4]), Err(BootstrapError::InvalidPlayerCount));
+        assert_eq!(
+            bootstrap(GameMode::Duel, vec![entry(1, 0)], &[1]),
+            Err(BootstrapError::InvalidPlayerCount)
+        );
+        assert_eq!(
+            bootstrap(GameMode::Duel, vec![entry(1, 0), entry(1, 1)], &[1, 1]),
+            Err(BootstrapError::DuplicatePlayer)
+        );
+        assert_eq!(
+            bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 2)], &[1, 2]),
+            Err(BootstrapError::InvalidHandles)
+        );
+        assert_eq!(
+            bootstrap(GameMode::Duel, vec![entry(1, 0), entry(2, 1)], &[1, 3]),
+            Err(BootstrapError::InvalidScores)
+        );
+        assert_eq!(
+            bootstrap(
+                GameMode::Deathmatch,
+                (0..3).map(|id| entry(id, id as usize)).collect(),
+                &[0, 1, 2]
+            ),
+            Err(BootstrapError::InvalidPlayerCount)
+        );
+        assert_eq!(
+            bootstrap(
+                GameMode::Deathmatch,
+                (0..5).map(|id| entry(id, id as usize)).collect(),
+                &[0, 1, 2, 3, 4]
+            ),
+            Err(BootstrapError::InvalidPlayerCount)
+        );
     }
 }

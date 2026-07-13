@@ -1,18 +1,27 @@
 use std::{collections::HashSet, time::Duration};
 
-use bevy::{prelude::*, math::Vec3Swizzles};
-use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use crate::game::rollback_audio::RollbackSoundBundle;
+use bevy::{math::Vec3Swizzles, prelude::*};
+use bevy_ggrs::{AddRollbackCommandExtension, PlayerInputs};
 
-use super::{components::*, MAP_SIZE, assets::{textures::ImageAssets, sounds::SoundAssets}, Elimination, RollbackState, RoundProgress, Scores, GameSeed, map::{splitmix64, CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
+use super::input;
 use super::networking::GgrsConfig;
 use super::session::{round_outcome, PlayerId, RoundBootstrap, RoundOutcome};
-use super::input;
-
+use super::{
+    assets::{sounds::SoundAssets, textures::ImageAssets},
+    components::*,
+    ggrs_framecount::GGFrameCount,
+    map::{splitmix64, CellType, Map},
+    rollback_audio::RollbackSound,
+    Elimination, GameSeed, RollbackState, RoundProgress, Scores, SoundIdSeed, MAP_SIZE,
+};
 
 pub fn move_players(
     inputs: Res<PlayerInputs<GgrsConfig>>,
-    mut players: Query<(&mut Transform, &mut MoveDir, &Player, Option<&SpeedBoost>), Without<MarkedForDeath>>,
+    mut players: Query<
+        (&mut Transform, &mut MoveDir, &Player, Option<&SpeedBoost>),
+        Without<MarkedForDeath>,
+    >,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
 ) {
     for (mut transform, mut move_dir, player, speed_boost) in &mut players {
@@ -42,7 +51,11 @@ const BOOSTED_MOVE_SPEED: f32 = 0.1755;
 const SPEED_BOOST_FRAMES: u16 = 300;
 
 fn movement_speed(boosted: bool) -> f32 {
-    if boosted { BOOSTED_MOVE_SPEED } else { BASE_MOVE_SPEED }
+    if boosted {
+        BOOSTED_MOVE_SPEED
+    } else {
+        BASE_MOVE_SPEED
+    }
 }
 
 fn tick_boost_frames(frames_left: u16) -> Option<u16> {
@@ -90,8 +103,10 @@ fn player_hits_wall(map_data: &Map<CellType, MAP_SIZE, MAP_SIZE>, player_pos: Ve
             if x < 0 || y < 0 || x >= MAP_SIZE as i32 || y >= MAP_SIZE as i32 {
                 continue;
             }
-            if matches!(map_data.cells[x as usize][y as usize], CellType::WallBlock | CellType::Void)
-                && wall_check(player_pos, grid_to_world((x as u32, y as u32)))
+            if matches!(
+                map_data.cells[x as usize][y as usize],
+                CellType::WallBlock | CellType::Void
+            ) && wall_check(player_pos, grid_to_world((x as u32, y as u32)))
             {
                 return true;
             }
@@ -156,7 +171,6 @@ pub fn spawn_players(
     players: Query<Entity, With<Player>>,
     bullets: Query<Entity, With<Bullet>>,
 ) {
-
     info!("spawning players");
 
     // despawn last games stuff
@@ -182,7 +196,11 @@ pub fn spawn_players(
         Color::rgb(0.75, 0.25, 0.75),
     ];
     for entry in &bootstrap.roster {
-        let profile = bootstrap.profiles.iter().find(|profile| profile.player_id == entry.player_id).expect("validated profile exists");
+        let profile = bootstrap
+            .profiles
+            .iter()
+            .find(|profile| profile.player_id == entry.player_id)
+            .expect("validated profile exists");
         let position = positions[entry.handle];
         let world = grid_to_world(position);
         let look = if bootstrap.roster.len() == 2 {
@@ -204,6 +222,40 @@ pub fn spawn_players(
     }
 }
 
+/// Cosmetic selection is presentation-only. Reapplying it outside the
+/// rollback schedule fixes restored Sprite image handles for both the local
+/// ghost and every remote ghost without changing synchronized gameplay state.
+pub fn apply_player_cosmetics(
+    images: Res<ImageAssets>,
+    bootstrap: Option<Res<RoundBootstrap>>,
+    mut players: Query<(&Player, &mut Handle<Image>)>,
+) {
+    let Some(bootstrap) = bootstrap else {
+        return;
+    };
+    for (player, mut image) in &mut players {
+        let cosmetic_id = bootstrap
+            .profiles
+            .iter()
+            .find(|profile| profile.player_id == player.player_id)
+            .map(|profile| profile.cosmetic_id)
+            .unwrap_or(0);
+        let expected = cosmetic_image(&images, cosmetic_id);
+        if *image != expected {
+            *image = expected;
+        }
+    }
+}
+
+fn cosmetic_image(images: &ImageAssets, cosmetic_id: u8) -> Handle<Image> {
+    match cosmetic_id {
+        1 => images.ghost_crown.clone(),
+        2 => images.ghost_wizard.clone(),
+        3 => images.ghost_bow.clone(),
+        _ => images.ghost.clone(),
+    }
+}
+
 fn spawn_player(
     commands: &mut Commands,
     images: &Res<ImageAssets>,
@@ -215,69 +267,64 @@ fn spawn_player(
     cosmetic_id: u8,
     display_name: &str,
 ) {
-    let parent = commands.spawn((
-        Player { handle, player_id },
-        BulletReady(0),
-        MoveDir(move_dir),
-        SpriteBundle {
-            texture: match cosmetic_id {
-                1 => images.ghost_crown.clone(),
-                2 => images.ghost_wizard.clone(),
-                3 => images.ghost_bow.clone(),
-                _ => images.ghost.clone(),
-            },
-            transform: Transform::from_translation(translation),
-            sprite: Sprite {
-                color,
-                custom_size: Some(Vec2::new(1.,1.)),
+    let parent = commands
+        .spawn((
+            Player { handle, player_id },
+            BulletReady(0),
+            MoveDir(move_dir),
+            SpriteBundle {
+                texture: cosmetic_image(images, cosmetic_id),
+                transform: Transform::from_translation(translation),
+                sprite: Sprite {
+                    color,
+                    custom_size: Some(Vec2::new(1., 1.)),
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        Name::new(display_name.to_owned()),
-    ))
-    .add_rollback()
-    .id();
+            Name::new(display_name.to_owned()),
+        ))
+        .add_rollback()
+        .id();
 
-    let child = commands.spawn((
-        SpriteSheetBundle {
-            transform: Transform::from_translation(Vec3::new(0.,0.,1.)),
-            sprite: TextureAtlasSprite {
-                index: 0,
-                custom_size: Some(Vec2::new(1.,1.)),
+    let child = commands
+        .spawn((
+            SpriteSheetBundle {
+                transform: Transform::from_translation(Vec3::new(0., 0., 1.)),
+                sprite: TextureAtlasSprite {
+                    index: 0,
+                    custom_size: Some(Vec2::new(1., 1.)),
+                    ..default()
+                },
+                texture_atlas: images.eyes.clone(),
                 ..default()
             },
-            texture_atlas: images.eyes.clone(),
-            ..default()
-        },
-        LookTowardsParentMove,
-    ))
-    .add_rollback()
-    .id();
+            LookTowardsParentMove,
+        ))
+        .add_rollback()
+        .id();
 
     commands.entity(parent).push_children(&[child]);
 }
 
 // takes in a grid position from 0 to map_size and outputs a world coordinate
-pub fn grid_to_world(grid_pos: (u32,u32)) -> Vec2 {
+pub fn grid_to_world(grid_pos: (u32, u32)) -> Vec2 {
     Vec2::new(
-        (grid_pos.0 as f32 - MAP_SIZE as f32 / 2.)+0.5,
-        (grid_pos.1 as f32 - MAP_SIZE as f32 / 2.)+0.5,
+        (grid_pos.0 as f32 - MAP_SIZE as f32 / 2.) + 0.5,
+        (grid_pos.1 as f32 - MAP_SIZE as f32 / 2.) + 0.5,
     )
 }
 
-pub fn world_to_grid(world_pos: Vec2) -> Option<(u32,u32)> {
-    
-        let x = ((world_pos.x) + MAP_SIZE as f32 / 2.) as i32;
-        let y = ((world_pos.y) + MAP_SIZE as f32 / 2.) as i32;
+pub fn world_to_grid(world_pos: Vec2) -> Option<(u32, u32)> {
+    let x = ((world_pos.x) + MAP_SIZE as f32 / 2.) as i32;
+    let y = ((world_pos.y) + MAP_SIZE as f32 / 2.) as i32;
 
-        // return in bounds result or None
-        if x < 0 || x >= MAP_SIZE as i32
-        || y < 0 || y >= MAP_SIZE as i32 {
-            return None;
-        } else {
-            return Some((x as u32, y as u32))
-        }
+    // return in bounds result or None
+    if x < 0 || x >= MAP_SIZE as i32 || y < 0 || y >= MAP_SIZE as i32 {
+        return None;
+    } else {
+        return Some((x as u32, y as u32));
+    }
 }
 
 fn generate_spawn_positions(
@@ -322,7 +369,8 @@ fn generate_spawn_positions(
             .filter(|pair| {
                 pair.iter().all(|candidate| {
                     first.iter().all(|existing| {
-                        candidate.0.abs_diff(existing.0) + candidate.1.abs_diff(existing.1) >= min_distance
+                        candidate.0.abs_diff(existing.0) + candidate.1.abs_diff(existing.1)
+                            >= min_distance
                     })
                 })
             })
@@ -330,10 +378,8 @@ fn generate_spawn_positions(
         let second = if second_candidates.is_empty() {
             [(0, (MAP_SIZE - 1) as u32), ((MAP_SIZE - 1) as u32, 0)]
         } else {
-            second_candidates[
-                (splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN ^ 1)
-                    % second_candidates.len() as u64) as usize
-            ]
+            second_candidates[(splitmix64(base_seed ^ SPAWN_SELECTION_DOMAIN ^ 1)
+                % second_candidates.len() as u64) as usize]
         };
         positions.extend(second);
     }
@@ -346,7 +392,10 @@ mod spawn_tests {
     use super::*;
 
     fn empty_map() -> Map<CellType, MAP_SIZE, MAP_SIZE> {
-        Map { cells: [[CellType::Empty; MAP_SIZE]; MAP_SIZE], active_size: MAP_SIZE }
+        Map {
+            cells: [[CellType::Empty; MAP_SIZE]; MAP_SIZE],
+            active_size: MAP_SIZE,
+        }
     }
 
     fn map_with_walls(walls: &[(usize, usize)]) -> Map<CellType, MAP_SIZE, MAP_SIZE> {
@@ -360,7 +409,10 @@ mod spawn_tests {
     #[test]
     fn wall_collision_and_sliding_are_stable() {
         let wall = grid_to_world((20, 20));
-        assert_eq!(nearby_cell_range(wall.x).collect::<Vec<_>>(), vec![19, 20, 21]);
+        assert_eq!(
+            nearby_cell_range(wall.x).collect::<Vec<_>>(),
+            vec![19, 20, 21]
+        );
         assert!(!wall_check(wall + Vec2::new(0.9, 0.0), wall));
         assert!(wall_check(wall + Vec2::new(0.899, 0.0), wall));
 
@@ -404,9 +456,15 @@ mod spawn_tests {
         assert_eq!(boosted_frames, SPEED_BOOST_FRAMES as usize);
         assert_eq!(frames, None);
 
-        let replay = (0..SPEED_BOOST_FRAMES).fold((Some(SPEED_BOOST_FRAMES), 0.0f32), |(frames, position), _| {
-            (frames.and_then(tick_boost_frames), position + movement_speed(frames.is_some()))
-        });
+        let replay = (0..SPEED_BOOST_FRAMES).fold(
+            (Some(SPEED_BOOST_FRAMES), 0.0f32),
+            |(frames, position), _| {
+                (
+                    frames.and_then(tick_boost_frames),
+                    position + movement_speed(frames.is_some()),
+                )
+            },
+        );
         assert_eq!(replay.0, None);
         assert_eq!(replay.1.to_bits(), distance.to_bits());
     }
@@ -420,14 +478,34 @@ mod spawn_tests {
             assert_eq!(first.len(), count);
             let unique: HashSet<_> = first.iter().collect();
             assert_eq!(unique.len(), count);
-            assert!(first.iter().all(|&(x, y)| map.cells[x as usize][y as usize] == CellType::Empty));
+            assert!(first
+                .iter()
+                .all(|&(x, y)| map.cells[x as usize][y as usize] == CellType::Empty));
         }
 
         let two = generate_spawn_positions(77, &map, 2);
-        assert_eq!(two[1], ((MAP_SIZE - 1) as u32 - two[0].0, (MAP_SIZE - 1) as u32 - two[0].1));
+        assert_eq!(
+            two[1],
+            (
+                (MAP_SIZE - 1) as u32 - two[0].0,
+                (MAP_SIZE - 1) as u32 - two[0].1
+            )
+        );
         let four = generate_spawn_positions(77, &map, 4);
-        assert_eq!(four[1], ((MAP_SIZE - 1) as u32 - four[0].0, (MAP_SIZE - 1) as u32 - four[0].1));
-        assert_eq!(four[3], ((MAP_SIZE - 1) as u32 - four[2].0, (MAP_SIZE - 1) as u32 - four[2].1));
+        assert_eq!(
+            four[1],
+            (
+                (MAP_SIZE - 1) as u32 - four[0].0,
+                (MAP_SIZE - 1) as u32 - four[0].1
+            )
+        );
+        assert_eq!(
+            four[3],
+            (
+                (MAP_SIZE - 1) as u32 - four[2].0,
+                (MAP_SIZE - 1) as u32 - four[2].1
+            )
+        );
 
         let generated = Map::<CellType, MAP_SIZE, MAP_SIZE>::generated(91);
         for count in 2..=4 {
@@ -454,19 +532,37 @@ pub fn fire_bullets(
     images: Res<ImageAssets>,
     sounds: Res<SoundAssets>,
     mut sound_id: ResMut<SoundIdSeed>,
-    mut players: Query<(Entity, &Transform, &Player, &mut BulletReady, &MoveDir), Without<MarkedForDeath>>,
+    mut players: Query<
+        (Entity, &Transform, &Player, &mut BulletReady, &MoveDir),
+        Without<MarkedForDeath>,
+    >,
 ) {
-    let mut firing: Vec<_> = players.iter().filter_map(|(entity, transform, player, ready, direction)| {
-        let (input, _) = inputs[player.handle];
-        (input::fire(input) && ready.0 == 0).then_some((player.player_id, player.handle, entity, *transform, *direction))
-    }).collect();
+    let mut firing: Vec<_> = players
+        .iter()
+        .filter_map(|(entity, transform, player, ready, direction)| {
+            let (input, _) = inputs[player.handle];
+            (input::fire(input) && ready.0 == 0).then_some((
+                player.player_id,
+                player.handle,
+                entity,
+                *transform,
+                *direction,
+            ))
+        })
+        .collect();
     firing.sort_by_key(|entry| entry.0);
     for (player_id, handle, entity, transform, move_dir) in firing {
-            let player_pos = transform.translation.xy();
-            let pos = player_pos + move_dir.0 * (PLAYER_RADIUS + BULLET_RADIUS);
-            // spawn bullet entity
-            commands.spawn((
-                Bullet { id: frame.frame as u64, owner: player_id, owner_handle: handle, active: true },
+        let player_pos = transform.translation.xy();
+        let pos = player_pos + move_dir.0 * (PLAYER_RADIUS + BULLET_RADIUS);
+        // spawn bullet entity
+        commands
+            .spawn((
+                Bullet {
+                    id: frame.frame as u64,
+                    owner: player_id,
+                    owner_handle: handle,
+                    active: true,
+                },
                 move_dir,
                 SpriteBundle {
                     transform: Transform::from_translation(pos.extend(200.))
@@ -477,31 +573,29 @@ pub fn fire_bullets(
                         ..default()
                     },
                     ..default()
-                }
+                },
             ))
             .add_rollback();
 
-            let snd = sound_id.next(handle);
-            debug!("firing bullet snd {snd:#00x}");
-            commands.spawn(
-                (
-                    RollbackSoundBundle {
-                        sound: RollbackSound {
-                            clip: sounds.laser_shoot.clone(),
-                            start_frame: frame.frame,
-                            sub_key: snd,
-                        },
-                        transform: Transform::from_translation(transform.translation + move_dir.0.extend(0.)),
-                        ..default()
-                    },
-                )
-            )
+        let snd = sound_id.next(handle);
+        debug!("firing bullet snd {snd:#00x}");
+        commands
+            .spawn((RollbackSoundBundle {
+                sound: RollbackSound {
+                    clip: sounds.laser_shoot.clone(),
+                    start_frame: frame.frame,
+                    sub_key: snd,
+                },
+                transform: Transform::from_translation(
+                    transform.translation + move_dir.0.extend(0.),
+                ),
+                ..default()
+            },))
             .add_rollback();
-            
 
-            if let Ok((_, _, _, mut ready, _)) = players.get_mut(entity) {
-                ready.0 = FIRE_COOLDOWN_FRAMES;
-            }
+        if let Ok((_, _, _, mut ready, _)) = players.get_mut(entity) {
+            ready.0 = FIRE_COOLDOWN_FRAMES;
+        }
     }
 }
 
@@ -511,10 +605,7 @@ pub fn reload_bullet(mut bullets: Query<&mut BulletReady, With<Player>>) {
     }
 }
 
-pub fn tick_speed_boost(
-    mut commands: Commands,
-    mut players: Query<(Entity, &mut SpeedBoost)>,
-) {
+pub fn tick_speed_boost(mut commands: Commands, mut players: Query<(Entity, &mut SpeedBoost)>) {
     for (entity, mut boost) in &mut players {
         if let Some(frames) = tick_boost_frames(boost.frames_left) {
             boost.frames_left = frames;
@@ -557,28 +648,30 @@ fn collect_pickups<P: Component>(
 
     for (pickup_entity, cell) in pickups {
         let cell = (cell.0 as u32, cell.1 as u32);
-        let Some((handle, player_entity, _, position)) = players
-            .iter()
-            .find(|player| player.2 == cell)
-            .copied()
+        let Some((handle, player_entity, _, position)) =
+            players.iter().find(|player| player.2 == cell).copied()
         else {
             continue;
         };
 
         match effect {
-            PickupEffect::Speed => commands.entity(player_entity).insert(SpeedBoost { frames_left: SPEED_BOOST_FRAMES }),
+            PickupEffect::Speed => commands.entity(player_entity).insert(SpeedBoost {
+                frames_left: SPEED_BOOST_FRAMES,
+            }),
             PickupEffect::Shield => commands.entity(player_entity).insert(ShieldCharges(1)),
         };
         commands.entity(pickup_entity).despawn_recursive();
-        commands.spawn((RollbackSoundBundle {
-            sound: RollbackSound {
-                clip: sounds.ray.clone(),
-                start_frame: frame,
-                sub_key: sound_id.next(handle),
-            },
-            transform: Transform::from_translation(position),
-            ..default()
-        },)).add_rollback();
+        commands
+            .spawn((RollbackSoundBundle {
+                sound: RollbackSound {
+                    clip: sounds.ray.clone(),
+                    start_frame: frame,
+                    sub_key: sound_id.next(handle),
+                },
+                transform: Transform::from_translation(position),
+                ..default()
+            },))
+            .add_rollback();
     }
 }
 
@@ -590,7 +683,16 @@ pub fn collect_speed_pickups(
     players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
     pickups: Query<(Entity, &SpeedPickup)>,
 ) {
-    collect_pickups(&mut commands, frame.frame, &sounds, &mut sound_id, &players, &pickups, |pickup| pickup.cell, PickupEffect::Speed);
+    collect_pickups(
+        &mut commands,
+        frame.frame,
+        &sounds,
+        &mut sound_id,
+        &players,
+        &pickups,
+        |pickup| pickup.cell,
+        PickupEffect::Speed,
+    );
 }
 
 pub fn collect_shield_pickups(
@@ -601,7 +703,16 @@ pub fn collect_shield_pickups(
     players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
     pickups: Query<(Entity, &ShieldPickup)>,
 ) {
-    collect_pickups(&mut commands, frame.frame, &sounds, &mut sound_id, &players, &pickups, |pickup| pickup.cell, PickupEffect::Shield);
+    collect_pickups(
+        &mut commands,
+        frame.frame,
+        &sounds,
+        &mut sound_id,
+        &players,
+        &pickups,
+        |pickup| pickup.cell,
+        PickupEffect::Shield,
+    );
 }
 
 pub fn trigger_traps(
@@ -613,24 +724,38 @@ pub fn trigger_traps(
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
     players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
 ) {
-    let mut trapped: Vec<_> = players.iter().filter_map(|(entity, player, transform)| {
-        let (x, y) = world_to_grid(transform.translation.xy())?;
-        (map_data.cells[x as usize][y as usize] == CellType::Trap)
-            .then_some((player.player_id, player.handle, entity, transform.translation))
-    }).collect();
+    let mut trapped: Vec<_> = players
+        .iter()
+        .filter_map(|(entity, player, transform)| {
+            let (x, y) = world_to_grid(transform.translation.xy())?;
+            (map_data.cells[x as usize][y as usize] == CellType::Trap).then_some((
+                player.player_id,
+                player.handle,
+                entity,
+                transform.translation,
+            ))
+        })
+        .collect();
     trapped.sort_by_key(|entry| entry.0);
     for (player_id, handle, entity, position) in trapped {
-        progress.record_elimination(Elimination { player_id, frame: frame.frame });
-        commands.entity(entity).insert(MarkedForDeath::at(frame.frame));
-        commands.spawn((RollbackSoundBundle {
-            sound: RollbackSound {
-                clip: sounds.swoosh_death.clone(),
-                start_frame: frame.frame,
-                sub_key: sound_id.next(handle),
-            },
-            transform: Transform::from_translation(position),
-            ..default()
-        },)).add_rollback();
+        progress.record_elimination(Elimination {
+            player_id,
+            frame: frame.frame,
+        });
+        commands
+            .entity(entity)
+            .insert(MarkedForDeath::at(frame.frame));
+        commands
+            .spawn((RollbackSoundBundle {
+                sound: RollbackSound {
+                    clip: sounds.swoosh_death.clone(),
+                    start_frame: frame.frame,
+                    sub_key: sound_id.next(handle),
+                },
+                transform: Transform::from_translation(position),
+                ..default()
+            },))
+            .add_rollback();
     }
 }
 
@@ -640,13 +765,18 @@ pub fn move_bullets(
     sounds: Res<SoundAssets>,
     mut sound_id: ResMut<SoundIdSeed>,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
-    mut bullets: Query<(Entity, &mut Bullet, &mut Transform, &MoveDir)>
+    mut bullets: Query<(Entity, &mut Bullet, &mut Transform, &MoveDir)>,
 ) {
     let limit = Vec2::splat(MAP_SIZE as f32 / 2.);
-    let mut order: Vec<_> = bullets.iter().map(|(entity, bullet, _, _)| (bullet.owner, bullet.id, entity)).collect();
+    let mut order: Vec<_> = bullets
+        .iter()
+        .map(|(entity, bullet, _, _)| (bullet.owner, bullet.id, entity))
+        .collect();
     order.sort_by_key(|entry| (entry.0, entry.1));
     for (_, _, entity) in order {
-        let Ok((_, mut bullet, mut transform, dir)) = bullets.get_mut(entity) else { continue; };
+        let Ok((_, mut bullet, mut transform, dir)) = bullets.get_mut(entity) else {
+            continue;
+        };
         let delta = (dir.0 * 0.35).extend(0.);
         transform.translation += delta;
 
@@ -657,26 +787,28 @@ pub fn move_bullets(
             bullet.active = false;
             commands.entity(entity).despawn_recursive();
             continue;
-        }  
+        }
         // check for block hits
-        if let Some((x,y)) = world_to_grid(transform.translation.xy()) {
+        if let Some((x, y)) = world_to_grid(transform.translation.xy()) {
             // if coords are inside of a wall then its a hit
             match map_data.cells[x as usize][y as usize] {
                 CellType::WallBlock | CellType::Void => {
                     // bullet in a block, despawn it
                     bullet.active = false;
                     commands.entity(entity).despawn_recursive();
-                    commands.spawn((RollbackSoundBundle {
-                        sound: RollbackSound {
-                            clip: sounds.ray.clone(),
-                            start_frame: frame.frame,
-                            sub_key: sound_id.next(bullet.owner_handle),
-                        },
-                        transform: Transform::from_translation(transform.translation),
-                        ..default()
-                    },)).add_rollback();
-                },
-                _ => {},
+                    commands
+                        .spawn((RollbackSoundBundle {
+                            sound: RollbackSound {
+                                clip: sounds.ray.clone(),
+                                start_frame: frame.frame,
+                                sub_key: sound_id.next(bullet.owner_handle),
+                            },
+                            transform: Transform::from_translation(transform.translation),
+                            ..default()
+                        },))
+                        .add_rollback();
+                }
+                _ => {}
             }
         }
     }
@@ -696,7 +828,14 @@ pub fn kill_players(
 ) {
     let mut players: Vec<_> = players
         .iter()
-        .map(|(entity, player, transform)| (player.handle, player.player_id, entity, transform.translation))
+        .map(|(entity, player, transform)| {
+            (
+                player.handle,
+                player.player_id,
+                entity,
+                transform.translation,
+            )
+        })
         .collect();
     players.sort_by_key(|player| player.0);
     let mut bullets: Vec<_> = bullets
@@ -715,7 +854,8 @@ pub fn kill_players(
 
         for (_, _, bullet_entity, bullet_position) in bullets.iter().copied() {
             if consumed.contains(&bullet_entity)
-                || Vec2::distance(player_position.xy(), bullet_position.xy()) >= PLAYER_RADIUS + BULLET_RADIUS
+                || Vec2::distance(player_position.xy(), bullet_position.xy())
+                    >= PLAYER_RADIUS + BULLET_RADIUS
             {
                 continue;
             }
@@ -730,34 +870,48 @@ pub fn kill_players(
                         commands.entity(player_entity).remove::<ShieldCharges>();
                     }
                 }
-                commands.spawn((RollbackSoundBundle {
+                commands
+                    .spawn((RollbackSoundBundle {
+                        sound: RollbackSound {
+                            clip: sounds.ray.clone(),
+                            start_frame: frame.frame,
+                            sub_key: sound_id.next(handle),
+                        },
+                        transform: Transform::from_translation(bullet_position),
+                        ..default()
+                    },))
+                    .add_rollback();
+                continue;
+            }
+
+            commands
+                .spawn((
+                    ExplosionCue {
+                        frame: frame.frame,
+                        player_id,
+                    },
+                    Transform::from_translation(bullet_position),
+                    GlobalTransform::default(),
+                ))
+                .add_rollback();
+            commands
+                .spawn((RollbackSoundBundle {
                     sound: RollbackSound {
-                        clip: sounds.ray.clone(),
+                        clip: sounds.swoosh_death.clone(),
                         start_frame: frame.frame,
                         sub_key: sound_id.next(handle),
                     },
                     transform: Transform::from_translation(bullet_position),
                     ..default()
-                },)).add_rollback();
-                continue;
-            }
-
-            commands.spawn((
-                ExplosionCue { frame: frame.frame, player_id },
-                Transform::from_translation(bullet_position),
-                GlobalTransform::default(),
-            )).add_rollback();
-            commands.spawn((RollbackSoundBundle {
-                sound: RollbackSound {
-                    clip: sounds.swoosh_death.clone(),
-                    start_frame: frame.frame,
-                    sub_key: sound_id.next(handle),
-                },
-                transform: Transform::from_translation(bullet_position),
-                ..default()
-            },)).add_rollback();
-            progress.record_elimination(Elimination { player_id, frame: frame.frame });
-            commands.entity(player_entity).insert(MarkedForDeath::at(frame.frame));
+                },))
+                .add_rollback();
+            progress.record_elimination(Elimination {
+                player_id,
+                frame: frame.frame,
+            });
+            commands
+                .entity(player_entity)
+                .insert(MarkedForDeath::at(frame.frame));
             break;
         }
     }
@@ -777,15 +931,25 @@ pub fn process_deaths(
             finished_frames.push(marked.frame);
         }
     }
-    let Some(&resolved_frame) = finished_frames.iter().min() else { return; };
+    let Some(&resolved_frame) = finished_frames.iter().min() else {
+        return;
+    };
 
-    let roster: Vec<_> = bootstrap.roster.iter().map(|entry| entry.player_id).collect();
+    let roster: Vec<_> = bootstrap
+        .roster
+        .iter()
+        .map(|entry| entry.player_id)
+        .collect();
     let eliminated: Vec<_> = match bootstrap.mode {
-        super::session::GameMode::Duel => progress.eliminated.iter()
+        super::session::GameMode::Duel => progress
+            .eliminated
+            .iter()
             .filter(|entry| entry.frame == resolved_frame)
             .map(|entry| entry.player_id)
             .collect(),
-        super::session::GameMode::Deathmatch => progress.eliminated.iter()
+        super::session::GameMode::Deathmatch => progress
+            .eliminated
+            .iter()
             .map(|entry| entry.player_id)
             .collect(),
     };
