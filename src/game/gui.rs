@@ -420,7 +420,7 @@ pub fn update_match_status_ui(
     if let MatchFlow::MatchOver { winner } = *flow {
         let winner_name = bootstrap.profiles.iter().find(|profile| profile.player_id == winner)
             .map(|profile| profile.name.as_str()).unwrap_or("Ghost");
-        Window::new("MATCH OVER").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(contexts.ctx_mut(), |ui| {
+        bevy_egui::egui::Window::new("MATCH OVER").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(contexts.ctx_mut(), |ui| {
             ui.heading(if Some(winner) == local_id { "YOU WIN!" } else { "MATCH OVER" });
             ui.label(format!("{winner_name} is the first ghost to {MATCH_POINTS_TO_WIN} points."));
             ui.label("Rematch returns to matchmaking with the same selected mode.");

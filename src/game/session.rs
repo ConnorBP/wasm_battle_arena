@@ -39,7 +39,7 @@ pub struct MatchWinner {
 
 /// Returns the winner only after the first-to-three endpoint is reached.
 /// Canonical identity ordering makes malformed ties deterministic.
-pub pub fn match_winner(scores: &[PlayerScore]) -> Option<MatchWinner> {
+pub fn match_winner(scores: &[PlayerScore]) -> Option<MatchWinner> {
     scores
         .iter()
         .filter(|entry| entry.score >= MATCH_POINTS_TO_WIN)
