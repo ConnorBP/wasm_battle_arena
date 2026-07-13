@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 - 2026-07-13
+
+- Fixed an Any Mode browser crash caused by polling protocol-v3 control messages during protocol-v4 queue waiting.
+- Hardened queue/lobby browser transport accessors and corrected application WebSocket close codes.
+- Added an actual WASM Any Mode click-and-wait regression smoke test.
+
 ## 0.7.0 - 2026-07-13
 
 - Added Any Mode as the recommended default public queue with flexible Duel and Last Ghost Standing assignment.

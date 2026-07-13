@@ -326,6 +326,15 @@ impl CloudflareSocket {
         ConnectionState::Disconnected
     }
 
+    pub fn is_waiting_in_queue(&self) -> bool {
+        matches!(
+            self.queue_status(),
+            Some(
+                QueueStatus::Searching | QueueStatus::HoldingForThird | QueueStatus::Forming { .. }
+            )
+        )
+    }
+
     pub fn queue_status(&self) -> Option<QueueStatus> {
         #[cfg(target_arch = "wasm32")]
         if self.transport_id != 0 {
@@ -719,6 +728,26 @@ mod tests {
     }
 
     #[test]
+    fn coordinator_phases_skip_lobby_control_polling() {
+        assert!(matches!(
+            queue_status_from_scalars(1, 0, 8),
+            Some(QueueStatus::Searching)
+        ));
+        assert!(matches!(
+            queue_status_from_scalars(2, 0, 8),
+            Some(QueueStatus::HoldingForThird)
+        ));
+        assert!(matches!(
+            queue_status_from_scalars(3, 3, 8),
+            Some(QueueStatus::Forming { .. })
+        ));
+        assert!(matches!(
+            queue_status_from_scalars(4, 0, 0),
+            Some(QueueStatus::Assigned)
+        ));
+    }
+
+    #[test]
     fn queue_status_scalars_are_strict_and_bounded() {
         assert_eq!(
             queue_status_from_scalars(1, 0, 8),
@@ -928,7 +957,8 @@ function fail(session, error) {
     if (current(session.id) !== session || session.status === 2) return;
     session.status = 2;
     session.error = error instanceof Error ? error.message : String(error);
-    closeSession(session, 1011, "connection failed");
+    // Browser WebSocket.close only permits 1000 or application codes 3000-4999.
+    closeSession(session, 4000, "connection failed");
 }
 
 function sendSignal(session, type, data) {
@@ -1278,7 +1308,7 @@ export function cloudflare_connect_queue(baseUrl, compatibilityRoom, preference,
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(compatibilityRoom)}?protocol=4&preference=${encodeURIComponent(preference)}&target=${target}`;
     const ws = new WebSocket(url);
     const id = nextTransportId++ || nextTransportId++;
-    const session = { id, ws, queue: true, status: 0, error: "", queuePhase: 1, queueCount: 0, queueTarget: target, ticket: "", timeout: 0, heartbeat: 0, signalChain: Promise.resolve(), telemetry: [0,0,0,0,0,0,0,0,0,0,0] };
+    const session = { id, ws, queue: true, status: 0, error: "", queuePhase: 1, queueCount: 0, queueTarget: target, ticket: "", control: [], inbox: [], roster: [], channels: new Map(), peers: new Map(), pendingIce: new Map(), openPeers: new Set(), timeout: 0, heartbeat: 0, signalChain: Promise.resolve(), telemetry: [0,0,0,0,0,0,0,0,0,0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, "could not open public queue"), timeoutForPhase("socket_open"));
     ws.onopen = () => {
@@ -1333,22 +1363,22 @@ export function cloudflare_queue_target(id) { return current(id)?.queueTarget ??
 export function cloudflare_lobby_local_id(id) { return current(id)?.localPlayerId || ""; }
 export function cloudflare_lobby_mode(id) { return current(id)?.mode ?? 0; }
 export function cloudflare_lobby_generation(id) { return current(id)?.matchGeneration ?? 0; }
-export function cloudflare_lobby_control(id) { return current(id)?.control.shift() ?? null; }
+export function cloudflare_lobby_control(id) { return current(id)?.control?.shift() ?? null; }
 export function cloudflare_lobby_rematch_request(id, generation, nonce) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:"rematch_request",generation,nonce})); return true; }
 export function cloudflare_lobby_rematch_response(id, generation, nonce, accept) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:"rematch_response",generation,nonce,accept})); return true; }
 export function cloudflare_lobby_leave(id, requeue) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:requeue?"requeue":"leave"})); return true; }
 export function cloudflare_lobby_seed(id) { return current(id)?.seed || ""; }
 export function cloudflare_lobby_epoch(id) { return current(id)?.epoch ?? 0; }
 export function cloudflare_lobby_round(id) { return current(id)?.round ?? 0; }
-export function cloudflare_lobby_roster_len(id) { return current(id)?.roster.length ?? 0; }
-export function cloudflare_lobby_roster_id(id, index) { return current(id)?.roster[index]?.playerId || ""; }
+export function cloudflare_lobby_roster_len(id) { return current(id)?.roster?.length ?? 0; }
+export function cloudflare_lobby_roster_id(id, index) { return current(id)?.roster?.[index]?.playerId || ""; }
 export function cloudflare_lobby_send(id, epoch, to, packet) {
     const session = current(id); const channel = session?.channels.get(to);
     if (session?.status !== 1 || epoch !== session.epoch || channel?.readyState !== "open" || packet.length > MAX_PACKET_BYTES || channel.bufferedAmount > MAX_BUFFERED_BYTES) { if (session) session.telemetry[2]++; return; }
     try { const framed = new Uint8Array(packet.length + 4); new DataView(framed.buffer).setUint32(0, epoch, false); framed.set(packet, 4); channel.send(framed); session.telemetry[0]++; } catch (error) { fail(session, error); }
 }
 export function cloudflare_lobby_receive(id) {
-    const item = current(id)?.inbox.shift();
+    const item = current(id)?.inbox?.shift();
     return item ? [item.epoch, item.from, item.packet] : null;
 }
 export function cloudflare_lobby_report(id, epoch, round, winners) {
@@ -1365,7 +1395,7 @@ export function cloudflare_lobby_report(id, epoch, round, winners) {
     catch (error) { fail(session, error); return false; }
 }
 export function cloudflare_lobby_close_epoch(id) {
-    const session = current(id); if (!session) return;
+    const session = current(id); if (!session || session.queue) return;
     for (const channel of session.channels.values()) channel.close();
     for (const peer of session.peers.values()) peer.close();
     session.channels.clear(); session.peers.clear(); session.pendingIce.clear(); session.openPeers.clear(); session.inbox.length = 0;

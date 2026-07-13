@@ -562,6 +562,9 @@ pub fn poll_lobby_control(
     mut next_state: ResMut<NextState<GameState>>,
     mut toasts: ResMut<Toasts>,
 ) {
+    if socket.is_waiting_in_queue() {
+        return;
+    }
     use crate::cloudflare_net::LobbyControlEvent;
     while let Some(event) = socket.poll_control() {
         match event {
