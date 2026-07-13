@@ -37,7 +37,6 @@ pub struct PlaybackStates {
 pub fn sync_rollback_sounds(
     mut commands: Commands,
     mut current_state: ResMut<PlaybackStates>,
-    mut audio_instances: ResMut<Assets<AudioInstance>>,
     mut sounds: Query<(Entity, &RollbackSound, Option<&mut AudioEmitter>)>,
     sfx_audio: Res<AudioChannel<SfxChannel>>,
     frame: Res<GGFrameCount>,
@@ -71,6 +70,12 @@ pub fn sync_rollback_sounds(
         }
     }
 
+}
+
+fn stop_interrupted(
+    current_state: &mut PlaybackStates,
+    audio_instances: &mut Assets<AudioInstance>,
+) {
     let interrupted: Vec<_> = current_state
         .playing
         .keys()
@@ -86,19 +91,30 @@ pub fn sync_rollback_sounds(
     }
 }
 
+pub fn reconcile_rollback_sounds(
+    mut current_state: ResMut<PlaybackStates>,
+    mut audio_instances: ResMut<Assets<AudioInstance>>,
+    sounds: Query<&RollbackSound>,
+) {
+    current_state.live.clear();
+    current_state.live.extend(sounds.iter().map(RollbackSound::key));
+    stop_interrupted(&mut current_state, &mut audio_instances);
+}
+
+const SOUND_CUE_LIFETIME_FRAMES: u32 = ROLLBACK_FPS as u32 * 5;
+
+fn sound_cue_finished(current_frame: u32, start_frame: u32) -> bool {
+    current_frame.wrapping_sub(start_frame) >= SOUND_CUE_LIFETIME_FRAMES
+}
+
 pub fn remove_finished_sounds(
     frame: Res<GGFrameCount>,
     sounds: Query<(Entity, &RollbackSound)>,
     mut commands: Commands,
-    audio_sources: Res<Assets<AudioSource>>,
 ) {
     for (entity, sound) in &sounds {
-        if let Some(source) = audio_sources.get(&sound.clip) {
-            let frames_played = frame.frame.wrapping_sub(sound.start_frame);
-            let frames_to_play = (source.sound.duration().as_secs_f64() * ROLLBACK_FPS as f64) as u32;
-            if frames_played >= frames_to_play {
-                commands.entity(entity).despawn();
-            }
+        if sound_cue_finished(frame.frame, sound.start_frame) {
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -117,5 +133,19 @@ pub fn clear_sounds(
     current_state.live.clear();
     for entity in &sounds {
         commands.entity(entity).despawn_recursive();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cue_expiration_is_deterministic_and_wrap_safe() {
+        assert!(!sound_cue_finished(SOUND_CUE_LIFETIME_FRAMES - 1, 0));
+        assert!(sound_cue_finished(SOUND_CUE_LIFETIME_FRAMES, 0));
+        let start = u32::MAX - SOUND_CUE_LIFETIME_FRAMES + 2;
+        assert!(!sound_cue_finished(0, start));
+        assert!(sound_cue_finished(1, start));
     }
 }

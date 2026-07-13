@@ -47,6 +47,13 @@ pub struct MoveDir(pub Vec2);
 #[derive(Component, Reflect, Default)]
 pub struct LookTowardsParentMove;
 
+/// Rollback-safe record requesting a non-authoritative explosion presentation.
+#[derive(Component, Reflect, Default, Clone, Copy)]
+pub struct ExplosionCue {
+    pub frame: u32,
+    pub player_id: PlayerId,
+}
+
 #[derive(Component, Reflect)]
 pub struct MarkedForDeath {
     pub(crate) timer: Timer,

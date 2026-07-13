@@ -38,9 +38,9 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 
 ## Deploying
 
-- Requires wasm-bindgen-cli `cargo install wasm-bindgen-cli`
-- optional wasm-opt: `cargo install wasm-opt --locked`
-- then run the commands from deploy.bat
+The canonical production deployment is [`.github/workflows/pages.yml`](.github/workflows/pages.yml). It builds the locked WASM target, runs pinned Binaryen optimization and browser smoke tests, then publishes the `site` artifact to GitHub Pages. Use **Actions → Deploy game → Run workflow** for a manual deployment; pushes to `master` deploy automatically.
+
+`deploy.bat` is a local convenience build only and is not the production release path. It requires `wasm-bindgen-cli` and `wasm-opt` to already be installed.
 
 
 ## Networking
@@ -52,7 +52,7 @@ cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/release/wasm_battle_arena.wasm
 ```
 
-### TODO
+### Development history
 
 - [x] apply more aggressive size reduction techniques to bevy
     - [x] wasm-opt on deploy
@@ -84,13 +84,11 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] polish sound effects and music with current approved assets
     - [x] add rollback-safe cues for pickups, shields, traps, walls, firing, and death
     - [x] use Warren Postma's approved Ghost Battle composition across menu and battle
-    - [ ] add additional themes/SFX after approved recordings are supplied
 - [x] fix literal corner case on collision detection which freezes movement on corners
     - [x] add deterministic axis-sliding collision tests
 - [X] add touch screen / mobile controls and functionality
     - [x] support stationary, held, and simultaneous movement/fire touches
 - [x] polish and bug fix network issues and determinsm
-    - `Key issues are fixed, for now, but stll keep an eye out for bugs!`
     - [x] improve rollback audio deduplication and interrupted-sound cleanup
 - [x] define measured browser/mobile performance profiling and deployment budgets
 - [x] add multiplayer session modes

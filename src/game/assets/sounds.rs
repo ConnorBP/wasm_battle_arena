@@ -2,11 +2,6 @@ use bevy::prelude::*;
 use bevy_asset_loader::prelude::*;
 use bevy_kira_audio::prelude::*;
 
-// jsfxr sound ids
-// ray 3ZwhKQRSUmTpaPmioXX3h88MDjkD7i4skvn4mxZVhTzNt6DbwXL3Zac9jvXJquvAnYWtpZw7G46dKJum3HGHQKDgHU7bB8MNdfCLVDXqeymqpjf96HonSmgpC
-// laser 3ZwhKQRSUmTpaPmioXX3h88MDjkD7i4skvn4mxZVhTzNt6DbwXL3Zac9jvXJquvAnYWtpZw7G46dKHfVd4YLs6TkmhWfbS2JHocRksyrnJHhbZ6hFo29ZWXYx
-// swoosh_death 8qvNiwF3DRwQcmXf5PjRAP5NPPLxXRX6YEfWxTwo8QjtYg1AfvAJhEgVZH3vEcJHHVQ2T9WEejpEVNNpU4s9NcPtWLM8QkFcGgUpxcVzjnneLs6QYHMv9KF3d
-
 #[derive(AssetCollection, Resource)]
 pub struct SoundAssets {
     #[asset(path = "sfx/laser_shoot.ogg")]
@@ -45,15 +40,11 @@ impl Default for AudioConfig {
 
 pub fn update_volume(
     conf: Res<AudioConfig>,
-    // master: Res<Audio>,
     music: Res<AudioChannel<MusicChannel>>,
     sfx: Res<AudioChannel<SfxChannel>>,
 ) {
     if conf.is_changed() {
-        // other chanels do not seem to route through this just yet
-        // master.set_volume(conf.master_volume / 100.);
-
-        // scale every channel by master value
+        // Scale every channel by the master value.
         let master_scale = conf.master_volume / 100.;
 
         music.set_volume((conf.music_volume / 100.) * MAX_MUSIC_VOL * master_scale);

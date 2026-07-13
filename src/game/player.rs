@@ -4,7 +4,7 @@ use bevy::{prelude::*, math::Vec3Swizzles};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use crate::game::rollback_audio::RollbackSoundBundle;
 
-use super::{components::*, MAP_SIZE, assets::{textures::{ImageAssets, spawn_explosion}, sounds::SoundAssets}, Elimination, RollbackState, RoundProgress, Scores, GameSeed, map::{splitmix64, CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
+use super::{components::*, MAP_SIZE, assets::{textures::ImageAssets, sounds::SoundAssets}, Elimination, RollbackState, RoundProgress, Scores, GameSeed, map::{splitmix64, CellType, Map}, rollback_audio::RollbackSound, ggrs_framecount::GGFrameCount, SoundIdSeed};
 use super::networking::GgrsConfig;
 use super::session::{round_outcome, PlayerId, RoundBootstrap, RoundOutcome};
 use super::input;
@@ -76,13 +76,28 @@ fn resolve_player_movement(
     }
 }
 
+fn nearby_cell_range(position: f32) -> std::ops::RangeInclusive<i32> {
+    let center = (position + MAP_SIZE as f32 / 2.0).floor() as i32;
+    center - 1..=center + 1
+}
+
 fn player_hits_wall(map_data: &Map<CellType, MAP_SIZE, MAP_SIZE>, player_pos: Vec2) -> bool {
-    map_data.cells.iter().enumerate().any(|(x, column)| {
-        column.iter().enumerate().any(|(y, cell)| {
-            matches!(*cell, CellType::WallBlock | CellType::Void)
+    // A unit wall can overlap the player only in the cell containing its centre
+    // or one of the eight adjacent cells. Avoid scanning the whole arena for
+    // every movement axis while retaining the exact AABB check at boundaries.
+    for x in nearby_cell_range(player_pos.x) {
+        for y in nearby_cell_range(player_pos.y) {
+            if x < 0 || y < 0 || x >= MAP_SIZE as i32 || y >= MAP_SIZE as i32 {
+                continue;
+            }
+            if matches!(map_data.cells[x as usize][y as usize], CellType::WallBlock | CellType::Void)
                 && wall_check(player_pos, grid_to_world((x as u32, y as u32)))
-        })
-    })
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn wall_check(player: Vec2, wall: Vec2) -> bool {
@@ -92,14 +107,12 @@ fn wall_check(player: Vec2, wall: Vec2) -> bool {
 }
 
 pub fn player_look(
-    // maybe it's better to use PlayerInput instead of MoveDir but this will do for now
-    players: Query<(&MoveDir, &Children), With<Player>>, 
+    players: Query<(&MoveDir, &Children), With<Player>>,
     mut eyes_sprite: Query<&mut TextureAtlasSprite, With<LookTowardsParentMove>>,
 ) {
     for (move_dir, children) in players.iter() {
         for &child in children.iter() {
             if let Ok(eyes) = &mut eyes_sprite.get_mut(child) {
-                // let (input, _) = inputs[player.handle];
                 eyes.index = get_directional_sprite(move_dir.0);
             }
         }
@@ -347,10 +360,15 @@ mod spawn_tests {
     #[test]
     fn wall_collision_and_sliding_are_stable() {
         let wall = grid_to_world((20, 20));
+        assert_eq!(nearby_cell_range(wall.x).collect::<Vec<_>>(), vec![19, 20, 21]);
         assert!(!wall_check(wall + Vec2::new(0.9, 0.0), wall));
         assert!(wall_check(wall + Vec2::new(0.899, 0.0), wall));
 
         let map = map_with_walls(&[(20, 20)]);
+        assert!(player_hits_wall(&map, wall + Vec2::new(0.899, 0.0)));
+        assert!(!player_hits_wall(&map, wall + Vec2::new(0.9, 0.0)));
+        assert!(!player_hits_wall(&map, grid_to_world((2, 2))));
+
         let old = wall + Vec2::new(-1.0, 0.2);
         let resolved = resolve_player_movement(&map, old, Vec2::new(0.2, 0.1));
         assert_eq!(resolved.x, 0.0);
@@ -506,13 +524,21 @@ pub fn tick_speed_boost(
     }
 }
 
-pub fn collect_speed_pickups(
-    mut commands: Commands,
-    frame: Res<GGFrameCount>,
-    sounds: Res<SoundAssets>,
-    mut sound_id: ResMut<SoundIdSeed>,
-    players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
-    pickups: Query<(Entity, &SpeedPickup)>,
+#[derive(Clone, Copy)]
+enum PickupEffect {
+    Speed,
+    Shield,
+}
+
+fn collect_pickups<P: Component>(
+    commands: &mut Commands,
+    frame: u32,
+    sounds: &SoundAssets,
+    sound_id: &mut SoundIdSeed,
+    players: &Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
+    pickups: &Query<(Entity, &P)>,
+    pickup_cell: impl Fn(&P) -> (u16, u16),
+    effect: PickupEffect,
 ) {
     let mut players: Vec<_> = players
         .iter()
@@ -523,31 +549,48 @@ pub fn collect_speed_pickups(
         .collect();
     players.sort_by_key(|player| player.0);
 
-    let mut pickups: Vec<_> = pickups.iter().collect();
-    pickups.sort_by_key(|(_, pickup)| pickup.cell);
+    let mut pickups: Vec<_> = pickups
+        .iter()
+        .map(|(entity, pickup)| (entity, pickup_cell(pickup)))
+        .collect();
+    pickups.sort_by_key(|(_, cell)| *cell);
 
-    for (pickup_entity, pickup) in pickups {
-        let pickup_cell = (pickup.cell.0 as u32, pickup.cell.1 as u32);
+    for (pickup_entity, cell) in pickups {
+        let cell = (cell.0 as u32, cell.1 as u32);
         let Some((handle, player_entity, _, position)) = players
             .iter()
-            .find(|player| player.2 == pickup_cell)
+            .find(|player| player.2 == cell)
             .copied()
         else {
             continue;
         };
 
-        commands.entity(player_entity).insert(SpeedBoost { frames_left: SPEED_BOOST_FRAMES });
+        match effect {
+            PickupEffect::Speed => commands.entity(player_entity).insert(SpeedBoost { frames_left: SPEED_BOOST_FRAMES }),
+            PickupEffect::Shield => commands.entity(player_entity).insert(ShieldCharges(1)),
+        };
         commands.entity(pickup_entity).despawn_recursive();
         commands.spawn((RollbackSoundBundle {
             sound: RollbackSound {
                 clip: sounds.ray.clone(),
-                start_frame: frame.frame,
+                start_frame: frame,
                 sub_key: sound_id.next(handle),
             },
             transform: Transform::from_translation(position),
             ..default()
         },)).add_rollback();
     }
+}
+
+pub fn collect_speed_pickups(
+    mut commands: Commands,
+    frame: Res<GGFrameCount>,
+    sounds: Res<SoundAssets>,
+    mut sound_id: ResMut<SoundIdSeed>,
+    players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
+    pickups: Query<(Entity, &SpeedPickup)>,
+) {
+    collect_pickups(&mut commands, frame.frame, &sounds, &mut sound_id, &players, &pickups, |pickup| pickup.cell, PickupEffect::Speed);
 }
 
 pub fn collect_shield_pickups(
@@ -558,34 +601,7 @@ pub fn collect_shield_pickups(
     players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
     pickups: Query<(Entity, &ShieldPickup)>,
 ) {
-    let mut players: Vec<_> = players
-        .iter()
-        .filter_map(|(entity, player, transform)| {
-            world_to_grid(transform.translation.xy())
-                .map(|cell| (player.handle, entity, cell, transform.translation))
-        })
-        .collect();
-    players.sort_by_key(|player| player.0);
-
-    let mut pickups: Vec<_> = pickups.iter().collect();
-    pickups.sort_by_key(|(_, pickup)| pickup.cell);
-    for (pickup_entity, pickup) in pickups {
-        let pickup_cell = (pickup.cell.0 as u32, pickup.cell.1 as u32);
-        let Some((handle, player_entity, _, position)) = players.iter().find(|player| player.2 == pickup_cell).copied() else {
-            continue;
-        };
-        commands.entity(player_entity).insert(ShieldCharges(1));
-        commands.entity(pickup_entity).despawn_recursive();
-        commands.spawn((RollbackSoundBundle {
-            sound: RollbackSound {
-                clip: sounds.ray.clone(),
-                start_frame: frame.frame,
-                sub_key: sound_id.next(handle),
-            },
-            transform: Transform::from_translation(position),
-            ..default()
-        },)).add_rollback();
-    }
+    collect_pickups(&mut commands, frame.frame, &sounds, &mut sound_id, &players, &pickups, |pickup| pickup.cell, PickupEffect::Shield);
 }
 
 pub fn trigger_traps(
@@ -666,11 +682,9 @@ pub fn move_bullets(
     }
 }
 
-// TODO: Sometimes player death events don't restart the game for one or both clients...
 const PLAYER_RADIUS: f32 = 0.5;
 const BULLET_RADIUS: f32 = 0.025;
 pub fn kill_players(
-    images: Res<ImageAssets>,
     sounds: Res<SoundAssets>,
     frame: Res<GGFrameCount>,
     mut sound_id: ResMut<SoundIdSeed>,
@@ -728,7 +742,11 @@ pub fn kill_players(
                 continue;
             }
 
-            spawn_explosion(&mut commands, &images, Transform::from_translation(bullet_position));
+            commands.spawn((
+                ExplosionCue { frame: frame.frame, player_id },
+                Transform::from_translation(bullet_position),
+                GlobalTransform::default(),
+            )).add_rollback();
             commands.spawn((RollbackSoundBundle {
                 sound: RollbackSound {
                     clip: sounds.swoosh_death.clone(),

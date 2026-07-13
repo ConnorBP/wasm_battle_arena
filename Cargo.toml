@@ -39,8 +39,7 @@ js-sys = "0.3.65"
 
 [patch.crates-io]
 bevy = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
-#bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", features=["bevy_reflect"]}
-# patch the dependencies of bevy-inspector-gui to the rollsafe versions
+# Patch the dependencies of bevy-inspector-gui to the roll-safe versions.
 bevy_app  = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 bevy_asset = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 bevy_core = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
@@ -57,7 +56,6 @@ bevy_pbr = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-sta
 bevy_render = { git = "https://github.com/johanhelsing/bevy", branch = "reflect-states-0.11" }
 
 egui-toast = { git = "https://github.com/ConnorBP/egui-toast", branch="toast-sync" }
-#egui-toast = { path = '../egui-toast' }
 
 [features]
 default = []
