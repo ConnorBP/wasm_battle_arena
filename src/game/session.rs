@@ -118,7 +118,7 @@ impl PlayerProfile {
         !self.name.is_empty()
             && self.name == Self::sanitized_name(&self.name)
             && self.palette_id < 4
-            && self.cosmetic_id == 0
+            && self.cosmetic_id < 4
     }
 }
 

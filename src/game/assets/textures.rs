@@ -9,6 +9,12 @@ pub struct ImageAssets {
     pub bullet: Handle<Image>,
     #[asset(path = "textures/character/ghost_base.png")]
     pub ghost: Handle<Image>,
+    #[asset(path = "textures/character/cosmetics/ghost_crown.png")]
+    pub ghost_crown: Handle<Image>,
+    #[asset(path = "textures/character/cosmetics/ghost_wizard.png")]
+    pub ghost_wizard: Handle<Image>,
+    #[asset(path = "textures/character/cosmetics/ghost_bow.png")]
+    pub ghost_bow: Handle<Image>,
     #[asset(texture_atlas(tile_size_x = 16., tile_size_y = 16., columns = 8, rows = 1, padding_x = 0., padding_y = 0., offset_x = 0., offset_y = 0.))]
     #[asset(path = "textures/character/eyes.png")]
     pub eyes: Handle<TextureAtlas>,

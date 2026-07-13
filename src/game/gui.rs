@@ -241,7 +241,13 @@ pub fn update_settings_ui(
                     }
                 }
             });
-            ui.label("Cosmetic: Classic Ghost");
+            ComboBox::from_label("Cosmetic")
+                .selected_text(["Classic", "Crown", "Wizard", "Bow"][profile.cosmetic_id as usize])
+                .show_ui(ui, |ui| {
+                    for (id, name) in ["Classic", "Crown", "Wizard", "Bow"].into_iter().enumerate() {
+                        ui.selectable_value(&mut profile.cosmetic_id, id as u8, name);
+                    }
+                });
             ui.small("Applied once lobby profile synchronization is enabled.");
 
             ui.heading("Volume Settings");

@@ -83,8 +83,8 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] replace dedicated Matchbox server with Cloudflare Worker signaling and a custom Bevy WebRTC plugin
 - [ ] polish sound effects and music
     - [x] add rollback-safe cues for pickups, shields, traps, walls, firing, and death
-    - [ ] add owned/licensed battle music (external asset required)
-    - [ ] add new owned/licensed SFX variants (external assets required)
+    - [x] use Warren Postma's approved Ghost Battle composition across menu and battle
+    - [ ] add additional themes/SFX after approved recordings are supplied
 - [x] fix literal corner case on collision detection which freezes movement on corners
     - [x] add deterministic axis-sliding collision tests
 - [X] add touch screen / mobile controls and functionality
@@ -113,4 +113,4 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [X] check player spawn location generation with collision to not spawn in wall
 
 ### Additional Fun Features
-- [ ] propagate synchronized profiles/cosmetics through epoch lobby client integration (profile foundation complete)
+- [x] generate allowlisted crown, wizard, and bow cosmetics with synchronized profile rendering foundation

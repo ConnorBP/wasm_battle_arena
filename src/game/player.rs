@@ -169,6 +169,7 @@ pub fn spawn_players(
         Color::rgb(0.75, 0.25, 0.75),
     ];
     for entry in &bootstrap.roster {
+        let profile = bootstrap.profiles.iter().find(|profile| profile.player_id == entry.player_id).expect("validated profile exists");
         let position = positions[entry.handle];
         let world = grid_to_world(position);
         let look = if bootstrap.roster.len() == 2 {
@@ -183,7 +184,9 @@ pub fn spawn_players(
             entry.player_id,
             if look == Vec2::ZERO { Vec2::X } else { look },
             world.extend(100.),
-            COLORS[entry.handle],
+            COLORS[profile.palette_id as usize],
+            profile.cosmetic_id,
+            &profile.name,
         );
     }
 }
@@ -196,13 +199,20 @@ fn spawn_player(
     move_dir: Vec2,
     translation: Vec3,
     color: Color,
+    cosmetic_id: u8,
+    display_name: &str,
 ) {
     let parent = commands.spawn((
         Player { handle, player_id },
         BulletReady(true),
         MoveDir(move_dir),
         SpriteBundle {
-            texture: images.ghost.clone(),
+            texture: match cosmetic_id {
+                1 => images.ghost_crown.clone(),
+                2 => images.ghost_wizard.clone(),
+                3 => images.ghost_bow.clone(),
+                _ => images.ghost.clone(),
+            },
             transform: Transform::from_translation(translation),
             sprite: Sprite {
                 color,
@@ -211,7 +221,7 @@ fn spawn_player(
             },
             ..default()
         },
-        Name::new(format!("Player{}", handle)),
+        Name::new(display_name.to_owned()),
     ))
     .add_rollback()
     .id();
@@ -401,17 +411,20 @@ pub fn fire_bullets(
     images: Res<ImageAssets>,
     sounds: Res<SoundAssets>,
     mut sound_id: ResMut<SoundIdSeed>,
-    mut players: Query<(&Transform, &Player, &mut BulletReady, &MoveDir), Without<MarkedForDeath>>,
+    mut players: Query<(Entity, &Transform, &Player, &mut BulletReady, &MoveDir), Without<MarkedForDeath>>,
 ) {
-    for (transform, player, mut bullet_ready, move_dir) in &mut players {
+    let mut firing: Vec<_> = players.iter().filter_map(|(entity, transform, player, ready, direction)| {
         let (input, _) = inputs[player.handle];
-        if input::fire(input) && bullet_ready.0 {
+        (input::fire(input) && ready.0).then_some((player.player_id, player.handle, entity, *transform, *direction))
+    }).collect();
+    firing.sort_by_key(|entry| entry.0);
+    for (player_id, handle, entity, transform, move_dir) in firing {
             let player_pos = transform.translation.xy();
             let pos = player_pos + move_dir.0 * (PLAYER_RADIUS + BULLET_RADIUS);
             // spawn bullet entity
             commands.spawn((
-                Bullet { id: frame.frame as u64, owner: player.handle, active: true },
-                *move_dir,
+                Bullet { id: frame.frame as u64, owner: player_id, owner_handle: handle, active: true },
+                move_dir,
                 SpriteBundle {
                     transform: Transform::from_translation(pos.extend(200.))
                         .with_rotation(Quat::from_rotation_arc_2d(Vec2::X, move_dir.0)),
@@ -425,7 +438,7 @@ pub fn fire_bullets(
             ))
             .add_rollback();
 
-            let snd = sound_id.next(player.handle);
+            let snd = sound_id.next(handle);
             debug!("firing bullet snd {snd:#00x}");
             commands.spawn(
                 (
@@ -443,8 +456,9 @@ pub fn fire_bullets(
             .add_rollback();
             
 
-            bullet_ready.0 = false;
-        }
+            if let Ok((_, _, _, mut ready, _)) = players.get_mut(entity) {
+                ready.0 = false;
+            }
     }
 }
 
@@ -564,23 +578,24 @@ pub fn trigger_traps(
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
     players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
 ) {
-    for (entity, player, transform) in &players {
-        let Some((x, y)) = world_to_grid(transform.translation.xy()) else {
-            continue;
-        };
-        if map_data.cells[x as usize][y as usize] == CellType::Trap {
-            progress.record_elimination(Elimination { player_id: player.player_id, frame: frame.frame });
-            commands.entity(entity).insert(MarkedForDeath::at(frame.frame));
-            commands.spawn((RollbackSoundBundle {
-                sound: RollbackSound {
-                    clip: sounds.swoosh_death.clone(),
-                    start_frame: frame.frame,
-                    sub_key: sound_id.next(player.handle),
-                },
-                transform: Transform::from_translation(transform.translation),
-                ..default()
-            },)).add_rollback();
-        }
+    let mut trapped: Vec<_> = players.iter().filter_map(|(entity, player, transform)| {
+        let (x, y) = world_to_grid(transform.translation.xy())?;
+        (map_data.cells[x as usize][y as usize] == CellType::Trap)
+            .then_some((player.player_id, player.handle, entity, transform.translation))
+    }).collect();
+    trapped.sort_by_key(|entry| entry.0);
+    for (player_id, handle, entity, position) in trapped {
+        progress.record_elimination(Elimination { player_id, frame: frame.frame });
+        commands.entity(entity).insert(MarkedForDeath::at(frame.frame));
+        commands.spawn((RollbackSoundBundle {
+            sound: RollbackSound {
+                clip: sounds.swoosh_death.clone(),
+                start_frame: frame.frame,
+                sub_key: sound_id.next(handle),
+            },
+            transform: Transform::from_translation(position),
+            ..default()
+        },)).add_rollback();
     }
 }
 
@@ -592,9 +607,11 @@ pub fn move_bullets(
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
     mut bullets: Query<(Entity, &mut Bullet, &mut Transform, &MoveDir)>
 ) {
-    // map limit for bullet is exactly half map in any direction since the map is centered
     let limit = Vec2::splat(MAP_SIZE as f32 / 2.);
-    for (entity, mut bullet, mut transform, dir) in &mut bullets {
+    let mut order: Vec<_> = bullets.iter().map(|(entity, bullet, _, _)| (bullet.owner, bullet.id, entity)).collect();
+    order.sort_by_key(|entry| (entry.0, entry.1));
+    for (_, _, entity) in order {
+        let Ok((_, mut bullet, mut transform, dir)) = bullets.get_mut(entity) else { continue; };
         let delta = (dir.0 * 0.35).extend(0.);
         transform.translation += delta;
 
@@ -618,7 +635,7 @@ pub fn move_bullets(
                         sound: RollbackSound {
                             clip: sounds.ray.clone(),
                             start_frame: frame.frame,
-                            sub_key: sound_id.next(bullet.owner),
+                            sub_key: sound_id.next(bullet.owner_handle),
                         },
                         transform: Transform::from_translation(transform.translation),
                         ..default()

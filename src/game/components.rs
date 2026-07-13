@@ -15,7 +15,8 @@ pub struct BulletReady(pub bool);
 #[derive(Component, Reflect, Default, Clone, Copy)]
 pub struct Bullet {
     pub id: u64,
-    pub owner: usize,
+    pub owner: PlayerId,
+    pub owner_handle: usize,
     pub active: bool,
 }
 
