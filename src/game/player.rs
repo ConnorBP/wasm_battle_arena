@@ -523,6 +523,8 @@ pub fn collect_shield_pickups(
 pub fn trigger_traps(
     mut commands: Commands,
     frame: Res<GGFrameCount>,
+    sounds: Res<SoundAssets>,
+    mut sound_id: ResMut<SoundIdSeed>,
     mut progress: ResMut<RoundProgress>,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
     players: Query<(Entity, &Player, &Transform), Without<MarkedForDeath>>,
@@ -534,12 +536,24 @@ pub fn trigger_traps(
         if map_data.cells[x as usize][y as usize] == CellType::Trap {
             progress.record_elimination(Elimination { player_id: player.player_id, frame: frame.frame });
             commands.entity(entity).insert(MarkedForDeath::at(frame.frame));
+            commands.spawn((RollbackSoundBundle {
+                sound: RollbackSound {
+                    clip: sounds.swoosh_death.clone(),
+                    start_frame: frame.frame,
+                    sub_key: sound_id.next(player.handle),
+                },
+                transform: Transform::from_translation(transform.translation),
+                ..default()
+            },)).add_rollback();
         }
     }
 }
 
 pub fn move_bullets(
     mut commands: Commands,
+    frame: Res<GGFrameCount>,
+    sounds: Res<SoundAssets>,
+    mut sound_id: ResMut<SoundIdSeed>,
     map_data: Res<Map<CellType, MAP_SIZE, MAP_SIZE>>,
     mut bullets: Query<(Entity, &mut Bullet, &mut Transform, &MoveDir)>
 ) {
@@ -555,6 +569,7 @@ pub fn move_bullets(
             // bullet out of bounds, despawn it
             bullet.active = false;
             commands.entity(entity).despawn_recursive();
+            continue;
         }  
         // check for block hits
         if let Some((x,y)) = world_to_grid(transform.translation.xy()) {
@@ -564,6 +579,15 @@ pub fn move_bullets(
                     // bullet in a block, despawn it
                     bullet.active = false;
                     commands.entity(entity).despawn_recursive();
+                    commands.spawn((RollbackSoundBundle {
+                        sound: RollbackSound {
+                            clip: sounds.ray.clone(),
+                            start_frame: frame.frame,
+                            sub_key: sound_id.next(bullet.owner),
+                        },
+                        transform: Transform::from_translation(transform.translation),
+                        ..default()
+                    },)).add_rollback();
                 },
                 _ => {},
             }

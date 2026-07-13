@@ -81,10 +81,10 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [x] make the out-of-bounds area black
     - [x] special tiles: traps, speed pickups, and shield pickups
 - [x] replace dedicated Matchbox server with Cloudflare Worker signaling and a custom Bevy WebRTC plugin
-- [ ] polish sound effects and music.
-    - [ ] add more sfx
-    - [ ] add more music (battle theme)
-    - [ ] tweak death sound effect
+- [ ] polish sound effects and music
+    - [x] add rollback-safe cues for pickups, shields, traps, walls, firing, and death
+    - [ ] add owned/licensed battle music (external asset required)
+    - [ ] add new owned/licensed SFX variants (external assets required)
 - [x] fix literal corner case on collision detection which freezes movement on corners
     - [x] add deterministic axis-sliding collision tests
 - [X] add touch screen / mobile controls and functionality
