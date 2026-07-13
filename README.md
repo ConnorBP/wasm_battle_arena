@@ -14,6 +14,7 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - peer to peer networking
 - non authoritative deterministic net code and game logic
 - desktop, mobile, and web (wasm) support
+- local moving-target practice while matchmaking (WASD/arrows + Space/Enter, or split touch controls)
 - two-player Duel and four-player Last Ghost Standing modes (first to 3)
 - deterministic seeded map generation
 - game music

@@ -16,6 +16,7 @@ mod input;
 mod map;
 mod networking;
 mod player;
+mod practice;
 mod progression;
 mod rollback_audio;
 pub(crate) mod session;
@@ -34,6 +35,7 @@ use input::*;
 use map::*;
 use networking::*;
 use player::*;
+use practice::*;
 use progression::*;
 use rollback_audio::*;
 use session::{match_winner, PlayerScore, RoundBootstrap, RoundOutcome};
@@ -387,12 +389,22 @@ pub fn run() {
         OnEnter(GameState::MainMenu),
         (start_main_music, stop_cloudflare_socket),
     )
+    .add_systems(
+        OnEnter(GameState::Matchmaking),
+        (reset_practice_view, setup_practice).chain(),
+    )
     .add_systems(OnEnter(GameState::Matchmaking), start_cloudflare_socket)
     // Protocol-3 lobby control intentionally survives Matchmaking -> InGame;
     // legacy matchmaking is closed after handing its transport to GGRS.
     .add_systems(
         OnExit(GameState::Matchmaking),
-        stop_legacy_matchmaking_socket,
+        (
+            cleanup_practice,
+            apply_deferred,
+            reset_practice_view,
+            stop_legacy_matchmaking_socket,
+        )
+            .chain(),
     )
     .add_systems(
         OnExit(GameState::InGame),
@@ -414,6 +426,7 @@ pub fn run() {
             .before(update_in_game_controls_ui)
             .before(update_match_status_ui)
             .before(update_matchmaking_ui)
+            .before(update_practice_ui)
             .before(update_respawn_ui)
             .before(update_score_ui),
     )
@@ -436,6 +449,7 @@ pub fn run() {
             update_match_status_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
+            update_practice_ui.run_if(in_state(GameState::Matchmaking)),
             update_respawn_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(RollbackState::RoundEnd))),
             // Persist only local casual preferences; reconnect credentials stay
@@ -444,6 +458,18 @@ pub fn run() {
             // audio volume update in response to ui
             update_volume,
         ),
+    )
+    .add_systems(
+        Update,
+        (
+            update_practice_player,
+            move_practice_targets,
+            move_practice_shots,
+            resolve_practice_hits,
+            respawn_practice_targets,
+        )
+            .chain()
+            .run_if(in_state(GameState::Matchmaking)),
     )
     .add_systems(
         Update,

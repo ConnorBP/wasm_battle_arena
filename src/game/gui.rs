@@ -7,6 +7,7 @@ use super::{
     assets::sounds::AudioConfig,
     components::{MarkedForDeath, Player, ShieldCharges, SpeedBoost},
     networking::{sanitize_room_code, LocalPlayerHandle, MatchmakingRoom},
+    practice::{PracticeCooldown, PracticeScore},
     progression::{CasualProfile, COSMETICS},
     session::{mode_label, PlayerProfile, RoundBootstrap, MATCH_POINTS_TO_WIN},
     GameState, MatchFlow, PendingPlayerProfile, RematchFlow, RollbackState, Scores,
@@ -776,6 +777,39 @@ pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
                     .color(Color32::WHITE)
                     .font(FontId::proportional(48.0)),
             );
+        });
+}
+
+/// Practice information is deliberately separate from the matchmaking status
+/// panel above: the network wait remains visible while the player trains.
+pub fn update_practice_ui(
+    mut contexts: EguiContexts,
+    score: Res<PracticeScore>,
+    cooldown: Res<PracticeCooldown>,
+) {
+    Area::new("practice HUD")
+        .anchor(Align2::CENTER_BOTTOM, (0.0, -18.0))
+        .show(contexts.ctx_mut(), |ui| {
+            Frame::none()
+                .fill(Color32::from_rgba_unmultiplied(20, 24, 34, 225))
+                .stroke(Stroke::new(2.0, OUTLINE))
+                .inner_margin(Margin::symmetric(14.0, 8.0))
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("TARGET PRACTICE").strong().color(ACCENT));
+                        ui.label(format!(
+                            "Score {:04}  •  Streak {}  •  Best {}",
+                            score.score, score.streak, score.best_streak
+                        ));
+                        ui.small("Move: WASD / arrows  •  Fire: Space / Enter");
+                        ui.small("Touch: drag LEFT to move  •  hold RIGHT to fire");
+                        if cooldown.remaining > 0.0 {
+                            ui.small(format!("Blaster cooling {:.1}s", cooldown.remaining));
+                        } else {
+                            ui.small("Blaster ready");
+                        }
+                    });
+                });
         });
 }
 
