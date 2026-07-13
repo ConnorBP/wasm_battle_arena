@@ -413,6 +413,11 @@ pub fn run() {
             // audio volume update in response to ui
             update_volume,
 
+        ),
+    )
+    .add_systems(
+        Update,
+        (
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             report_confirmed_outcome.run_if(in_state(GameState::InGame)),
             update_network_telemetry.run_if(in_state(GameState::InGame)),

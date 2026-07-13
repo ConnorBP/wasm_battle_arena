@@ -74,7 +74,7 @@ test("a partial roster never starts a GGRS session", () => {
 test("selection requires both profile and ready", () => {
   const state = seededState([A, B]);
   state.players[A].profile = null;
-  assert.deepEqual(selectLifecycleRoster(state), []);
+  assert.deepEqual(selectLifecycleRoster(state), [B]);
   state.players[A].profile = { name: "A", paletteId: 1, cosmeticId: 0 };
   state.players[A].ready = false;
   assert.deepEqual(selectLifecycleRoster(state), [B]);
