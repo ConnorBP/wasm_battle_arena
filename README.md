@@ -95,10 +95,11 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [x] define measured browser/mobile performance profiling and deployment budgets
 - [ ] add multiplayer session modes
     - [x] keep the current two-player duel mode
-    - [ ] add multi-player deathmatch mode
+    - [x] fixed-roster 2–4 player deathmatch client/server preview (deployment token required)
     - [ ] refactor sessions and deterministic seed synchronization for players joining, disconnecting, and reconnecting between rounds
-    - [ ] refactor matchmaking for variable session sizes and late joins
-    - [ ] add focused networking, rollback, determinism, reconnect, and matchmaking audits
+    - [x] variable-size fixed-roster lobby and full-mesh matchmaking source
+    - [x] add focused networking, rollback, determinism, and matchmaking tests
+    - [ ] complete epoch-boundary late-join/reconnect client integration
 - [x] add initial power-ups and advanced gameplay systems
     - [x] rollback-safe deterministic speed pickups
     - [x] rollback-safe one-hit shield pickups
@@ -112,4 +113,4 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [X] check player spawn location generation with collision to not spawn in wall
 
 ### Additional Fun Features
-- [ ] propagate synchronized profiles/cosmetics through lobby v2 client integration
+- [ ] propagate synchronized profiles/cosmetics through epoch lobby client integration (profile foundation complete)
