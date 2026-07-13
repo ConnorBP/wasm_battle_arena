@@ -14,6 +14,24 @@ pub struct SessionEpoch(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoundNumber(pub u32);
 
+pub const LOBBY_PROTOCOL_VERSION: u16 = 3;
+
+/// Pure continuity rule shared by bootstrap installation and source tests.
+/// An unchanged canonical roster stays in the epoch and advances the round;
+/// any membership change starts round zero of the next epoch.
+pub fn next_epoch_round(
+    epoch: SessionEpoch,
+    round: RoundNumber,
+    old_roster: &[PlayerId],
+    new_roster: &[PlayerId],
+) -> (SessionEpoch, RoundNumber) {
+    if old_roster == new_roster {
+        (epoch, RoundNumber(round.0.saturating_add(1)))
+    } else {
+        (SessionEpoch(epoch.0.saturating_add(1)), RoundNumber(0))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameMode {
     Duel,
@@ -201,7 +219,7 @@ impl RoundBootstrap {
         profiles.sort_by_key(|entry| entry.player_id);
         scores.sort_by_key(|entry| entry.player_id);
 
-        if protocol_version == 0 {
+        if protocol_version == 0 || protocol_version > LOBBY_PROTOCOL_VERSION {
             return Err(BootstrapError::InvalidProtocol);
         }
         let valid_count = match mode {
@@ -442,6 +460,13 @@ mod tests {
             round_outcome(GameMode::Deathmatch, &ids(&[1, 2, 3, 4]), &ids(&[2]), &[]),
             RoundOutcome::InProgress,
         );
+    }
+
+    #[test]
+    fn roster_continuity_advances_round_or_epoch() {
+        let old = ids(&[1, 2]);
+        assert_eq!(next_epoch_round(SessionEpoch(4), RoundNumber(7), &old, &old), (SessionEpoch(4), RoundNumber(8)));
+        assert_eq!(next_epoch_round(SessionEpoch(4), RoundNumber(7), &old, &ids(&[1, 3])), (SessionEpoch(5), RoundNumber(0)));
     }
 
     #[test]

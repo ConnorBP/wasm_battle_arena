@@ -378,9 +378,11 @@ pub fn run() {
     .add_audio_channel::<MusicChannel>()
     .add_audio_channel::<SfxChannel>()
     .add_systems(Startup, setup)
-    .add_systems(OnEnter(GameState::MainMenu), start_main_music)
+    .add_systems(OnEnter(GameState::MainMenu), (start_main_music, stop_cloudflare_socket))
     .add_systems(OnEnter(GameState::Matchmaking), start_cloudflare_socket)
-    .add_systems(OnExit(GameState::Matchmaking), stop_cloudflare_socket)
+    // Protocol-3 lobby control intentionally survives Matchmaking -> InGame;
+    // legacy matchmaking is closed after handing its transport to GGRS.
+    .add_systems(OnExit(GameState::Matchmaking), stop_legacy_matchmaking_socket)
     .add_systems(
         OnExit(GameState::InGame),
         (clear_sounds, clear_explosion_presentations, cleanup_network_session).chain(),
@@ -413,6 +415,7 @@ pub fn run() {
 
             wait_for_players.run_if(in_state(GameState::Matchmaking)),
             report_confirmed_outcome.run_if(in_state(GameState::InGame)),
+            update_network_telemetry.run_if(in_state(GameState::InGame)),
             watch_lobby_epoch.run_if(in_state(GameState::InGame)),
             repair_presentation_components.run_if(in_state(GameState::InGame)),
             player_look.after(repair_presentation_components).run_if(in_state(GameState::InGame)),

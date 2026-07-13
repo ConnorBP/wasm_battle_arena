@@ -48,8 +48,8 @@ export function parseLobbyQuery(searchParams) {
   if (mode === "duel" && capacity !== 2) {
     return fail("duel capacity must be 2");
   }
-  if (mode === "deathmatch" && (capacity < 2 || capacity > 4)) {
-    return fail("deathmatch capacity must be between 2 and 4");
+  if (mode === "deathmatch" && capacity !== 4) {
+    return fail("deathmatch capacity must be 4");
   }
 
   const rawPlayerId = searchParams.get("playerId");
@@ -85,13 +85,25 @@ export function parseEpochClientMessage(text) {
     return { ok: true, value: message };
   }
   if (message.type === "report" && onlyKeys(message, ["type", "epoch", "round", "outcomes"])) {
-    if (!Number.isInteger(message.epoch) || message.epoch < 0 || !Number.isInteger(message.round) || message.round < 0 || !Array.isArray(message.outcomes)) return fail("invalid report");
-    return { ok: true, value: message };
+    if (!Number.isInteger(message.epoch) || message.epoch < 0 || !Number.isInteger(message.round) || message.round < 0 || !Array.isArray(message.outcomes) || message.outcomes.length < 2 || message.outcomes.length > 4) return fail("invalid report");
+    for (const outcome of message.outcomes) {
+      if (!isRecord(outcome) || !onlyKeys(outcome, ["playerId", "placement", "scoreDelta"]) ||
+          typeof outcome.playerId !== "string" || !PLAYER_ID_PATTERN.test(outcome.playerId) ||
+          !Number.isInteger(outcome.placement) || outcome.placement < 1 || outcome.placement > 4 ||
+          !Number.isSafeInteger(outcome.scoreDelta) || outcome.scoreDelta < 0 || outcome.scoreDelta > 1_000_000) return fail("invalid report outcome");
+    }
+    return { ok: true, value: { ...message, outcomes: message.outcomes.map((outcome) => ({ ...outcome, playerId: outcome.playerId.toLowerCase() })) } };
   }
-  if (message.type === "signal" && onlyKeys(message, ["type", "epoch", "to", "data"])) {
+  if (message.type === "signal") {
+    // Protocol 3 signals are always epoch-scoped. A signal missing `epoch` is
+    // not silently downgraded to the legacy v2 schema.
+    if (!onlyKeys(message, ["type", "epoch", "to", "data"])) return fail("invalid signal schema");
     if (!Number.isInteger(message.epoch) || message.epoch < 0) return fail("invalid signal epoch");
-    return parseClientMessage(JSON.stringify({ type: "signal", to: message.to, data: message.data })).ok ? { ok: true, value: message } : fail("invalid signal");
+    const signal = parseClientMessage(JSON.stringify({ type: "signal", to: message.to, data: message.data }));
+    return signal.ok ? { ok: true, value: { ...message, to: signal.value.to } } : fail("invalid signal");
   }
+  // Only `ping` (and an explicit error for anything else) survives the legacy
+  // parser; epoch signals are fully handled above.
   return parseClientMessage(text);
 }
 

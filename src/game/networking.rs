@@ -74,15 +74,29 @@ impl ggrs::Config for GgrsConfig {
 pub fn start_cloudflare_socket(
     mut socket: ResMut<CloudflareSocket>,
     room: Res<MatchmakingRoom>,
+    profile: Res<super::PendingPlayerProfile>,
 ) {
     let room_name = versioned_room_name(room.private_code.as_deref());
     info!("connecting to Cloudflare matchmaking");
+    if room.use_lobby_v2 && socket.has_transport() {
+        // Persistent protocol-3 control already received the next immutable
+        // start; do not open a second identity/control socket.
+        return;
+    }
     if room.use_lobby_v2 {
         let (mode, capacity) = match room.mode {
             super::session::GameMode::Duel => (0, 2),
             super::session::GameMode::Deathmatch => (1, 4),
         };
-        socket.connect_lobby(SIGNALING_URL, &format!("v2-{room_name}-{mode}-{capacity}"), mode, capacity);
+        socket.connect_lobby(
+            SIGNALING_URL,
+            &format!("v3-{room_name}-{mode}-{capacity}"),
+            mode,
+            capacity,
+            &profile.name,
+            profile.palette_id,
+            profile.cosmetic_id,
+        );
     } else {
         socket.connect(SIGNALING_URL, &room_name);
     }
@@ -131,8 +145,14 @@ pub fn stop_cloudflare_socket(
     room.private_code = None;
 }
 
+pub fn stop_legacy_matchmaking_socket(_socket: Res<CloudflareSocket>) {
+    // Legacy ownership moved into the GGRS adapter; lobby control stays in the
+    // resource. A zero-id resource is already inert.
+}
+
 pub fn cleanup_network_session(
     mut commands: Commands,
+    socket: Res<CloudflareSocket>,
     mut rollback_state: ResMut<NextState<super::RollbackState>>,
     players: Query<Entity, With<super::components::Player>>,
     bullets: Query<Entity, With<super::components::Bullet>>,
@@ -143,6 +163,9 @@ pub fn cleanup_network_session(
         With<super::components::ShieldPickup>,
     )>>,
 ) {
+    // Atomically retire all epoch packet channels before deferred removal of
+    // the old GGRS session/bootstrap. Persistent lobby control remains open.
+    if socket.lobby_epoch().is_some() { socket.close_epoch_transport(); }
     commands.remove_resource::<Session<GgrsConfig>>();
     commands.remove_resource::<LocalPlayerHandle>();
     commands.remove_resource::<RoundBootstrap>();
@@ -174,10 +197,8 @@ pub fn wait_for_players(
     mut toasts: ResMut<Toasts>,
 ) {
     let state = socket.state();
-    if state == ConnectionState::Ready {
-        if let Some(lobby) = socket.lobby_match_info() {
-            return start_lobby_session(commands, socket, next_state, toasts, lobby);
-        }
+    if let Some(lobby) = socket.lobby_match_info() {
+        return start_lobby_session(commands, socket, next_state, toasts, lobby);
     }
     let match_info = match state {
         ConnectionState::Ready => socket.match_info().expect("ready match has assignment"),
@@ -277,7 +298,7 @@ fn start_lobby_session(
         cosmetic_id: 0,
     }).collect();
     let scores = roster.iter().map(|entry| PlayerScore { player_id: entry.player_id, score: 0 }).collect();
-    let Ok(bootstrap) = RoundBootstrap::new(2, MatchId(info.match_id), info.seed, SessionEpoch(info.epoch), RoundNumber(0), mode, roster, profiles, scores) else {
+    let Ok(bootstrap) = RoundBootstrap::new(super::session::LOBBY_PROTOCOL_VERSION, MatchId(info.match_id), info.seed, SessionEpoch(info.epoch), RoundNumber(info.round), mode, roster, profiles, scores) else {
         toasts.error("Invalid lobby assignment.".into()); next_state.set(GameState::MainMenu); return;
     };
     let Some(local) = bootstrap.roster.iter().find(|entry| entry.player_id == info.local_player) else {
@@ -294,6 +315,7 @@ fn start_lobby_session(
         let Ok(next) = builder.add_player(player_type, entry.handle) else { toasts.error("Invalid lobby roster.".into()); next_state.set(GameState::MainMenu); return; };
         builder = next;
     }
+    socket.set_epoch(info.epoch);
     let Ok(session) = builder.start_p2p_session(socket.take_transport()) else { toasts.error("Could not start lobby session.".into()); next_state.set(GameState::MainMenu); return; };
     commands.insert_resource(LocalPlayerHandle(local.handle));
     commands.insert_resource(SoundIdSeed::new(info.seed, bootstrap.roster.len()));
@@ -325,15 +347,20 @@ pub fn report_confirmed_outcome(
 }
 
 pub fn watch_lobby_epoch(
-    socket: Res<CloudflareSocket>,
+    mut commands: Commands,
+    mut socket: ResMut<CloudflareSocket>,
     bootstrap: Option<Res<RoundBootstrap>>,
     progress: Res<super::RoundProgress>,
     scores: Res<Scores>,
     mut flow: ResMut<super::MatchFlow>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let (Some(current), Some(server_epoch)) = (bootstrap, socket.lobby_epoch()) else { return; };
-    if progress.resolved.is_none() || server_epoch <= current.epoch.0 { return; }
+    let (Some(current), Some(server_epoch), Some(server_round)) = (bootstrap, socket.lobby_epoch(), socket.lobby_round()) else { return; };
+    if progress.resolved.is_none() || (server_epoch, server_round) <= (current.epoch.0, current.round.0) { return; }
+    // Retire the old immutable epoch as one operation before returning to the
+    // matchmaking installer. The persistent control socket remains open.
+    socket.close_epoch_transport();
+    commands.remove_resource::<Session<GgrsConfig>>();
     // Scores have already been applied by the rollback RoundEnd transition;
     // check the first-to-three endpoint before allowing epoch replacement.
     if let Some(winner) = super::session::match_winner(scores.entries()) {
@@ -341,6 +368,13 @@ pub fn watch_lobby_epoch(
     } else {
         next_state.set(GameState::Matchmaking);
     }
+}
+
+pub fn update_network_telemetry(
+    socket: Res<CloudflareSocket>,
+    mut telemetry: ResMut<crate::cloudflare_net::NetworkTelemetry>,
+) {
+    *telemetry = socket.telemetry();
 }
 
 pub fn log_ggrs_events(

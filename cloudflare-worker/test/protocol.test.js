@@ -28,6 +28,7 @@ test("lobby query validates mode, capacity, and reconnect pair", () => {
   });
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=duel&capacity=3")).ok, false);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=1")).ok, false);
+  assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=3")).ok, false);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=4")).ok, true);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=deathmatch&capacity=5")).ok, false);
   assert.equal(parseLobbyQuery(new URLSearchParams("mode=duel&capacity=2&playerId=abc")).ok, false);
@@ -59,8 +60,44 @@ test("directed signal schema accepts bounded SDP and ICE only", () => {
 test("epoch protocol validates profiles and reports", () => {
   assert.equal(parseEpochLobbyQuery(new URLSearchParams("protocol=3&mode=deathmatch&capacity=4")).ok, true);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"profile", name:"Ghost", paletteId:1, cosmeticId:2 })).ok, true);
-  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"report", epoch:0, round:0, outcomes:[] })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"report", epoch:0, round:0, outcomes:[
+    { playerId:"a".repeat(32), placement:1, scoreDelta:1 },
+    { playerId:"b".repeat(32), placement:2, scoreDelta:0 },
+  ] })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"report", epoch:0, round:0, outcomes:[] })).ok, false);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"profile", name:"", paletteId:1, cosmeticId:2 })).ok, false);
+});
+
+test("epoch signals are always epoch-scoped and never downgrade to v2", () => {
+  const target = "1".repeat(32);
+  const valid = parseEpochClientMessage(JSON.stringify({
+    type: "signal", epoch: 0, to: target, data: { type: "offer", sdp: "v=0" },
+  }));
+  assert.equal(valid.ok, true);
+  assert.equal(valid.value.epoch, 0);
+  assert.equal(valid.value.to, target);
+  // A signal missing `epoch` is rejected rather than accepted as a v2 signal.
+  assert.equal(parseEpochClientMessage(JSON.stringify({
+    type: "signal", to: target, data: { type: "offer", sdp: "v=0" },
+  })).ok, false);
+  // A negative or non-integer epoch is rejected.
+  assert.equal(parseEpochClientMessage(JSON.stringify({
+    type: "signal", epoch: -1, to: target, data: { type: "offer", sdp: "v=0" },
+  })).ok, false);
+  assert.equal(parseEpochClientMessage(JSON.stringify({
+    type: "signal", epoch: "0", to: target, data: { type: "offer", sdp: "v=0" },
+  })).ok, false);
+  // Extra keys on a signal are rejected.
+  assert.equal(parseEpochClientMessage(JSON.stringify({
+    type: "signal", epoch: 0, to: target, data: { type: "offer", sdp: "v=0" }, extra: 1 },
+  )).ok, false);
+});
+
+test("epoch protocol requires exactly one protocol=3 parameter", () => {
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams("mode=duel&capacity=2")).ok, false);
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams("protocol=2&mode=duel&capacity=2")).ok, false);
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams("protocol=3&protocol=3&mode=duel&capacity=2")).ok, false);
+  assert.equal(parseEpochLobbyQuery(new URLSearchParams("protocol=3&mode=duel&capacity=2")).value.mode, "duel");
 });
 
 test("rate limiter resets after a one-second window", () => {
