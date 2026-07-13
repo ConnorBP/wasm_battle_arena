@@ -210,6 +210,7 @@ impl CloudflareSocket {
     pub fn connect_queue(
         &mut self,
         signaling_url: &str,
+        compatibility_room: &str,
         preference: &str,
         target: u8,
         profile_name: &str,
@@ -225,6 +226,7 @@ impl CloudflareSocket {
         {
             self.transport_id = cloudflare_connect_queue(
                 signaling_url,
+                compatibility_room,
                 preference,
                 target as u32,
                 profile_name,
@@ -241,6 +243,7 @@ impl CloudflareSocket {
         {
             let _ = (
                 signaling_url,
+                compatibility_room,
                 preference,
                 target,
                 profile_name,
@@ -798,12 +801,12 @@ mod tests {
     #[test]
     fn queue_connect_rejects_invalid_preference_or_target_before_transport() {
         let mut socket = CloudflareSocket::default();
-        socket.connect_queue("", "surprise", 8, "Ghost", 0, 0);
+        socket.connect_queue("", "battle-0-7-0", "surprise", 8, "Ghost", 0, 0);
         assert_eq!(
             socket.state(),
             ConnectionState::Failed("invalid public queue preference or target".into())
         );
-        socket.connect_queue("", "any", 2, "Ghost", 0, 0);
+        socket.connect_queue("", "battle-0-7-0", "any", 2, "Ghost", 0, 0);
         assert_eq!(
             socket.state(),
             ConnectionState::Failed("invalid public queue preference or target".into())
@@ -1270,9 +1273,9 @@ function timeoutForPhase(phase) {
     return MATCHMAKING_TIMEOUT_MS;
 }
 
-export function cloudflare_connect_queue(baseUrl, preference, target, profileName, paletteId, cosmeticId) {
+export function cloudflare_connect_queue(baseUrl, compatibilityRoom, preference, target, profileName, paletteId, cosmeticId) {
     const endpoint = (baseUrl || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/queue`).replace(/\/match\/?$/, "/queue").replace(/\/lobby\/?$/, "/queue");
-    const url = `${endpoint.replace(/\/$/, "")}/public-v4?protocol=4&preference=${encodeURIComponent(preference)}&target=${target}`;
+    const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(compatibilityRoom)}?protocol=4&preference=${encodeURIComponent(preference)}&target=${target}`;
     const ws = new WebSocket(url);
     const id = nextTransportId++ || nextTransportId++;
     const session = { id, ws, queue: true, status: 0, error: "", queuePhase: 1, queueCount: 0, queueTarget: target, ticket: "", timeout: 0, heartbeat: 0, signalChain: Promise.resolve(), telemetry: [0,0,0,0,0,0,0,0,0,0,0] };

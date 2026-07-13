@@ -3,7 +3,7 @@
 Protocol 4 is a **public queue only**. Connect a WebSocket to the one canonical pool:
 
 ```text
-wss://<worker>/queue/public-v4?protocol=4&preference=<any|duel|deathmatch>&target=<3..8>
+wss://<worker>/queue/<battle-major-minor-patch>?protocol=4&preference=<any|duel|deathmatch>&target=<3..8>
 ```
 
 No arbitrary/private queue room route exists. Existing private and public protocol-v3 lobby URLs are unchanged. Protocol 4 selects a roster and then hands it to an assigned protocol-v3 room; it does not relay game signaling itself.

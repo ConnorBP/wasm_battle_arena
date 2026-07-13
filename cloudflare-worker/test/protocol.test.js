@@ -20,7 +20,10 @@ test("routePath preserves the legacy /match route and adds /lobby", () => {
   assert.equal(routePath("/match"), null);
   assert.equal(routePath("/lobby/a/b"), null);
   assert.equal(routePath(`/lobby/${"a".repeat(65)}`), null);
-  assert.deepEqual(routePath("/queue/public-v4"), { kind: "queue", room: "public-v4" });
+  assert.deepEqual(routePath("/queue/battle-0-7-0"), { kind: "queue", room: "battle-0-7-0" });
+  assert.deepEqual(routePath("/queue/devbattle-0-7-0"), { kind: "queue", room: "devbattle-0-7-0" });
+  assert.equal(routePath("/queue/public-v4"), null);
+  assert.equal(routePath("/queue/battle-latest"), null);
   assert.equal(routePath("/queue/private-room"), null);
 });
 

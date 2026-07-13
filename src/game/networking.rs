@@ -107,6 +107,7 @@ pub fn start_cloudflare_socket(
     if room.private_code.is_none() {
         socket.connect_queue(
             SIGNALING_URL,
+            &versioned_room_name(None),
             room.preference.protocol_name(),
             room.target.clamp(3, 8),
             &profile.name,

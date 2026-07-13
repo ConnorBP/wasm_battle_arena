@@ -17,7 +17,7 @@ class Client {
   constructor(page, preference, target = 8) {
     this.page = page; this.id = randomBytes(8).toString("hex"); this.events = [];
     this.preference = preference; this.target = target;
-    this.url = `${worker}/queue/public-v4?protocol=4&preference=${preference}&target=${target}`;
+    this.url = `${worker}/queue/devbattle-0-6-0?protocol=4&preference=${preference}&target=${target}`;
   }
   async open() {
     await this.page.evaluate(({ id, url }) => {

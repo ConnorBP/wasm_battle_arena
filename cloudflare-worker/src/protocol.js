@@ -17,9 +17,9 @@ export function routePath(pathname) {
   if (match) return { kind: "match", room: match[1] };
   const lobby = /^\/lobby\/([A-Za-z0-9_-]{1,64})$/.exec(pathname);
   if (lobby) return { kind: "lobby", room: lobby[1] };
-  // Protocol 4 intentionally has one public pool. Arbitrary queue room names
-  // would create private/fragmented queues and are therefore not routed.
-  if (pathname === "/queue/public-v4") return { kind: "queue", room: "public-v4" };
+  // Protocol 4 pools are isolated by bounded gameplay compatibility version.
+  const queue = /^\/queue\/((?:dev)?battle-[0-9]+-[0-9]+-[0-9]+)$/.exec(pathname);
+  if (queue) return { kind: "queue", room: queue[1] };
   return null;
 }
 
