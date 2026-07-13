@@ -8,12 +8,14 @@ import {
   MAX_LOBBY_SOCKETS, MAX_MESSAGE_BYTES, RECONNECT_GRACE_MS,
   applyMessageRateLimit, parseEpochClientMessage, parseEpochLobbyQuery, randomHex,
 } from "./protocol.js";
+import { generateIceServers } from "./turn.js";
 
 const KEY = "lobby-v3";
 
 export class EpochLobby extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    this.env = env;
     this.ctx.blockConcurrencyWhile(async () => { this.state = await ctx.storage.get(KEY) ?? null; });
   }
 
@@ -70,11 +72,14 @@ export class EpochLobby extends DurableObject {
       old.close(4001, "reconnected elsewhere");
     }
 
+    // Mint once only after query/config/reconnect/socket-cap admission. A
+    // credentials API failure degrades to STUN and never rejects matchmaking.
+    const turn = await generateIceServers(this.env);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ playerId: player.playerId, superseded: false, rate: { windowStarted: now, windowMessages: 0 } });
-    this.send(server, { type: "welcome", protocol: 3, playerId: player.playerId, reconnectToken: token, reconnectGraceMs: RECONNECT_GRACE_MS });
+    this.send(server, { type: "welcome", protocol: 3, playerId: player.playerId, reconnectToken: token, reconnectGraceMs: RECONNECT_GRACE_MS, ...turn });
     // On reload/reconnect, replay the immutable active bootstrap after welcome.
     // This does not create or replace an epoch. If no round is active but the
     // (re)connecting identity is already ready, it may complete the next roster,

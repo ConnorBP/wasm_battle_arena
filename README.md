@@ -45,7 +45,7 @@ The canonical production deployment is [`.github/workflows/pages.yml`](.github/w
 
 ## Networking
 
-A Cloudflare Durable Object pairs two browsers and relays WebRTC signaling only; GGRS game traffic remains peer-to-peer. See [`cloudflare-worker/README.md`](cloudflare-worker/README.md). By default the game connects to `/match` on its own origin; set compile-time `GHOST_BATTLE_SIGNALING_URL` when the game host is not Cloudflare-proxied. Browser networking uses STUN without TURN, so restrictive NAT/firewall combinations may fail. Native builds compile, but online play is browser-only.
+A Cloudflare Durable Object pairs two browsers and relays WebRTC signaling only; GGRS game traffic remains peer-to-peer. See [`cloudflare-worker/README.md`](cloudflare-worker/README.md). By default the game connects to `/match` on its own origin; set compile-time `GHOST_BATTLE_SIGNALING_URL` when the game host is not Cloudflare-proxied. Browser networking uses Cloudflare STUN plus short-lived Cloudflare Realtime TURN credentials minted privately by the signaling Worker, so restrictive NAT/firewall combinations can relay without exposing the TURN API token. See the Worker setup for required encrypted secrets. Native builds compile, but online play is browser-only.
 
 ```
 cargo build --release --target wasm32-unknown-unknown

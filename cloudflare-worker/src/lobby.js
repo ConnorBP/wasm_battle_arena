@@ -9,12 +9,14 @@ import {
   parseLobbyQuery,
   randomHex,
 } from "./protocol.js";
+import { generateIceServers } from "./turn.js";
 
 const STATE_KEY = "lobby-v2";
 
 export class Lobby extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    this.env = env;
     this.ctx.blockConcurrencyWhile(async () => {
       this.state = await this.ctx.storage.get(STATE_KEY) ?? null;
     });
@@ -92,6 +94,9 @@ export class Lobby extends DurableObject {
     const didStart = !this.state.epoch0 && this.freezeRosterIfFull(now);
     await this.persistAndSchedule();
 
+    // Mint once only after query/config/reconnect/socket-cap admission. TURN
+    // service failure deliberately does not reject the admitted identity.
+    const turn = await generateIceServers(this.env);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
@@ -107,6 +112,7 @@ export class Lobby extends DurableObject {
       playerId: player.playerId,
       reconnectToken,
       reconnectGraceMs: RECONNECT_GRACE_MS,
+      ...turn,
     });
     if (didStart) this.broadcastStart();
     else this.sendStatus(server, player);

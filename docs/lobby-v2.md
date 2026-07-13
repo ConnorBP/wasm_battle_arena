@@ -29,11 +29,13 @@ A successful connection first receives:
   "protocol": 2,
   "playerId": "0123456789abcdef0123456789abcdef",
   "reconnectToken": "fedcba9876543210fedcba9876543210",
-  "reconnectGraceMs": 30000
+  "reconnectGraceMs": 30000,
+  "iceServers": [{"urls":"stun:stun.cloudflare.com:3478"}],
+  "turnExpiresAt": null
 }
 ```
 
-The reconnect token is disclosed only in `welcome`; persistent room state contains its SHA-256 hash. Clients must replace stored credentials after every successful reconnect because tokens rotate.
+The reconnect token is disclosed only in `welcome`; persistent room state contains its SHA-256 hash. Clients must replace stored identity credentials after every successful reconnect because tokens rotate. `iceServers` contains strictly validated Cloudflare STUN/TURN entries, and `turnExpiresAt` is the credential expiration time in Unix milliseconds (`null` for STUN fallback). TURN usernames/passwords are session-memory-only and must not be placed in browser storage or logs.
 
 Before the roster fills, a player receives:
 
@@ -96,4 +98,4 @@ Both credentials are required and validated. A successful reconnect rotates the 
 * up to 32 live control sockets per room
 * strict JSON schemas; unknown fields and binary frames are rejected
 
-Protocol violations send an `error` when possible and close with WebSocket code 1008. Recoverable signaling-state errors (for example an offline target) send `error` without closing. HTTP validation failures use 400/401/409/410/426 as appropriate.
+Protocol violations send an `error` when possible and close with WebSocket code 1008. Recoverable signaling-state errors (for example an offline target) send `error` without closing. HTTP validation failures use 400/401/409/410/426 as appropriate. TURN mint failures do not produce an HTTP failure: the accepted connection receives STUN-only configuration. A reconnect mints fresh credentials; there is no public credentials endpoint.

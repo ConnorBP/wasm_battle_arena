@@ -60,6 +60,13 @@ pub struct NetworkTelemetry {
     pub stale_epoch_packets: u64,
     pub reconnects: u64,
     pub reports_sent: u64,
+    /// Selected ICE candidate pairs using a TURN relay.
+    pub relay_connections: u64,
+    /// Peer connections created with STUN-only fallback configuration.
+    pub stun_fallbacks: u64,
+    pub candidate_pair_host: u64,
+    pub candidate_pair_srflx: u64,
+    pub candidate_pair_relay: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -383,6 +390,11 @@ impl CloudflareSocket {
                 stale_epoch_packets: cloudflare_telemetry(self.transport_id, 3),
                 reconnects: cloudflare_telemetry(self.transport_id, 4),
                 reports_sent: cloudflare_telemetry(self.transport_id, 5),
+                relay_connections: cloudflare_telemetry(self.transport_id, 6),
+                stun_fallbacks: cloudflare_telemetry(self.transport_id, 7),
+                candidate_pair_host: cloudflare_telemetry(self.transport_id, 8),
+                candidate_pair_srflx: cloudflare_telemetry(self.transport_id, 9),
+                candidate_pair_relay: cloudflare_telemetry(self.transport_id, 10),
             };
         }
         NetworkTelemetry::default()
@@ -560,6 +572,79 @@ const MAX_PACKET_BYTES = 64 * 1024;
 const MAX_QUEUED_PACKETS = 256;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 const MATCHMAKING_TIMEOUT_MS = 2 * 60 * 1000;
+const DEFAULT_ICE_SERVERS = Object.freeze([{ urls: "stun:stun.cloudflare.com:3478" }]);
+const MAX_ICE_SERVERS = 8;
+const MAX_ICE_URLS = 8;
+const MAX_ICE_TEXT = 512;
+
+function validIceUrl(value) {
+    if (typeof value !== "string" || value.length === 0 || value.length > 256 || /[\u0000-\u0020\u007f]/.test(value)) return false;
+    const match = /^(stun|turn|turns):(stun\.cloudflare\.com|turn\.cloudflare\.com)(?::([0-9]{1,5}))?(?:\?transport=(udp|tcp))?$/.exec(value);
+    if (!match) return false;
+    const port = match[3] === undefined ? null : Number(match[3]);
+    if (port === 53 || (port !== null && (port < 1 || port > 65535))) return false;
+    return match[1] === "stun" ? match[2] === "stun.cloudflare.com" && match[4] === undefined : match[2] === "turn.cloudflare.com";
+}
+
+// The browser treats even Worker messages as untrusted. Return a fresh,
+// minimal RTCConfiguration and never persist TURN material in browser storage.
+function validatedIceConfiguration(message) {
+    if (!Array.isArray(message?.iceServers) || message.iceServers.length === 0 || message.iceServers.length > MAX_ICE_SERVERS) return null;
+    const servers = [];
+    let hasTurn = false;
+    for (const item of message.iceServers) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const raw = typeof item.urls === "string" ? [item.urls] : item.urls;
+        if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ICE_URLS || !raw.every(validIceUrl)) return null;
+        const turn = raw.some(url => url.startsWith("turn:") || url.startsWith("turns:"));
+        if (turn) {
+            if (typeof item.username !== "string" || item.username.length === 0 || item.username.length > MAX_ICE_TEXT ||
+                typeof item.credential !== "string" || item.credential.length === 0 || item.credential.length > MAX_ICE_TEXT) return null;
+            if (Object.keys(item).some(key => !["urls", "username", "credential"].includes(key))) return null;
+            servers.push({ urls: Array.isArray(item.urls) ? [...raw] : raw[0], username: item.username, credential: item.credential });
+            hasTurn = true;
+        } else {
+            if (Object.keys(item).some(key => key !== "urls")) return null;
+            servers.push({ urls: Array.isArray(item.urls) ? [...raw] : raw[0] });
+        }
+    }
+    if (hasTurn) {
+        if (!Number.isSafeInteger(message.turnExpiresAt) || message.turnExpiresAt <= Date.now() || message.turnExpiresAt > Date.now() + 21660 * 1000) return null;
+    } else if (message.turnExpiresAt !== null) return null;
+    return { iceServers: servers, turnExpiresAt: message.turnExpiresAt, hasTurn };
+}
+
+async function recordCandidatePair(session, peer) {
+    if (peer.__ghostStatsRecorded) return;
+    try {
+        const stats = await peer.getStats();
+        if (!isCurrent(session) || peer.__ghostStatsRecorded) return;
+        let pair = null;
+        stats.forEach(report => {
+            if (report.type === "transport" && report.selectedCandidatePairId) pair = stats.get(report.selectedCandidatePairId) || pair;
+            if (!pair && report.type === "candidate-pair" && report.state === "succeeded" && (report.nominated || report.selected)) pair = report;
+        });
+        if (!pair) return;
+        const local = stats.get(pair.localCandidateId);
+        const remote = stats.get(pair.remoteCandidateId);
+        const types = [local?.candidateType, remote?.candidateType];
+        const kind = types.includes("relay") ? "relay" : types.some(type => type === "srflx" || type === "prflx") ? "srflx" : "host";
+        peer.__ghostStatsRecorded = true;
+        const index = kind === "relay" ? 10 : kind === "srflx" ? 9 : 8;
+        session.telemetry[index]++;
+        if (kind === "relay") session.telemetry[6]++;
+    } catch (_) { /* Metrics must never affect connectivity. */ }
+}
+
+function peerConfiguration(session) {
+    // A later epoch on a long-lived control socket cannot safely refresh
+    // without a server-pushed protocol message. Do not start ICE with TURN
+    // credentials inside the final ten minutes; reconnect obtains a fresh set.
+    const turnUsable = session.iceHasTurn && Number.isSafeInteger(session.turnExpiresAt) &&
+        session.turnExpiresAt > Date.now() + 10 * 60 * 1000;
+    if (!turnUsable) session.telemetry[7]++;
+    return { iceServers: turnUsable ? session.iceServers : DEFAULT_ICE_SERVERS };
+}
 
 function current(id) {
     return networks.get(id) || (network?.id === id ? network : null);
@@ -650,12 +735,15 @@ async function handleSignal(session, message) {
         session.seedHigh = Number.parseInt(message.seed.slice(0, 8), 16) >>> 0;
         session.seedLow = Number.parseInt(message.seed.slice(8), 16) >>> 0;
         session.phase = "matched";
-        session.peer = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
-        });
+        const ice = validatedIceConfiguration(message);
+        session.iceServers = ice?.iceServers || DEFAULT_ICE_SERVERS;
+        session.turnExpiresAt = ice?.turnExpiresAt ?? null;
+        session.iceHasTurn = ice?.hasTurn ?? false;
+        session.peer = new RTCPeerConnection(peerConfiguration(session));
         const peer = session.peer;
         peer.onicecandidate = ({ candidate }) => sendSignal(session, "ice", candidate);
         peer.onconnectionstatechange = () => {
+            if (network === session && session.peer === peer && peer.connectionState === "connected") recordCandidatePair(session, peer);
             if (network === session && session.peer === peer && peer.connectionState === "failed") {
                 fail(session, "WebRTC connection failed");
             }
@@ -716,6 +804,10 @@ export function cloudflare_connect(baseUrl, room) {
         seedHigh: 0,
         seedLow: 0,
         timeout: 0,
+        iceServers: DEFAULT_ICE_SERVERS,
+        turnExpiresAt: null,
+        iceHasTurn: false,
+        telemetry: [0,0,0,0,0,0,0,0,0,0,0],
     };
     network = session;
     session.timeout = window.setTimeout(() => fail(session, "matchmaking timed out"), MATCHMAKING_TIMEOUT_MS);
@@ -768,12 +860,15 @@ function lobbyBindChannel(session, peerId, channel) {
 }
 
 async function lobbyCreatePeer(session, peerId, offerer) {
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
+    const peer = new RTCPeerConnection(peerConfiguration(session));
     session.peers.set(peerId, peer);
     session.pendingIce.set(peerId, []);
     peer.onicecandidate = ({ candidate }) => lobbySendSignal(session, peerId, { type: "ice", candidate });
     peer.ondatachannel = ({ channel }) => lobbyBindChannel(session, peerId, channel);
-    peer.onconnectionstatechange = () => { if (peer.connectionState === "failed") fail(session, "lobby WebRTC connection failed"); };
+    peer.onconnectionstatechange = () => {
+        if (peer.connectionState === "connected") recordCandidatePair(session, peer);
+        if (peer.connectionState === "failed") fail(session, "lobby WebRTC connection failed");
+    };
     if (offerer) {
         lobbyBindChannel(session, peerId, peer.createDataChannel("ggrs", { ordered: false, maxRetransmits: 0 }));
         await peer.setLocalDescription(await peer.createOffer());
@@ -816,7 +911,7 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}`;
     const ws = new WebSocket(url);
     const id = nextTransportId++ || nextTransportId++;
-    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, telemetry: [0,0,0,0,reconnect ? 1 : 0,0] };
+    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, "lobby matchmaking timed out"), MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
@@ -827,7 +922,13 @@ export function cloudflare_connect_lobby(baseUrl, room, mode, capacity, profileN
             if (!message || typeof message !== "object" || typeof message.type !== "string") throw new Error("invalid lobby message");
             if (message.type === "welcome") {
                 if (message.protocol !== 3 || !/^[0-9a-f]{32}$/.test(message.playerId) || !/^[0-9a-f]{32}$/.test(message.reconnectToken)) throw new Error("invalid lobby welcome");
+                const ice = validatedIceConfiguration(message);
+                session.iceServers = ice?.iceServers || DEFAULT_ICE_SERVERS;
+                session.turnExpiresAt = ice?.turnExpiresAt ?? null;
+                session.iceHasTurn = ice?.hasTurn ?? false;
                 session.localPlayerId = message.playerId;
+                // Store identity only. TURN usernames/credentials remain solely
+                // in this in-memory session and are refreshed by reconnect.
                 sessionStorage.setItem(identityKey, JSON.stringify({ playerId: message.playerId, reconnectToken: message.reconnectToken }));
                 session.ws.send(JSON.stringify({ type: "profile", name: profileName, paletteId, cosmeticId }));
                 session.ws.send(JSON.stringify({ type: "ready" }));

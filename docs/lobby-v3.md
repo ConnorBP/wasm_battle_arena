@@ -4,15 +4,15 @@ Protocol 3 is the default lifecycle protocol for selected multiplayer modes. Con
 
 ```
 wss://<worker>/lobby/<room>?protocol=3&mode=<duel|deathmatch>&capacity=<n>
+```
 
 `duel` is exactly 2 players. `deathmatch` is Last Ghost Standing and accepts 3–8 players; eight is the supported ceiling.
-```
 
 The old `/match/<room>` endpoint remains the explicit legacy duel fallback. Lobby v2 (`/lobby/<room>` without `protocol=3`) remains deployed for older clients, but new clients always send `protocol=3`. The Worker never silently downgrades a v3 request: `protocol=3` is required and validated exactly once on the v3 control socket, and a signal missing its `epoch` is rejected rather than reinterpreted as a v2 message.
 
 ## Identity and reconnect
 
-`welcome` contains `protocol: 3`, a 32-hex `playerId`, a rotating 32-hex `reconnectToken`, and `reconnectGraceMs`. The browser keeps the latest credentials in `sessionStorage`: reconnects in the same tab/runtime preserve identity; a full browser storage reset (or a new tab) creates a new identity. Every successful reconnect rotates the token, supersedes any older live socket for that identity, and invalidates the previous token. The server stores only SHA-256 token hashes.
+`welcome` contains `protocol: 3`, a 32-hex `playerId`, a rotating 32-hex `reconnectToken`, `reconnectGraceMs`, strictly validated `iceServers`, and `turnExpiresAt` (Unix milliseconds, or `null` for STUN-only fallback). The browser keeps the latest reconnect identity in `sessionStorage`: reconnects in the same tab/runtime preserve identity; a full browser storage reset (or a new tab) creates a new identity. Every successful reconnect rotates the token, supersedes any older live socket for that identity, and invalidates the previous token. The server stores only SHA-256 token hashes. The browser stores only reconnect identity in `sessionStorage`; short-lived TURN usernames/passwords remain in memory and must never be logged or stored. Every successful reconnect is admitted again and receives freshly minted credentials. There is no browser-callable/public credentials endpoint.
 
 Reconnect honors a grace window. A disconnected roster member is not removed immediately; their seat is reserved until `reconnectGraceMs` elapses, at which point the identity expires and an active round is aborted. A reconnect strictly before the boundary preserves the identity and replays the immutable `start` bootstrap.
 
@@ -48,7 +48,7 @@ A rematch proposal expires after 10 seconds. Its absolute deadline is persisted 
 
 The server may send `welcome`, `status`, `presence`, `profile_accepted`, `report_ack`, `round_commit`, `round_abort`, `start`, `signal`, `match_over`, `rematch_pending`, `rematch_accepted`, `rematch_denied`, `match_exit`, `requeue`, `pong`, and `error`. Clients must validate structure, bounds, epoch, and player IDs before acting. Unknown message types are protocol errors. Wire shapes:
 
-* `welcome` — `{ type, protocol:3, playerId, reconnectToken, reconnectGraceMs }`
+* `welcome` — `{ type, protocol:3, playerId, reconnectToken, reconnectGraceMs, iceServers, turnExpiresAt }`
 * `start` — `{ type, protocol:3, epoch, round, mode, capacity, seed, roster:[{playerId,index,profile,score}] }`
 * `status` — `{ type, protocol:3, status:"active"|"waiting", mode, capacity, active:{epoch,round}|null, ready, score }`
 * `presence` — `{ type, playerId, connected, expired }`
@@ -59,5 +59,7 @@ The server may send `welcome`, `status`, `presence`, `profile_accepted`, `report
 * `signal` — `{ type, epoch, from, data }`
 * `pong` — `{ type, nonce? }`
 * `error` — `{ type, error }`
+
+TURN credentials have a six-hour lifetime. A currently connected peer is unaffected by expiry. The protocol does not yet push refreshed credentials down a still-open control socket before a later epoch; a new epoch within the final ten minutes deliberately uses STUN-only configuration, and reconnecting refreshes TURN. A future server-pushed welcome-equivalent is required to remove that limitation without adding a public endpoint.
 
 `report_ack` with `received === required` indicates the report completed a terminal decision; otherwise it is an in-progress or duplicate acknowledgment. A `round_commit` or `round_abort` may be immediately followed by a `start` for the next round when a full roster is still eligible.

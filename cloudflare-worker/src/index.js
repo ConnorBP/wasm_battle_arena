@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { routePath } from "./protocol.js";
+import { generateIceServers } from "./turn.js";
 export { Lobby } from "./lobby.js";
 export { EpochLobby } from "./epoch-lobby.js";
 
@@ -42,6 +43,11 @@ export default {
 };
 
 export class Matchmaker extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.env = env;
+  }
+
   async fetch(request) {
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
@@ -73,12 +79,19 @@ export class Matchmaker extends DurableObject {
     if (!waiting) {
       this.safeSend(server, { type: "waiting" });
     } else {
+      // Room admission and pairing have passed. Mint once for each newly
+      // accepted match identity and send directly; never persist credentials
+      // in a Durable Object attachment.
+      const [waitingTurn, serverTurn] = await Promise.all([
+        generateIceServers(this.env),
+        generateIceServers(this.env),
+      ]);
       const pairId = crypto.randomUUID();
       const seed = this.randomSeed();
       waiting.serializeAttachment(this.attachment("matched", pairId, 0, now));
       server.serializeAttachment(this.attachment("matched", pairId, 1, now));
-      const waitingMatched = this.safeSend(waiting, { type: "matched", index: 0, seed });
-      const serverMatched = this.safeSend(server, { type: "matched", index: 1, seed });
+      const waitingMatched = this.safeSend(waiting, { type: "matched", index: 0, seed, ...waitingTurn });
+      const serverMatched = this.safeSend(server, { type: "matched", index: 1, seed, ...serverTurn });
       if (!waitingMatched || !serverMatched) {
         this.teardownPair(waiting, "matchmaking peer unavailable");
         waiting.close(1011, "matchmaking peer unavailable");
