@@ -1,6 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
-use bevy::{prelude::*,math::Vec3Swizzles, sprite::collide_aabb::collide};
+use bevy::{prelude::*, math::Vec3Swizzles};
 use bevy_ggrs::{PlayerInputs, AddRollbackCommandExtension};
 use crate::game::rollback_audio::RollbackSoundBundle;
 
@@ -27,123 +27,53 @@ pub fn move_players(
 
         let move_speed = if speed_boost.is_some() { 0.13 * 1.35 } else { 0.13 };
         let old_pos = transform.translation.xy();
-        let mut move_delta = direction * move_speed;
-
-        
-        // check the cells in the horizontal, vertical, and forward directions
-        let h_block = world_to_grid(old_pos + Vec2::new(direction.x.signum(), 0.0));
-        let v_block = world_to_grid(old_pos + Vec2::new(0.0, direction.y.signum()));
-        let hv_block = world_to_grid(old_pos + Vec2::new(direction.x.signum(), direction.y.signum()));
-        let h2_block = world_to_grid(old_pos + Vec2::new(direction.x.signum(), -direction.y.signum()));
-        let v2_block = world_to_grid(old_pos + Vec2::new(-direction.x.signum(), direction.y.signum()));
-        
-        // run check if cell is in valid range
-        if let Some(cell) = h_block {
-            // now perform finite collision check on cell
-            if cell_collide(&map_data, old_pos + Vec2::new(move_delta.x, 0.0), cell) {
-                    move_delta.x = 0.0;
-
-            }
-        }
-        
-        // extend horizontal check down by one block
-        if let Some(cell) = h2_block {
-            // now perform finite collision check on cell
-            if cell_collide(&map_data, old_pos + Vec2::new(move_delta.x, 0.0), cell) {
-                    move_delta.x = 0.0;
-
-            }
-        }
-
-        // run check if cell is in valid range
-        if let Some(cell) = v_block {
-            // now perform finite collision check on cell
-            if cell_collide(&map_data, old_pos + Vec2::new(0.0, move_delta.y), cell) {
-                    move_delta.y = 0.0;
-
-            }
-        }
-
-        // extend vertical check by one block
-        if let Some(cell) = v2_block {
-            // now perform finite collision check on cell
-            if cell_collide(&map_data, old_pos + Vec2::new(0.0, move_delta.y), cell) {
-
-                    move_delta.y = 0.0;
-
-            }
-        }
-
-
-        if let Some(cell) = hv_block {
-            // fine detail collision check with the vertical direction cell
-            let player_pos = old_pos + Vec2::new(move_delta.x, move_delta.y);
-            if cell_collide(&map_data, player_pos, cell) {
-                // check which axis is closest to the square corner (same as center pos) to decide which way to slide
-                // this is the solution for the "corner case"
-                let diff = player_pos - grid_to_world(cell);
-                if diff.x.abs() > diff.y.abs() {   
-                    move_delta.x = 0.0;
-                } else {
-                    move_delta.y = 0.0;
-                }
-            }
-        }
-
+        let requested_delta = direction * move_speed;
+        let move_delta = resolve_player_movement(&map_data, old_pos, requested_delta);
         let limit = Vec2::splat(MAP_SIZE as f32 / 2. - 0.5);
         let new_pos = (old_pos + move_delta).clamp(-limit, limit);
-
-
-
-
-
-        // let (x,y) = world_to_grid(new_pos);
-        // match map_data.cells[x as usize][y as usize] {
-        //     CellType::WallBlock => {
-        //         let block_pos = grid_to_world((x,y));
-        //         // let u = f32::max(block_pos.x.abs(), block_pos.y.abs());
-        //         // let p = Vec2::new(block_pos.x / u, block_pos.y / u);
-                
-                
-        //         // new_pos = new_pos.clamp(
-        //         //     block_pos + 1.0,
-        //         //     block_pos - 1.0
-        //         // );
-        //     },
-        //     _=> {}
-        // }
 
         transform.translation.x = new_pos.x;
         transform.translation.y = new_pos.y;
     }
 }
 
-/// returns true if cell at index collides with player position
-fn cell_collide(
-    map_data: &Res<Map<CellType,MAP_SIZE, MAP_SIZE>>,
-    player_pos: Vec2,
-    cell: (u32, u32)
-) -> bool {
-    match map_data.cells[cell.0 as usize][cell.1 as usize] {
-        CellType::WallBlock => {
-            wall_check(player_pos, grid_to_world(cell))
-        },
-        _=> {
-            false
-        }
+const PLAYER_COLLIDER_HALF_SIZE: f32 = 0.4;
+const WALL_COLLIDER_HALF_SIZE: f32 = 0.5;
+
+fn resolve_player_movement(
+    map_data: &Map<CellType, MAP_SIZE, MAP_SIZE>,
+    old_pos: Vec2,
+    requested_delta: Vec2,
+) -> Vec2 {
+    if !player_hits_wall(map_data, old_pos + requested_delta) {
+        return requested_delta;
+    }
+    let horizontal = Vec2::new(requested_delta.x, 0.0);
+    let vertical = Vec2::new(0.0, requested_delta.y);
+    let horizontal_clear = !player_hits_wall(map_data, old_pos + horizontal);
+    let vertical_clear = !player_hits_wall(map_data, old_pos + vertical);
+    match (horizontal_clear, vertical_clear) {
+        (true, false) => horizontal,
+        (false, true) => vertical,
+        (true, true) if requested_delta.x.abs() >= requested_delta.y.abs() => horizontal,
+        (true, true) => vertical,
+        (false, false) => Vec2::ZERO,
     }
 }
 
-/// Checks the slightly inset player collider against a full map cell.
-fn wall_check(player: Vec2, wall: Vec2) -> bool{
-    const PLAYER_COLLIDER_SIZE: f32 = 0.8;
-    let col = collide(
-        player.extend(0.),
-        Vec2::splat(PLAYER_COLLIDER_SIZE),
-        wall.extend(0.0),
-        Vec2::splat(1.0)
-    );
-    col.is_some()
+fn player_hits_wall(map_data: &Map<CellType, MAP_SIZE, MAP_SIZE>, player_pos: Vec2) -> bool {
+    map_data.cells.iter().enumerate().any(|(x, column)| {
+        column.iter().enumerate().any(|(y, cell)| {
+            *cell == CellType::WallBlock
+                && wall_check(player_pos, grid_to_world((x as u32, y as u32)))
+        })
+    })
+}
+
+fn wall_check(player: Vec2, wall: Vec2) -> bool {
+    let collision_distance = PLAYER_COLLIDER_HALF_SIZE + WALL_COLLIDER_HALF_SIZE;
+    let distance = (player - wall).abs();
+    distance.x < collision_distance && distance.y < collision_distance
 }
 
 pub fn player_look(
@@ -379,6 +309,27 @@ mod spawn_tests {
 
     fn empty_map() -> Map<CellType, MAP_SIZE, MAP_SIZE> {
         Map { cells: [[CellType::Empty; MAP_SIZE]; MAP_SIZE] }
+    }
+
+    fn map_with_walls(walls: &[(usize, usize)]) -> Map<CellType, MAP_SIZE, MAP_SIZE> {
+        let mut map = empty_map();
+        for &(x, y) in walls {
+            map.cells[x][y] = CellType::WallBlock;
+        }
+        map
+    }
+
+    #[test]
+    fn wall_collision_and_sliding_are_stable() {
+        let wall = grid_to_world((20, 20));
+        assert!(!wall_check(wall + Vec2::new(0.9, 0.0), wall));
+        assert!(wall_check(wall + Vec2::new(0.899, 0.0), wall));
+
+        let map = map_with_walls(&[(20, 20)]);
+        let old = wall + Vec2::new(-1.0, 0.2);
+        let resolved = resolve_player_movement(&map, old, Vec2::new(0.2, 0.1));
+        assert_eq!(resolved.x, 0.0);
+        assert_eq!(resolved.y, 0.1);
     }
 
     #[test]

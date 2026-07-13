@@ -4,7 +4,11 @@ use bevy::prelude::*;
 
 use bevy_ggrs::AddRollbackCommandExtension;
 
-use super::{components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world, GameSeed, RollbackState, RoundProgress, MAP_SIZE};
+use super::{
+    assets::procedural::{shield_pickup_color, speed_pickup_color, trap_color, wall_face_color, wall_foundation_color, PICKUP_SIZE, TRAP_SIZE},
+    components::{MapBlock, ShieldPickup, SpeedPickup}, player::grid_to_world,
+    GameSeed, RollbackState, RoundProgress, MAP_SIZE,
+};
 
 const MAP_DOMAIN: u64 = 0x6d61_705f_726f_756e;
 const TRAP_DOMAIN: u64 = 0x7472_6170_5f70_6169;
@@ -159,9 +163,18 @@ pub fn spawn_map_sprites(
 ) {
     for x in 0..MAP_SIZE {
         for y in 0..MAP_SIZE {
+            let wall_neighbors = [
+                x > 0 && map_data.cells[x - 1][y] == CellType::WallBlock,
+                x + 1 < MAP_SIZE && map_data.cells[x + 1][y] == CellType::WallBlock,
+                y > 0 && map_data.cells[x][y - 1] == CellType::WallBlock,
+                y + 1 < MAP_SIZE && map_data.cells[x][y + 1] == CellType::WallBlock,
+            ].into_iter().filter(|neighbor| *neighbor).count();
             let (color, size) = match map_data.cells[x][y] {
-                CellType::WallBlock => (Color::rgb(0.2, 0.3, 0.2), Vec2::ONE),
-                CellType::Trap => (Color::rgb(0.75, 0.12, 0.2), Vec2::splat(0.7)),
+                CellType::WallBlock => (
+                    if wall_neighbors == 0 { wall_foundation_color() } else { wall_face_color(1.0 + wall_neighbors as f32 * 0.035) },
+                    Vec2::splat(if wall_neighbors < 2 { 0.86 } else { 0.96 }),
+                ),
+                CellType::Trap => (trap_color(), Vec2::splat(TRAP_SIZE)),
                 CellType::SpeedPickup => {
                     commands.spawn((
                         SpeedPickup { cell: (x as u16, y as u16) },
@@ -170,8 +183,8 @@ pub fn spawn_map_sprites(
                                 grid_to_world((x as u32, y as u32)).extend(0.),
                             ),
                             sprite: Sprite {
-                                color: Color::rgb(0.15, 0.85, 0.95),
-                                custom_size: Some(Vec2::splat(0.55)),
+                                color: speed_pickup_color(),
+                                custom_size: Some(Vec2::splat(PICKUP_SIZE)),
                                 ..default()
                             },
                             ..default()
@@ -187,8 +200,8 @@ pub fn spawn_map_sprites(
                                 grid_to_world((x as u32, y as u32)).extend(0.),
                             ),
                             sprite: Sprite {
-                                color: Color::rgb(0.95, 0.75, 0.15),
-                                custom_size: Some(Vec2::splat(0.55)),
+                                color: shield_pickup_color(),
+                                custom_size: Some(Vec2::splat(PICKUP_SIZE)),
                                 ..default()
                             },
                             ..default()
