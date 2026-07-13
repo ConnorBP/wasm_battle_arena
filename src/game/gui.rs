@@ -23,6 +23,30 @@ pub enum MenuState {
     SyncTest
 }
 
+/// Reference viewport size used to scale menu fonts and margins responsively.
+const REFERENCE_WIDTH: f32 = 1280.0;
+const REFERENCE_HEIGHT: f32 = 720.0;
+
+/// Responsive scale factor (0.6 ..= 1.0) for menu fonts and spacing.
+/// Shrinks on viewports smaller than the 1280x720 reference so panels stay usable.
+fn responsive_scale(ctx: &Context) -> f32 {
+    let size = ctx.screen_rect().size();
+    (size.x / REFERENCE_WIDTH)
+        .min(size.y / REFERENCE_HEIGHT)
+        .clamp(0.6, 1.0)
+}
+
+/// Responsive inner margin for the menu panels: comfortable spacing on large
+/// screens, but never so large that it crowds out the (scrollable) content on
+/// small viewports.
+fn panel_margin(ctx: &Context) -> Margin {
+    let size = ctx.screen_rect().size();
+    let scale = responsive_scale(ctx);
+    let horizontal = (size.x * 0.06).clamp(8.0, 40.0) * scale;
+    let vertical = (size.y * 0.04).clamp(8.0, 32.0) * scale;
+    Margin::symmetric(horizontal, vertical)
+}
+
 /// handle keybinds for interacting with menu.
 /// Ex. hotkeys for menu toggle
 pub fn handle_menu_input(
@@ -56,12 +80,13 @@ pub fn update_main_menu(
     mut next_menu_state: ResMut<NextState<MenuState>>,
     mut room: ResMut<MatchmakingRoom>,
 ) {
+    let scale = responsive_scale(contexts.ctx_mut());
     TopBottomPanel::top("main menu top")
     .show(contexts.ctx_mut(), |ui| {
         ui.label(
             RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
                 .color(Color32::LIGHT_BLUE)
-                .font(FontId::proportional(68.0)),
+                .font(FontId::proportional(52.0 * scale)),
         );
 
         ui.horizontal_wrapped(|ui| {
@@ -96,20 +121,18 @@ pub fn update_main_menu(
     bevy_egui::egui::CentralPanel::default()
     .frame(
         Frame::none()
-        .inner_margin(Margin::symmetric(100., 150.))
+        .inner_margin(panel_margin(contexts.ctx_mut()))
         .fill(Color32::from_rgb(66, 69, 73))
     )
     .show(contexts.ctx_mut(), |ui| {
         // set spacing
         ui.style_mut().spacing.indent = 16.0;
-        ui.style_mut().spacing.item_spacing = vec2(16.0, 16.0);
-
-
-
+        ui.style_mut().spacing.item_spacing = vec2(10.0, 10.0 * scale);
+        ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.vertical_centered_justified(|ui| {
             // set button style
         if let Some(button_style) = ui.style_mut().text_styles.get_mut(&TextStyle::Button) {
-            *button_style = FontId::new(32.0, FontFamily::Proportional);
+            *button_style = FontId::new(28.0 * scale, FontFamily::Proportional);
         }
         if ui.button("▶ Start Matchmaking").clicked() {
             room.private_code = None;
@@ -141,6 +164,7 @@ pub fn update_main_menu(
             next_menu_state.set(MenuState::Settings);
         }
         });
+        });
     });
 }
 
@@ -151,9 +175,12 @@ pub fn update_direct_connect_ui(
     mut room: ResMut<MatchmakingRoom>,
     mut code: Local<String>,
 ) {
+    let scale = responsive_scale(contexts.ctx_mut());
     CentralPanel::default()
-        .frame(Frame::none().inner_margin(Margin::symmetric(100., 180.)).fill(Color32::from_rgb(66, 69, 73)))
+        .frame(Frame::none().inner_margin(panel_margin(contexts.ctx_mut())).fill(Color32::from_rgb(66, 69, 73)))
         .show(contexts.ctx_mut(), |ui| {
+            ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.style_mut().spacing.item_spacing.y = 10.0 * scale;
             ui.vertical_centered_justified(|ui| {
                 ui.heading("Private Match");
                 ui.label("Enter the same room code on both devices.");
@@ -168,6 +195,7 @@ pub fn update_direct_connect_ui(
                 if ui.button("Back").clicked() {
                     next_menu_state.set(MenuState::Main);
                 }
+            });
             });
         });
 }
@@ -196,10 +224,11 @@ pub fn update_settings_ui(
     mut audio_config: ResMut<AudioConfig>,
     mut profile: ResMut<PendingPlayerProfile>,
 ) {
+    let scale = responsive_scale(contexts.ctx_mut());
     bevy_egui::egui::CentralPanel::default()
     .frame(
         Frame::none()
-        .inner_margin(Margin::symmetric(100., 200.))
+        .inner_margin(panel_margin(contexts.ctx_mut()))
         .fill(Color32::from_rgb(66, 69, 73))
     )
     .show(contexts.ctx_mut(), |ui| {
@@ -208,11 +237,12 @@ pub fn update_settings_ui(
         ui.style_mut().spacing.item_spacing = vec2(16.0, 16.0);
 
         let wide = ui.available_height() < ui.available_width();
-
+        ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        ui.style_mut().spacing.item_spacing.y = 10.0 * scale;
         ui.vertical_centered_justified(|ui| {
             // set button style
             if let Some(button_style) = ui.style_mut().text_styles.get_mut(&TextStyle::Button) {
-                *button_style = FontId::new(32.0, FontFamily::Proportional);
+                *button_style = FontId::new(28.0 * scale, FontFamily::Proportional);
             }
 
             let extra_slider_widget_size = {
@@ -297,6 +327,7 @@ pub fn update_settings_ui(
                 next_menu_state.set(MenuState::Main);
             }
         });
+        });
     });
 }
 
@@ -318,6 +349,24 @@ pub fn update_score_ui(mut contexts: EguiContexts, scores: Res<Scores>) {
                 .font(FontId::proportional(72.0)),
         );
     });
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn responsive_layout_stays_compact_on_mobile() {
+        for size in [vec2(390.0, 844.0), vec2(844.0, 390.0)] {
+            let ctx = Context::default();
+            ctx.set_pixels_per_point(1.0);
+            ctx.begin_frame(RawInput { screen_rect: Some(bevy_egui::egui::Rect::from_min_size(Pos2::ZERO, size)), ..default() });
+            let margin = panel_margin(&ctx);
+            assert!(margin.left <= 40.0 && margin.top <= 32.0);
+            assert!((0.6..=1.0).contains(&responsive_scale(&ctx)));
+            let _ = ctx.end_frame();
+        }
+    }
 }
 
 pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
