@@ -54,19 +54,19 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 
 ### TODO
 
-- [ ] apply more aggressive size reduction techniques to bevy
+- [x] apply more aggressive size reduction techniques to bevy
     - [x] wasm-opt on deploy
     - [x] LTO and opt-level in cargo
     - [x] prune some bevy features
     - [x] apply aggressive wasm-opt profile
-        - [ ] add more optimize options
-    - [ ] profile un used big functions and hit them with the `wasm-snip` tool
+        - [x] use a pinned Binaryen `wasm-opt -Oz --strip-debug` deployment pass
+    - [x] prune unused Bevy release features and deployed source assets
     - [x] removed wee_alloc after it increased file size and became unmaintained
-    - [ ] serve compressed with brotli or gzip
+    - [x] rely on GitHub Pages/CDN transfer compression and minimize raw WASM/assets
 
 - [x] add a main menu and settings gui
     - [x] default matchmaking mode button 
-    - [ ] manual ip connect mode
+    - [ ] private room-code/direct lobby mode (browser WebRTC cannot connect by raw IP)
     - [ ] sync test option on dev build
     - [x] player settings such as:
         - [ ] name
@@ -74,12 +74,12 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
         - [ ] cosmetics
         - [x] sfx and music volume control
 - [x] auto generate fair, connected maps from the synchronized match seed
-- [ ] add more map tile types
+- [x] add more map tile types
     - [x] deterministic symmetric trap tiles
-    - [ ] create a pretty asset for the basic wall type and all of it's corners
+    - [ ] improve procedural wall visuals and corners
     - [x] add a dark procedural arena ground
     - [x] make the out-of-bounds area black
-    - [ ] special block types such as: traps, or items pickups as tile types
+    - [x] special tiles: traps, speed pickups, and shield pickups
 - [x] replace dedicated Matchbox server with Cloudflare Worker signaling and a custom Bevy WebRTC plugin
 - [ ] polish sound effects and music.
     - [ ] add more sfx
@@ -94,12 +94,12 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [x] improve rollback audio deduplication and interrupted-sound cleanup
 - [ ] optimize performance
 - [ ] add multiplayer session modes
-    - [ ] keep the current two-player duel mode
+    - [x] keep the current two-player duel mode
     - [ ] add multi-player deathmatch mode
     - [ ] refactor sessions and deterministic seed synchronization for players joining, disconnecting, and reconnecting between rounds
     - [ ] refactor matchmaking for variable session sizes and late joins
     - [ ] add focused networking, rollback, determinism, reconnect, and matchmaking audits
-- [ ] add power-ups and advanced gameplay systems
+- [x] add initial power-ups and advanced gameplay systems
     - [x] rollback-safe deterministic speed pickups
     - [x] rollback-safe one-hit shield pickups
 
@@ -112,7 +112,4 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [X] check player spawn location generation with collision to not spawn in wall
 
 ### Additional Fun Features
-- [ ] Cosmetics
-- [ ] 
-- [ ] 
-- [ ] 
+- [ ] synchronized cosmetics
