@@ -329,6 +329,7 @@ pub fn run() {
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<AudioConfig>()
+    .init_resource::<MatchmakingRoom>()
     .init_resource::<toasts::Toasts>()
     .init_resource::<RoundEndTimer>()
     .init_resource::<Scores>()
@@ -360,6 +361,8 @@ pub fn run() {
                 .run_if(in_state(MenuState::Main)),
             update_settings_ui
                 .run_if(in_state(MenuState::Settings)),
+            update_direct_connect_ui
+                .run_if(in_state(GameState::MainMenu).and_then(in_state(MenuState::DirectConnect))),
             update_in_game_controls_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),

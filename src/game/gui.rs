@@ -1,7 +1,11 @@
 use bevy::prelude::*;
 use bevy_egui::{egui::*, EguiContexts};
 
-use super::{Scores, GameState, assets::sounds::AudioConfig};
+use super::{
+    assets::sounds::AudioConfig,
+    networking::{sanitize_room_code, MatchmakingRoom},
+    GameState, Scores,
+};
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub enum MenuState {
@@ -49,6 +53,7 @@ pub fn update_main_menu(
     mut contexts: EguiContexts,
     mut next_game_state: ResMut<NextState<GameState>>,
     mut next_menu_state: ResMut<NextState<MenuState>>,
+    mut room: ResMut<MatchmakingRoom>,
 ) {
     TopBottomPanel::top("main menu top")
     .show(contexts.ctx_mut(), |ui| {
@@ -106,12 +111,13 @@ pub fn update_main_menu(
             *button_style = FontId::new(32.0, FontFamily::Proportional);
         }
         if ui.button("▶ Start Matchmaking").clicked() {
+            room.private_code = None;
             next_menu_state.set(MenuState::Main);
             next_game_state.set(GameState::Matchmaking);
         }
-        // if ui.button("Direct Connect").clicked() {
-        //     next_menu_state.set(MenuState::DirectConnect);
-        // }
+        if ui.button("🔒 Private Match").clicked() {
+            next_menu_state.set(MenuState::DirectConnect);
+        }
         #[cfg(feature="sync_test")]
         if ui.button("SyncTest").clicked() {
             next_menu_state.set(MenuState::SyncTest);
@@ -121,6 +127,34 @@ pub fn update_main_menu(
         }
         });
     });
+}
+
+pub fn update_direct_connect_ui(
+    mut contexts: EguiContexts,
+    mut next_game_state: ResMut<NextState<GameState>>,
+    mut next_menu_state: ResMut<NextState<MenuState>>,
+    mut room: ResMut<MatchmakingRoom>,
+    mut code: Local<String>,
+) {
+    CentralPanel::default()
+        .frame(Frame::none().inner_margin(Margin::symmetric(100., 180.)).fill(Color32::from_rgb(66, 69, 73)))
+        .show(contexts.ctx_mut(), |ui| {
+            ui.vertical_centered_justified(|ui| {
+                ui.heading("Private Match");
+                ui.label("Enter the same room code on both devices.");
+                if ui.text_edit_singleline(&mut *code).changed() {
+                    *code = sanitize_room_code(code.as_str());
+                }
+                if ui.add_enabled(!code.is_empty(), Button::new("Create / Join Private Match")).clicked() {
+                    room.private_code = Some(code.clone());
+                    next_menu_state.set(MenuState::Main);
+                    next_game_state.set(GameState::Matchmaking);
+                }
+                if ui.button("Back").clicked() {
+                    next_menu_state.set(MenuState::Main);
+                }
+            });
+        });
 }
 
 pub fn update_in_game_controls_ui(

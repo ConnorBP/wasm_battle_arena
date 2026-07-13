@@ -25,34 +25,58 @@ pub struct GgrsConfig;
 #[derive(Resource)]
 pub struct LocalPlayerHandle(pub usize);
 
+#[derive(Resource, Default)]
+pub struct MatchmakingRoom {
+    pub private_code: Option<String>,
+}
+
+pub fn sanitize_room_code(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .take(16)
+        .map(|character| character.to_ascii_uppercase())
+        .collect()
+}
+
+fn versioned_room_name(private_code: Option<&str>) -> String {
+    #[cfg(not(feature = "dev_net"))]
+    let prefix = "battle";
+    #[cfg(feature = "dev_net")]
+    let prefix = "devbattle";
+    let base = format!(
+        "{prefix}-{}-{}-{}",
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        env!("CARGO_PKG_VERSION_MINOR"),
+        env!("CARGO_PKG_VERSION_PATCH")
+    );
+    match private_code {
+        Some(code) => format!("{base}-private-{}", code.to_ascii_lowercase()),
+        None => base,
+    }
+}
+
 impl ggrs::Config for GgrsConfig {
     type Input = u8;
     type State = u8;
     type Address = u8;
 }
 
-pub fn start_cloudflare_socket(mut socket: ResMut<CloudflareSocket>) {
-    #[cfg(not(feature = "dev_net"))]
-    let room_name = format!(
-        "battle-{}-{}-{}",
-        env!("CARGO_PKG_VERSION_MAJOR"),
-        env!("CARGO_PKG_VERSION_MINOR"),
-        env!("CARGO_PKG_VERSION_PATCH")
-    );
-    #[cfg(feature = "dev_net")]
-    let room_name = format!(
-        "devbattle-{}-{}-{}",
-        env!("CARGO_PKG_VERSION_MAJOR"),
-        env!("CARGO_PKG_VERSION_MINOR"),
-        env!("CARGO_PKG_VERSION_PATCH")
-    );
-
-    info!("connecting to Cloudflare matchmaking: {SIGNALING_URL}/{room_name}");
+pub fn start_cloudflare_socket(
+    mut socket: ResMut<CloudflareSocket>,
+    room: Res<MatchmakingRoom>,
+) {
+    let room_name = versioned_room_name(room.private_code.as_deref());
+    info!("connecting to Cloudflare matchmaking");
     socket.connect(SIGNALING_URL, &room_name);
 }
 
-pub fn stop_cloudflare_socket(mut socket: ResMut<CloudflareSocket>) {
+pub fn stop_cloudflare_socket(
+    mut socket: ResMut<CloudflareSocket>,
+    mut room: ResMut<MatchmakingRoom>,
+) {
     socket.disconnect();
+    room.private_code = None;
 }
 
 pub fn cleanup_network_session(
@@ -153,6 +177,19 @@ pub fn wait_for_players(
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
     commands.insert_resource(GameSeed(match_info.seed));
     next_state.set(GameState::InGame);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_room_codes_are_canonical_and_bounded() {
+        assert_eq!(sanitize_room_code(" ab-c_12! "), "ABC12");
+        assert_eq!(sanitize_room_code("abcdefghijklmnopq"), "ABCDEFGHIJKLMNOP");
+        assert_eq!(versioned_room_name(Some("ROOM42")), versioned_room_name(Some("room42")));
+        assert!(versioned_room_name(Some("A")).len() <= 64);
+    }
 }
 
 pub fn log_ggrs_events(

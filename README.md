@@ -66,7 +66,7 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 
 - [x] add a main menu and settings gui
     - [x] default matchmaking mode button 
-    - [ ] private room-code/direct lobby mode (browser WebRTC cannot connect by raw IP)
+    - [x] private room-code matchmaking (browser WebRTC cannot connect by raw IP)
     - [ ] sync test option on dev build
     - [x] player settings such as:
         - [ ] name
