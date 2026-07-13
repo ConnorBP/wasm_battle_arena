@@ -87,6 +87,41 @@ pub fn round_outcome(
     }
 }
 
+pub const MAX_PLAYER_NAME_BYTES: usize = 24;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerProfile {
+    pub player_id: PlayerId,
+    pub name: String,
+    pub palette_id: u8,
+    pub cosmetic_id: u8,
+}
+
+impl PlayerProfile {
+    pub fn sanitized_name(value: &str) -> String {
+        let mut output = String::new();
+        let mut pending_space = false;
+        for character in value.trim().chars().filter(|character| !character.is_control()) {
+            if character.is_whitespace() {
+                pending_space = !output.is_empty();
+                continue;
+            }
+            if pending_space && output.len() < MAX_PLAYER_NAME_BYTES { output.push(' '); }
+            pending_space = false;
+            if output.len() + character.len_utf8() > MAX_PLAYER_NAME_BYTES { break; }
+            output.push(character);
+        }
+        output
+    }
+
+    pub fn is_canonical(&self) -> bool {
+        !self.name.is_empty()
+            && self.name == Self::sanitized_name(&self.name)
+            && self.palette_id < 4
+            && self.cosmetic_id == 0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RosterEntry {
     pub player_id: PlayerId,
@@ -108,6 +143,7 @@ pub struct RoundBootstrap {
     pub round: RoundNumber,
     pub mode: GameMode,
     pub roster: Vec<RosterEntry>,
+    pub profiles: Vec<PlayerProfile>,
     pub scores: Vec<PlayerScore>,
 }
 
@@ -117,6 +153,7 @@ pub enum BootstrapError {
     InvalidPlayerCount,
     DuplicatePlayer,
     InvalidHandles,
+    InvalidProfiles,
     InvalidScores,
 }
 
@@ -130,9 +167,11 @@ impl RoundBootstrap {
         round: RoundNumber,
         mode: GameMode,
         mut roster: Vec<RosterEntry>,
+        mut profiles: Vec<PlayerProfile>,
         mut scores: Vec<PlayerScore>,
     ) -> Result<Self, BootstrapError> {
         roster.sort_by_key(|entry| entry.player_id);
+        profiles.sort_by_key(|entry| entry.player_id);
         scores.sort_by_key(|entry| entry.player_id);
 
         if protocol_version == 0 {
@@ -161,6 +200,14 @@ impl RoundBootstrap {
             return Err(BootstrapError::InvalidHandles);
         }
 
+        if profiles.len() != roster.len()
+            || profiles.iter().any(|profile| !profile.is_canonical())
+            || profiles.iter().map(|profile| profile.player_id).collect::<Vec<_>>()
+                != roster.iter().map(|entry| entry.player_id).collect::<Vec<_>>()
+        {
+            return Err(BootstrapError::InvalidProfiles);
+        }
+
         if scores.len() != roster.len()
             || scores
                 .iter()
@@ -182,6 +229,7 @@ impl RoundBootstrap {
             round,
             mode,
             roster,
+            profiles,
             scores,
         })
     }
@@ -201,6 +249,12 @@ impl RoundBootstrap {
                 handle,
             })
             .collect();
+        let profiles = roster.iter().map(|entry| PlayerProfile {
+            player_id: entry.player_id,
+            name: format!("Player {}", entry.handle + 1),
+            palette_id: entry.handle as u8,
+            cosmetic_id: 0,
+        }).collect();
         let scores = roster
             .iter()
             .map(|entry| PlayerScore {
@@ -216,6 +270,7 @@ impl RoundBootstrap {
             RoundNumber(0),
             GameMode::Duel,
             roster,
+            profiles,
             scores,
         )
         .expect("built-in duel bootstrap is valid")
@@ -232,6 +287,12 @@ mod tests {
     }
 
     fn bootstrap(mode: GameMode, roster: Vec<RosterEntry>, score_ids: &[u128]) -> Result<RoundBootstrap, BootstrapError> {
+        let profiles = roster.iter().map(|entry| PlayerProfile {
+            player_id: entry.player_id,
+            name: format!("Player {}", entry.player_id.0),
+            palette_id: entry.handle as u8,
+            cosmetic_id: 0,
+        }).collect();
         RoundBootstrap::new(
             1,
             MatchId(7),
@@ -240,8 +301,20 @@ mod tests {
             RoundNumber(0),
             mode,
             roster,
+            profiles,
             score_ids.iter().map(|id| PlayerScore { player_id: PlayerId(*id), score: 0 }).collect(),
         )
+    }
+
+    #[test]
+    fn profile_names_are_sanitized_and_validated() {
+        assert_eq!(PlayerProfile::sanitized_name("  Ghost\n  Rider  "), "Ghost Rider");
+        assert!(PlayerProfile {
+            player_id: PlayerId(1), name: "Ghost Rider".into(), palette_id: 0, cosmetic_id: 0,
+        }.is_canonical());
+        assert!(!PlayerProfile {
+            player_id: PlayerId(1), name: " Ghost ".into(), palette_id: 0, cosmetic_id: 0,
+        }.is_canonical());
     }
 
     #[test]

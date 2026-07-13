@@ -69,9 +69,9 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
     - [x] private room-code matchmaking (browser WebRTC cannot connect by raw IP)
     - [x] sync-test option on dev build
     - [x] player settings such as:
-        - [ ] name
-        - [ ] color
-        - [ ] cosmetics
+        - [x] validated name preference foundation
+        - [x] palette preference foundation
+        - [x] allowlisted cosmetic preference foundation
         - [x] sfx and music volume control
 - [x] auto generate fair, connected maps from the synchronized match seed
 - [x] add more map tile types
@@ -112,4 +112,4 @@ wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/relea
 - [X] check player spawn location generation with collision to not spawn in wall
 
 ### Additional Fun Features
-- [ ] synchronized cosmetics
+- [ ] propagate synchronized profiles/cosmetics through lobby v2 client integration

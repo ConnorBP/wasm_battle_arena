@@ -124,6 +124,19 @@ impl Scores {
     }
 }
 
+#[derive(Resource, Debug, Clone)]
+pub struct PendingPlayerProfile {
+    pub name: String,
+    pub palette_id: u8,
+    pub cosmetic_id: u8,
+}
+
+impl Default for PendingPlayerProfile {
+    fn default() -> Self {
+        Self { name: "Ghost".into(), palette_id: 0, cosmetic_id: 0 }
+    }
+}
+
 #[derive(Resource, Reflect, Default, Debug)]
 #[reflect(Resource)]
 pub struct GameSeed(u64);
@@ -333,6 +346,7 @@ pub fn run() {
     .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<AudioConfig>()
     .init_resource::<MatchmakingRoom>()
+    .init_resource::<PendingPlayerProfile>()
     .init_resource::<toasts::Toasts>()
     .init_resource::<RoundEndTimer>()
     .init_resource::<Scores>()

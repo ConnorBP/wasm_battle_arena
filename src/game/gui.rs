@@ -4,7 +4,8 @@ use bevy_egui::{egui::*, EguiContexts};
 use super::{
     assets::sounds::AudioConfig,
     networking::{sanitize_room_code, MatchmakingRoom},
-    GameState, Scores,
+    session::PlayerProfile,
+    GameState, PendingPlayerProfile, Scores,
 };
 
 #[derive(States, Clone, Eq, PartialEq, Debug, Hash, Default)]
@@ -179,7 +180,7 @@ pub fn update_settings_ui(
     mut contexts: EguiContexts,
     mut next_menu_state: ResMut<NextState<MenuState>>,
     mut audio_config: ResMut<AudioConfig>,
-    mut test_name: Local<String>,
+    mut profile: ResMut<PendingPlayerProfile>,
 ) {
     bevy_egui::egui::CentralPanel::default()
     .frame(
@@ -214,8 +215,20 @@ pub fn update_settings_ui(
             ui.heading("Player Settings");
 
             let label = ui.label("Player Name: ");
-            ui.text_edit_singleline(&mut *test_name).labelled_by(label.id);
-
+            if ui.text_edit_singleline(&mut profile.name).labelled_by(label.id).changed() {
+                profile.name = PlayerProfile::sanitized_name(&profile.name);
+                if profile.name.is_empty() { profile.name = "Ghost".into(); }
+            }
+            ui.horizontal(|ui| {
+                ui.label("Color:");
+                for (id, color) in [Color32::RED, Color32::BLUE, Color32::GREEN, Color32::from_rgb(190, 70, 190)].into_iter().enumerate() {
+                    if ui.selectable_label(profile.palette_id == id as u8, RichText::new("●").color(color)).clicked() {
+                        profile.palette_id = id as u8;
+                    }
+                }
+            });
+            ui.label("Cosmetic: Classic Ghost");
+            ui.small("Applied once lobby profile synchronization is enabled.");
 
             ui.heading("Volume Settings");
             
