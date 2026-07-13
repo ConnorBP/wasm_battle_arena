@@ -387,7 +387,7 @@ pub fn run() {
     .add_systems(Startup, (setup, load_persistent_profile))
     .add_systems(
         OnEnter(GameState::MainMenu),
-        (start_main_music, stop_cloudflare_socket),
+        (reset_menu_to_main, start_main_music, stop_cloudflare_socket).chain(),
     )
     .add_systems(
         OnEnter(GameState::Matchmaking),
@@ -424,6 +424,7 @@ pub fn run() {
             .before(update_settings_ui)
             .before(update_direct_connect_ui)
             .before(update_in_game_controls_ui)
+            .before(update_pause_ui)
             .before(update_match_status_ui)
             .before(update_matchmaking_ui)
             .before(update_practice_ui)
@@ -446,6 +447,8 @@ pub fn run() {
                 .run_if(in_state(GameState::MainMenu).and_then(in_state(MenuState::DirectConnect))),
             update_in_game_controls_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
+            update_pause_ui
+                .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Pause))),
             update_match_status_ui
                 .run_if(in_state(GameState::InGame).and_then(in_state(MenuState::Main))),
             update_matchmaking_ui.run_if(in_state(GameState::Matchmaking)),
@@ -669,6 +672,10 @@ fn setup(mut commands: Commands) {
             ..default()
         });
     }
+}
+
+fn reset_menu_to_main(mut menu: ResMut<NextState<MenuState>>) {
+    menu.set(MenuState::Main);
 }
 
 fn reset_round_end_timer(mut timer: ResMut<RoundEndTimer>) {

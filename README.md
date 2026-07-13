@@ -12,6 +12,7 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 ## Features
 
 - peer to peer networking
+- mobile-safe in-game menu; its overlay does not pause multiplayer or network/input processing
 - non authoritative deterministic net code and game logic
 - desktop, mobile, and web (wasm) support
 - local moving-target practice while matchmaking (WASD/arrows + Space/Enter, or split touch controls)

@@ -1,6 +1,9 @@
 use crate::mobile_input::{self, MobileInputKind};
 use bevy::prelude::*;
-use bevy_egui::{egui::*, EguiContexts};
+use bevy_egui::{
+    egui::{self, *},
+    EguiContexts,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
@@ -20,6 +23,7 @@ pub enum MenuState {
     Main,
 
     DirectConnect,
+    Pause,
     Settings,
     #[cfg(feature = "sync_test")]
     SyncTest,
@@ -41,12 +45,96 @@ fn responsive_scale(ctx: &Context) -> f32 {
 /// Responsive inner margin for the menu panels: comfortable spacing on large
 /// screens, but never so large that it crowds out the (scrollable) content on
 /// small viewports.
+const MOBILE_EDGE_MARGIN: f32 = 12.0;
+const NARROW_LAYOUT_WIDTH: f32 = 560.0;
+
+fn safe_screen_rect_for(screen: egui::Rect) -> egui::Rect {
+    let inset_x = MOBILE_EDGE_MARGIN.min(screen.width() * 0.5);
+    let inset_y = MOBILE_EDGE_MARGIN.min(screen.height() * 0.5);
+    egui::Rect::from_min_max(
+        screen.min + vec2(inset_x, inset_y),
+        screen.max - vec2(inset_x, inset_y),
+    )
+}
+
+fn safe_screen_rect(ctx: &Context) -> egui::Rect {
+    safe_screen_rect_for(ctx.screen_rect())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn is_narrow(width: f32) -> bool {
+    width < NARROW_LAYOUT_WIDTH
+}
+
 fn panel_margin(ctx: &Context) -> Margin {
     let size = ctx.screen_rect().size();
     let scale = responsive_scale(ctx);
-    let horizontal = (size.x * 0.06).clamp(8.0, 40.0) * scale;
-    let vertical = (size.y * 0.04).clamp(8.0, 32.0) * scale;
+    let horizontal = ((size.x * 0.06).clamp(12.0, 40.0) * scale).max(MOBILE_EDGE_MARGIN);
+    let vertical = ((size.y * 0.04).clamp(12.0, 32.0) * scale).max(MOBILE_EDGE_MARGIN);
     Margin::symmetric(horizontal, vertical)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PauseAction {
+    Resume,
+    Settings,
+    ExitLobby,
+    MainMenu,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PauseActionEffect {
+    menu: MenuState,
+    game: Option<GameState>,
+    notify_worker_leave: bool,
+    requeue: bool,
+}
+
+fn pause_action_effect(action: PauseAction) -> PauseActionEffect {
+    match action {
+        PauseAction::Resume => PauseActionEffect {
+            menu: MenuState::Main,
+            game: None,
+            notify_worker_leave: false,
+            requeue: false,
+        },
+        PauseAction::Settings => PauseActionEffect {
+            menu: MenuState::Settings,
+            game: None,
+            notify_worker_leave: false,
+            requeue: false,
+        },
+        PauseAction::ExitLobby | PauseAction::MainMenu => PauseActionEffect {
+            menu: MenuState::Main,
+            game: Some(GameState::MainMenu),
+            notify_worker_leave: true,
+            requeue: false,
+        },
+    }
+}
+
+fn escape_destination(game: &GameState, menu: &MenuState) -> Option<MenuState> {
+    match (game, menu) {
+        (GameState::InGame, MenuState::Main) => Some(MenuState::Pause),
+        (GameState::InGame, MenuState::Pause) => Some(MenuState::Main),
+        (GameState::InGame, MenuState::Settings) => Some(MenuState::Pause),
+        _ => None,
+    }
+}
+
+fn settings_back_destination(game: &GameState) -> MenuState {
+    if game == &GameState::InGame {
+        MenuState::Pause
+    } else {
+        MenuState::Main
+    }
+}
+
+/// Pause is deliberately UI-only. In-game network/GGRS/input scheduling is
+/// keyed solely to GameState::InGame and must continue for every MenuState.
+#[cfg_attr(not(test), allow(dead_code))]
+fn in_game_runtime_scheduled(game: &GameState, _menu: &MenuState) -> bool {
+    game == &GameState::InGame
 }
 
 const PANEL_DARK: Color32 = Color32::from_rgb(20, 24, 34);
@@ -116,20 +204,10 @@ pub fn handle_menu_input(
     mut next_menu_state: ResMut<NextState<MenuState>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        match current_game_state.get() {
-            GameState::InGame | GameState::Matchmaking => {
-                // check for settings toggle key while  in game
-                match current_menu_state.get() {
-                    MenuState::Main => {
-                        next_menu_state.set(MenuState::Settings);
-                    }
-                    MenuState::Settings => {
-                        next_menu_state.set(MenuState::Main);
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
+        if let Some(destination) =
+            escape_destination(current_game_state.get(), current_menu_state.get())
+        {
+            next_menu_state.set(destination);
         }
     }
 }
@@ -142,52 +220,18 @@ pub fn update_main_menu(
 ) {
     mobile_input::hide();
     let scale = responsive_scale(contexts.ctx_mut());
-    TopBottomPanel::top("main menu top")
-    .show(contexts.ctx_mut(), |ui| {
-        ui.label(
-            RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
-                .color(Color32::LIGHT_BLUE)
-                .font(FontId::proportional(52.0 * scale)),
-        );
-
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.label(
-                RichText::new("Game by ")
-                    .color(Color32::GRAY)
-                    .font(FontId::monospace(24.0)),
-            );
-            ui.hyperlink_to(RichText::new("Connor Postma")
-            .font(FontId::monospace(24.0)), "https://github.com/ConnorBP");
-            ui.label(
-                RichText::new(" 2023")
-                    .color(Color32::GRAY)
-                    .font(FontId::monospace(24.0)),
-            );
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.label(
-                RichText::new("Music by ")
-                    .color(Color32::GRAY)
-                    .font(FontId::monospace(24.0)),
-            );
-            ui.hyperlink_to(RichText::new("Warren Postma")
-            .font(FontId::monospace(24.0)), "https://on.soundcloud.com/bF9zR");
-            ui.label(RichText::new(".").font(FontId::monospace(24.0)));
-        });
-        ui.separator();
-        ui.label(RichText::new("HOW TO PLAY").strong().color(Color32::WHITE));
-        ui.label("Move: WASD / arrow keys   •   Fire: hold Space or Enter");
-        ui.label("Touch: drag on the LEFT to move   •   hold the RIGHT side to fire");
-        ui.label("Win rounds by eliminating rivals. First ghost to 3 points wins the match.");
-        ui.label("Cyan = speed boost (5 seconds)   •   Gold = one-hit shield   •   Red = trap   •   Purple = Void boundary");
-    });
-
+    let screen = contexts.ctx_mut().screen_rect();
+    let safe = safe_screen_rect_for(screen);
     bevy_egui::egui::CentralPanel::default()
         .frame(
             Frame::none()
-                .inner_margin(panel_margin(contexts.ctx_mut()))
+                .outer_margin(Margin {
+                    left: safe.left(),
+                    right: screen.right() - safe.right(),
+                    top: safe.top(),
+                    bottom: screen.bottom() - safe.bottom(),
+                })
+                .inner_margin(Margin::same(0.0))
                 .fill(PANEL_DARK),
         )
         .show(contexts.ctx_mut(), |ui| {
@@ -198,6 +242,18 @@ pub fn update_main_menu(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.vertical_centered_justified(|ui| {
+                        ui.label(
+                            RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
+                                .color(Color32::LIGHT_BLUE)
+                                .font(FontId::proportional(42.0 * scale)),
+                        );
+                        ui.label("Game by Connor Postma • Music by Warren Postma");
+                        ui.separator();
+                        ui.label(RichText::new("HOW TO PLAY").strong());
+                        ui.label("Move: WASD / arrows • Fire: Space / Enter");
+                        ui.label("Touch: drag LEFT to move • hold RIGHT to fire");
+                        ui.label("Eliminate rivals; first ghost to 3 points wins.");
+                        ui.separator();
                         // set button style
                         if let Some(button_style) =
                             ui.style_mut().text_styles.get_mut(&TextStyle::Button)
@@ -206,7 +262,7 @@ pub fn update_main_menu(
                         }
                         ui.heading("Last Ghost Standing");
                         ui.label("The prominent default: survive a 3–8 ghost arena. Last ghost alive scores; first to 3 wins.");
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             if ui.selectable_label(room.mode == super::session::GameMode::Deathmatch, "Last Ghost Standing (3–8)").clicked() {
                                 room.mode = super::session::GameMode::Deathmatch;
                                 room.capacity = room.capacity.clamp(3, 8);
@@ -262,10 +318,12 @@ pub fn update_direct_connect_ui(
         *code = sanitize_room_code(&value);
     }
     let scale = responsive_scale(contexts.ctx_mut());
+    let margin = panel_margin(contexts.ctx_mut());
     CentralPanel::default()
         .frame(
             Frame::none()
-                .inner_margin(panel_margin(contexts.ctx_mut()))
+                .outer_margin(margin)
+                .inner_margin(Margin::same(0.0))
                 .fill(PANEL_DARK),
         )
         .show(contexts.ctx_mut(), |ui| {
@@ -280,17 +338,23 @@ pub fn update_direct_connect_ui(
                             *code = sanitize_room_code(code.as_str());
                         }
                         if ui
-                            .add_enabled(
-                                !code.is_empty(),
-                                Button::new("Create / Join Private Match"),
-                            )
+                            .add_enabled_ui(!code.is_empty(), |ui| {
+                                ui.add_sized(
+                                    vec2(ui.available_width(), 44.0),
+                                    Button::new("Create / Join Private Match"),
+                                )
+                            })
+                            .inner
                             .clicked()
                         {
                             room.private_code = Some(code.clone());
                             next_menu_state.set(MenuState::Main);
                             next_game_state.set(GameState::Matchmaking);
                         }
-                        if ui.button("Back").clicked() {
+                        if ui
+                            .add_sized(vec2(ui.available_width(), 44.0), Button::new("Back"))
+                            .clicked()
+                        {
                             next_menu_state.set(MenuState::Main);
                         }
                     });
@@ -301,28 +365,79 @@ pub fn update_direct_connect_ui(
 pub fn update_in_game_controls_ui(
     mut contexts: EguiContexts,
     mut next_menu_state: ResMut<NextState<MenuState>>,
-    socket: Res<CloudflareSocket>,
-    mut next_game: ResMut<NextState<GameState>>,
 ) {
+    let safe = safe_screen_rect(contexts.ctx_mut());
     Area::new("controls menu")
-        .anchor(Align2::LEFT_TOP, (25., 25.))
+        .fixed_pos(safe.min)
         .show(contexts.ctx_mut(), |ui| {
-            if let Some(button_style) = ui.style_mut().text_styles.get_mut(&TextStyle::Button) {
-                *button_style = FontId::new(48.0, FontFamily::Proportional);
+            if ui
+                .add_sized(
+                    vec2(112.0_f32.min(safe.width()), 44.0),
+                    Button::new("☰ MENU"),
+                )
+                .clicked()
+            {
+                next_menu_state.set(MenuState::Pause);
             }
+        });
+}
 
-            if ui.button("⚙").clicked() {
-                next_menu_state.set(MenuState::Settings);
-            }
-            if ui.button("Exit Lobby").clicked() {
-                socket.leave_lobby(false);
-                next_game.set(GameState::MainMenu);
-            }
+pub fn update_pause_ui(
+    mut contexts: EguiContexts,
+    mut next_menu_state: ResMut<NextState<MenuState>>,
+    mut next_game_state: ResMut<NextState<GameState>>,
+    socket: Res<CloudflareSocket>,
+) {
+    mobile_input::hide();
+    let safe = safe_screen_rect(contexts.ctx_mut());
+    egui::Window::new("GAME MENU")
+        .id(Id::new("pause overlay"))
+        .collapsible(false)
+        .resizable(false)
+        .title_bar(true)
+        .fixed_pos(safe.min)
+        .default_size(safe.size())
+        .show(contexts.ctx_mut(), |ui| {
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.vertical_centered_justified(|ui| {
+                        ui.heading("Game Menu");
+                        ui.label(
+                            RichText::new(
+                                "Multiplayer continues while this overlay is open. You are not paused.",
+                            )
+                            .color(ACCENT)
+                            .strong(),
+                        );
+                        ui.label("Network play and local controls remain live behind this menu.");
+                        ui.separator();
+                        for (action, label) in [
+                            (PauseAction::Resume, "Resume"),
+                            (PauseAction::Settings, "Settings"),
+                            (PauseAction::ExitLobby, "Exit Lobby"),
+                            (PauseAction::MainMenu, "Main Menu"),
+                        ] {
+                            if ui.add_sized(vec2(ui.available_width(), 44.0), Button::new(label)).clicked() {
+                                let effect = pause_action_effect(action);
+                                if effect.notify_worker_leave {
+                                    socket.leave_lobby(effect.requeue);
+                                }
+                                next_menu_state.set(effect.menu);
+                                if let Some(game) = effect.game {
+                                    next_game_state.set(game);
+                                }
+                            }
+                        }
+                    });
+                });
         });
 }
 
 pub fn update_settings_ui(
     mut contexts: EguiContexts,
+    game_state: Res<State<GameState>>,
     mut next_menu_state: ResMut<NextState<MenuState>>,
     mut audio_config: ResMut<AudioConfig>,
     mut profile: ResMut<PendingPlayerProfile>,
@@ -336,10 +451,12 @@ pub fn update_settings_ui(
         }
     }
     let scale = responsive_scale(contexts.ctx_mut());
+    let margin = panel_margin(contexts.ctx_mut());
     bevy_egui::egui::CentralPanel::default()
         .frame(
             Frame::none()
-                .inner_margin(panel_margin(contexts.ctx_mut()))
+                .outer_margin(margin)
+                .inner_margin(Margin::same(0.0))
                 .fill(PANEL_DARK),
         )
         .show(contexts.ctx_mut(), |ui| {
@@ -370,7 +487,7 @@ pub fn update_settings_ui(
 
                         // justify the sliders (- 200 for extra display value and text size)
                         ui.style_mut().spacing.slider_width =
-                            ui.max_rect().width() - extra_slider_widget_size;
+                            (ui.available_width() - extra_slider_widget_size).clamp(44.0, 420.0);
 
                         ui.heading("Player Settings");
 
@@ -385,7 +502,7 @@ pub fn update_settings_ui(
                                 profile.name = "Ghost".into();
                             }
                         }
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.label("Color:");
                             for (id, color) in [
                                 Color32::RED,
@@ -489,9 +606,11 @@ pub fn update_settings_ui(
                             slider
                         });
 
-                        // return to main menu
-                        if ui.button("Back").clicked() {
-                            next_menu_state.set(MenuState::Main);
+                        if ui
+                            .add_sized(vec2(ui.available_width(), 44.0), Button::new("Back"))
+                            .clicked()
+                        {
+                            next_menu_state.set(settings_back_destination(game_state.get()));
                         }
                     });
                 });
@@ -523,16 +642,20 @@ pub fn update_score_ui(
     let Some(bootstrap) = bootstrap else {
         return;
     };
+    let safe = safe_screen_rect(contexts.ctx_mut());
+    let menu_reserve = if safe.width() >= 360.0 { 124.0 } else { 0.0 };
+    let score_top = safe.top() + if menu_reserve == 0.0 { 52.0 } else { 0.0 };
     Area::new("score")
-        .anchor(Align2::CENTER_TOP, (0., 18.))
+        .fixed_pos(pos2(safe.left() + menu_reserve, score_top))
         .show(contexts.ctx_mut(), |ui| {
+            ui.set_width((safe.width() - menu_reserve).max(0.0));
             ui.vertical_centered(|ui| {
                 ui.label(
                     RichText::new(mode_label(bootstrap.mode))
                         .strong()
                         .color(Color32::WHITE),
                 );
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     for score in scores.entries() {
                         let profile = bootstrap
                             .profiles
@@ -607,9 +730,11 @@ pub fn update_match_status_ui(
         .iter()
         .find(|(player, _, _, _)| player.handle == local.0);
 
+    let safe = safe_screen_rect(contexts.ctx_mut());
     Area::new("player status")
-        .anchor(Align2::LEFT_BOTTOM, (18., -18.))
+        .fixed_pos(pos2(safe.left(), (safe.bottom() - 88.0).max(safe.top())))
         .show(contexts.ctx_mut(), |ui| {
+            ui.set_max_width(safe.width());
             if let Some((_, boost, shield, marked)) = local_player {
                 if marked.is_some() {
                     ui.label(
@@ -666,11 +791,15 @@ pub fn update_match_status_ui(
             .find(|profile| profile.player_id == winner)
             .map(|profile| profile.name.as_str())
             .unwrap_or("Ghost");
+        mobile_input::hide();
         bevy_egui::egui::Window::new("MATCH OVER")
             .collapsible(false)
             .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .fixed_pos(safe.min)
+            .default_size(safe.size())
             .show(contexts.ctx_mut(), |ui| {
+                ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.heading(if Some(winner) == local_id {
                     "YOU WIN!"
                 } else {
@@ -687,10 +816,16 @@ pub fn update_match_status_ui(
                         ui.label(format!("Rematch requested — {accepted}/{required} accepted • {seconds}s. Accept or deny."))
                     }
                 };
+                let narrow_actions = is_narrow(ui.available_width());
+                let action_width = if narrow_actions {
+                    ui.available_width()
+                } else {
+                    220.0_f32.min(ui.available_width())
+                };
                 ui.horizontal_wrapped(|ui| {
                     match rematch.clone() {
                         RematchFlow::Idle => {
-                            if ui.button("Rematch (Same Lobby)").clicked() {
+                            if ui.add_sized(vec2(action_width, 44.0), Button::new("Rematch (Same Lobby)")).clicked() {
                                 let generation = socket.match_generation().unwrap_or(0).saturating_add(1);
                                 let nonce = format!("{:032x}", bootstrap.match_id.0 ^ generation as u128 ^ local_id.unwrap_or_default().0);
                                 if socket.request_rematch(generation, &nonce) {
@@ -703,17 +838,17 @@ pub fn update_match_status_ui(
                             }
                         }
                         RematchFlow::Pending { generation, nonce, .. } => {
-                            if ui.button("Accept Rematch").clicked() && !socket.respond_rematch(generation, &nonce, true) {
+                            if ui.add_sized(vec2(action_width, 44.0), Button::new("Accept Rematch")).clicked() && !socket.respond_rematch(generation, &nonce, true) {
                                 toasts.error("Could not send rematch response; returning to menu.".into());
                                 next_game.set(GameState::MainMenu);
                             }
-                            if ui.button("Deny").clicked() && !socket.respond_rematch(generation, &nonce, false) {
+                            if ui.add_sized(vec2(action_width, 44.0), Button::new("Deny")).clicked() && !socket.respond_rematch(generation, &nonce, false) {
                                 toasts.error("Could not send rematch denial; returning to menu.".into());
                                 next_game.set(GameState::MainMenu);
                             }
                         }
                     }
-                    if ui.button("Re-Queue (General Queue)").clicked() {
+                    if ui.add_sized(vec2(action_width, 44.0), Button::new("Re-Queue (General Queue)")).clicked() {
                         socket.leave_lobby(true);
                         room.private_code = None;
                         room.mode = super::session::GameMode::Deathmatch;
@@ -722,10 +857,11 @@ pub fn update_match_status_ui(
                         *rematch = RematchFlow::Idle;
                         next_game.set(GameState::Matchmaking);
                     }
-                    if ui.button("Main Menu").clicked() {
+                    if ui.add_sized(vec2(action_width, 44.0), Button::new("Main Menu")).clicked() {
                         socket.leave_lobby(false);
                         next_game.set(GameState::MainMenu);
                     }
+                });
                 });
             });
     }
@@ -734,6 +870,73 @@ pub fn update_match_status_ui(
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+
+    #[test]
+    fn pause_and_escape_transitions_are_game_state_aware() {
+        assert_eq!(
+            escape_destination(&GameState::InGame, &MenuState::Main),
+            Some(MenuState::Pause)
+        );
+        assert_eq!(
+            escape_destination(&GameState::InGame, &MenuState::Pause),
+            Some(MenuState::Main)
+        );
+        assert_eq!(
+            escape_destination(&GameState::InGame, &MenuState::Settings),
+            Some(MenuState::Pause)
+        );
+        assert_eq!(
+            escape_destination(&GameState::MainMenu, &MenuState::Settings),
+            None
+        );
+        assert_eq!(
+            settings_back_destination(&GameState::InGame),
+            MenuState::Pause
+        );
+        assert_eq!(
+            settings_back_destination(&GameState::MainMenu),
+            MenuState::Main
+        );
+    }
+
+    #[test]
+    fn pause_actions_leave_safely_without_requeue() {
+        assert_eq!(
+            pause_action_effect(PauseAction::Resume).menu,
+            MenuState::Main
+        );
+        assert_eq!(
+            pause_action_effect(PauseAction::Settings).menu,
+            MenuState::Settings
+        );
+        for action in [PauseAction::ExitLobby, PauseAction::MainMenu] {
+            let effect = pause_action_effect(action);
+            assert_eq!(effect.game, Some(GameState::MainMenu));
+            assert!(effect.notify_worker_leave);
+            assert!(!effect.requeue);
+            assert_eq!(effect.menu, MenuState::Main);
+        }
+    }
+
+    #[test]
+    fn pause_does_not_stop_ingame_network_or_input_scheduling() {
+        assert!(in_game_runtime_scheduled(
+            &GameState::InGame,
+            &MenuState::Main
+        ));
+        assert!(in_game_runtime_scheduled(
+            &GameState::InGame,
+            &MenuState::Pause
+        ));
+        assert!(in_game_runtime_scheduled(
+            &GameState::InGame,
+            &MenuState::Settings
+        ));
+        assert!(!in_game_runtime_scheduled(
+            &GameState::MainMenu,
+            &MenuState::Pause
+        ));
+    }
 
     #[test]
     fn responsive_layout_stays_compact_on_mobile() {
@@ -745,7 +948,18 @@ mod layout_tests {
                 ..default()
             });
             let margin = panel_margin(&ctx);
+            assert!(margin.left >= MOBILE_EDGE_MARGIN && margin.top >= MOBILE_EDGE_MARGIN);
             assert!(margin.left <= 40.0 && margin.top <= 32.0);
+            assert!(is_narrow(size.x) == (size.x < NARROW_LAYOUT_WIDTH));
+            let safe = safe_screen_rect(&ctx);
+            assert!(safe.left() >= ctx.screen_rect().left());
+            assert!(safe.top() >= ctx.screen_rect().top());
+            assert!(safe.right() <= ctx.screen_rect().right());
+            assert!(safe.bottom() <= ctx.screen_rect().bottom());
+            assert!(safe.left() >= MOBILE_EDGE_MARGIN);
+            assert!(safe.top() >= MOBILE_EDGE_MARGIN);
+            assert!(safe.right() <= size.x - MOBILE_EDGE_MARGIN);
+            assert!(safe.bottom() <= size.y - MOBILE_EDGE_MARGIN);
             assert!((0.6..=1.0).contains(&responsive_scale(&ctx)));
             apply_retro_style(&ctx);
             let style = ctx.style();
@@ -756,27 +970,42 @@ mod layout_tests {
             let _ = ctx.end_frame();
         }
     }
+
+    #[test]
+    fn safe_bounds_remain_valid_at_extreme_narrow_widths() {
+        for size in [vec2(240.0, 320.0), vec2(320.0, 240.0), vec2(24.0, 44.0)] {
+            let screen = egui::Rect::from_min_size(Pos2::ZERO, size);
+            let safe = safe_screen_rect_for(screen);
+            assert!(safe.left() >= screen.left());
+            assert!(safe.top() >= screen.top());
+            assert!(safe.right() <= screen.right());
+            assert!(safe.bottom() <= screen.bottom());
+            assert!(safe.width() >= 0.0 && safe.height() >= 0.0);
+            assert!(is_narrow(size.x));
+        }
+    }
 }
 
 pub fn update_matchmaking_ui(mut contexts: EguiContexts) {
+    let safe = safe_screen_rect(contexts.ctx_mut());
+    let scale = responsive_scale(contexts.ctx_mut());
     Area::new("matchmaking info")
-        .anchor(Align2::CENTER_TOP, (0., 25.))
+        .fixed_pos(safe.min)
         .show(contexts.ctx_mut(), |ui| {
-            ui.label(
-                RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
-                    .color(Color32::LIGHT_BLUE)
-                    .font(FontId::proportional(68.0)),
-            );
-            ui.label(
-                RichText::new("Game by Connor Postma 2023")
-                    .color(Color32::GRAY)
-                    .font(FontId::monospace(24.0)),
-            );
-            ui.label(
-                RichText::new("Waiting for opponent to join...")
-                    .color(Color32::WHITE)
-                    .font(FontId::proportional(48.0)),
-            );
+            ui.set_width(safe.width());
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new(format!("GHOSTIES {}", env!("CARGO_PKG_VERSION")))
+                        .color(Color32::LIGHT_BLUE)
+                        .font(FontId::proportional(42.0 * scale)),
+                );
+                ui.label(RichText::new("Game by Connor Postma 2023").color(Color32::GRAY));
+                ui.label(
+                    RichText::new("Waiting for opponents to join...")
+                        .color(Color32::WHITE)
+                        .font(FontId::proportional(28.0 * scale)),
+                );
+            });
         });
 }
 
@@ -787,9 +1016,11 @@ pub fn update_practice_ui(
     score: Res<PracticeScore>,
     cooldown: Res<PracticeCooldown>,
 ) {
+    let safe = safe_screen_rect(contexts.ctx_mut());
     Area::new("practice HUD")
-        .anchor(Align2::CENTER_BOTTOM, (0.0, -18.0))
+        .fixed_pos(pos2(safe.left(), (safe.bottom() - 150.0).max(safe.top())))
         .show(contexts.ctx_mut(), |ui| {
+            ui.set_width(safe.width());
             Frame::none()
                 .fill(Color32::from_rgba_unmultiplied(20, 24, 34, 225))
                 .stroke(Stroke::new(2.0, OUTLINE))
@@ -817,14 +1048,18 @@ pub fn update_respawn_ui(mut contexts: EguiContexts, flow: Res<MatchFlow>) {
     if matches!(*flow, MatchFlow::MatchOver { .. }) {
         return;
     }
-    Area::new("matchmaking info")
-        .anchor(Align2::CENTER_CENTER, (0., 25.))
+    let safe = safe_screen_rect(contexts.ctx_mut());
+    Area::new("respawn info")
+        .fixed_pos(pos2(safe.left(), safe.center().y - 44.0))
         .show(contexts.ctx_mut(), |ui| {
-            ui.label(
-                RichText::new("SCORE!\nRespawning...")
-                    .color(Color32::WHITE)
-                    .font(FontId::proportional(32.0)),
-            );
-            ui.spinner();
+            ui.set_width(safe.width());
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new("SCORE!\nRespawning...")
+                        .color(Color32::WHITE)
+                        .font(FontId::proportional(32.0)),
+                );
+                ui.spinner();
+            });
         });
 }
