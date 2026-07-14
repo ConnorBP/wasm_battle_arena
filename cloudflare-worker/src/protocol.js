@@ -60,7 +60,7 @@ export function parseEpochLobbyQuery(searchParams) {
 }
 
 export function parseQueueQuery(searchParams) {
-  const allowed = new Set(["protocol", "preference", "target"]);
+  const allowed = new Set(["protocol", "preference"]);
   const seen = new Set();
   for (const key of searchParams.keys()) {
     if (!allowed.has(key)) return fail(`unknown query parameter: ${key}`);
@@ -72,9 +72,7 @@ export function parseQueueQuery(searchParams) {
   if (!new Set(["any", "duel", "deathmatch"]).has(preference)) {
     return fail("preference must be any, duel, or deathmatch");
   }
-  const targetText = searchParams.get("target");
-  if (!/^[3-8]$/.test(targetText ?? "")) return fail("target must be between 3 and 8");
-  return { ok: true, value: { preference, target: Number(targetText) } };
+  return { ok: true, value: { preference } };
 }
 
 export function parseLobbyQuery(searchParams) {

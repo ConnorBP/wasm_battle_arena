@@ -1,6 +1,6 @@
 # Ghost Battle signaling worker
 
-This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lobby` protocol v2 compatibility, lifecycle-safe `/lobby?...&protocol=3`, and the public protocol-v4 flexible queue. Protocol 3 supports opt-in two-player Dueling Ghosts and Last Ghost Standing at 3–8 players. Protocol 4 arbitrates Duel/Deathmatch/Any preferences and securely hands an exact roster to v3. All relay only WebRTC SDP/ICE; game packets remain peer-to-peer except when a restrictive network requires Cloudflare TURN relay. See [protocol v4](../docs/matchmaking-v4.md), [protocol v3](../docs/lobby-v3.md), and legacy [v2](../docs/lobby-v2.md).
+This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lobby` protocol v2 compatibility, lifecycle-safe `/lobby?...&protocol=3`, and the dynamic public protocol-v4 queue. Protocol 3 supports opt-in two-player Dueling Ghosts and Last Ghost Standing at 3–8 players. Protocol 4 accepts only Duel/Deathmatch/Any preferences (the obsolete public target query is rejected), stages 3–8 compatible LGS players for up to 30 seconds with strict-majority start voting, and securely hands an exact roster to v3. All relay only WebRTC SDP/ICE; game packets remain peer-to-peer except when a restrictive network requires Cloudflare TURN relay. See [protocol v4](../docs/matchmaking-v4.md), [protocol v3](../docs/lobby-v3.md), and legacy [v2](../docs/lobby-v2.md).
 
 ## Deploy
 
@@ -22,7 +22,7 @@ This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lob
 
 ## Tests
 
-`npm test` runs the pure source tests under `test/` with Node's built-in test runner. They cover protocol parsing/validation, all v4 arbitration combinations/deadlines/cancellation/disconnect/3–8 expansion, assignment HMAC tamper/replay/expiry semantics, and the vendored lifecycle reducer (2–8 supported capacities, active-ready immutability, roster/epoch continuity, mid-round joins, report consensus, terminal idempotence, reconnect token rotation/expiry/supersession, epoch signal validation, rematch generation/nonce idempotence, simultaneous requests, timeout/deny/disconnect, exit, and deterministic seed advancement) without a Workers runtime.
+`npm test` runs the pure source tests under `test/` with Node's built-in test runner. They cover protocol parsing/validation, v4 pre-stage arbitration, dynamic 3–8 staging/deadlines/voting/cancellation/disconnect/equal-time races, assignment HMAC tamper/replay/expiry semantics, and the vendored lifecycle reducer (2–8 supported capacities, active-ready immutability, roster/epoch continuity, mid-round joins, report consensus, terminal idempotence, reconnect token rotation/expiry/supersession, epoch signal validation, rematch generation/nonce idempotence, simultaneous requests, timeout/deny/disconnect, exit, and deterministic seed advancement) without a Workers runtime.
 
 For local development, run `npx wrangler dev` and add the exact local game origin to `ALLOWED_ORIGINS`. The game's `local` Cargo feature uses `ws://127.0.0.1:8787/match`.
 

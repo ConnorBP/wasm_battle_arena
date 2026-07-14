@@ -27,19 +27,18 @@ test("routePath preserves the legacy /match route and adds /lobby", () => {
   assert.equal(routePath("/queue/private-room"), null);
 });
 
-test("queue query is protocol 4 public flexible matchmaking only", () => {
+test("queue query is protocol 4 public preference-only matchmaking", () => {
   for (const preference of ["any", "duel", "deathmatch"]) {
-    for (let target = 3; target <= 8; target += 1) {
-      assert.deepEqual(parseQueueQuery(new URLSearchParams(`protocol=4&preference=${preference}&target=${target}`)), {
-        ok: true, value: { preference, target },
-      });
-    }
+    assert.deepEqual(parseQueueQuery(new URLSearchParams(`protocol=4&preference=${preference}`)), {
+      ok: true, value: { preference },
+    });
   }
-  assert.equal(parseQueueQuery(new URLSearchParams("protocol=3&preference=any&target=3")).ok, false);
-  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=2")).ok, false);
-  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=9")).ok, false);
-  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=unknown&target=4")).ok, false);
-  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=4&extra=x")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=3&preference=any")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=unknown")).ok, false);
+  // The obsolete client-selected target is rejected rather than ignored.
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=3")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&extra=x")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&preference=any")).ok, false);
 });
 
 test("lobby query validates mode, capacity, and reconnect pair", () => {

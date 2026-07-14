@@ -2,7 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import { signAssignment } from "./assignment.js";
 import {
   ASSIGNMENT_TTL_MS, MAX_QUEUE_ENTRIES, advanceQueue, cancelQueue,
-  createQueueState, heartbeatQueue, nextQueueDeadline, queueEntry,
+  createQueueState, heartbeatQueue, migrateQueueState, nextQueueDeadline, queueEntry,
+  startVotesRequired, voteStartQueue, withdrawStartVoteQueue,
 } from "./queue-state.js";
 import { MAX_MESSAGE_BYTES, applyMessageRateLimit, parseQueueQuery, randomHex } from "./protocol.js";
 
@@ -14,8 +15,7 @@ export class MatchQueue extends DurableObject {
     super(ctx, env);
     this.env = env;
     this.ctx.blockConcurrencyWhile(async () => {
-      this.state = await ctx.storage.get(STATE_KEY) ?? createQueueState(Date.now());
-      this.state.assignments ??= {};
+      this.state = migrateQueueState(await ctx.storage.get(STATE_KEY) ?? createQueueState(Date.now()), Date.now());
     });
   }
 
@@ -38,7 +38,7 @@ export class MatchQueue extends DurableObject {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ ticket, rate: { windowStarted: now, windowMessages: 0 } });
     const result = queueEntry(this.state, { ticket, ...parsed.value }, now);
-    this.send(server, { type: "queued", protocol: 4, ticket, preference: parsed.value.preference, target: parsed.value.target });
+    this.send(server, { type: "queued", protocol: 4, ticket, preference: parsed.value.preference });
     await this.applyResult(result, now);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -61,8 +61,24 @@ export class MatchQueue extends DurableObject {
         (message.nonce === undefined || (typeof message.nonce === "string" && message.nonce.length <= 64))) {
       const result = heartbeatQueue(this.state, attachment.ticket, now);
       if (result.type === "error") return this.violation(socket, "queue ticket inactive");
-      this.send(socket, { type: "heartbeat_ack", ...(message.nonce === undefined ? {} : { nonce: message.nonce }) });
-      await this.persist();
+      // At an exact assignment deadline the reducer may consume the ticket;
+      // do not acknowledge a heartbeat for an already-decided queue entry.
+      if (this.state.entries[attachment.ticket]) {
+        this.send(socket, { type: "heartbeat_ack", ...(message.nonce === undefined ? {} : { nonce: message.nonce }) });
+      }
+      await this.applyResult(result, now);
+      return;
+    }
+    if (message.type === "vote_start" && Object.keys(message).length === 1) {
+      const result = voteStartQueue(this.state, attachment.ticket, now);
+      if (result.type === "error") return this.violation(socket, "queue ticket is not staging");
+      await this.applyResult(result, now);
+      return;
+    }
+    if (message.type === "withdraw_start_vote" && Object.keys(message).length === 1) {
+      const result = withdrawStartVoteQueue(this.state, attachment.ticket, now);
+      if (result.type === "error") return this.violation(socket, "queue ticket is not staging");
+      await this.applyResult(result, now);
       return;
     }
     if (message.type === "cancel" && Object.keys(message).length === 1) {
@@ -124,8 +140,11 @@ export class MatchQueue extends DurableObject {
       let status = { type: "status", status: "searching" };
       if (this.state.lock?.tickets.includes(entry.ticket)) {
         status = {
-          type: "status", status: "forming",
-          count: this.state.lock.tickets.length, target: this.state.lock.target,
+          type: "status", status: "staging",
+          count: this.state.lock.tickets.length,
+          votes: this.state.lock.votes?.length ?? 0,
+          votesRequired: startVotesRequired(this.state.lock.tickets.length),
+          deadline: this.state.lock.deadline,
         };
       } else if (entry.preference === "any" && entry.anyHoldDeadline !== null) {
         status = { type: "status", status: "holding_for_third" };
