@@ -208,11 +208,6 @@ pub fn stop_cloudflare_socket(
     room.private_code = None;
 }
 
-pub fn stop_legacy_matchmaking_socket(_socket: Res<CloudflareSocket>) {
-    // Legacy ownership moved into the GGRS adapter; lobby control stays in the
-    // resource. A zero-id resource is already inert.
-}
-
 pub fn cleanup_network_session(
     mut commands: Commands,
     socket: Res<CloudflareSocket>,
@@ -331,88 +326,18 @@ pub fn wait_for_players(
             lobby.expect("final readiness requires immutable lobby snapshot"),
         );
     }
-    let match_info = match state {
-        ConnectionState::Ready => {
-            let Some(info) = socket.match_info() else {
-                toasts.error("Invalid final matchmaking assignment.".into());
-                next_state.set(GameState::MainMenu);
-                return;
-            };
-            info
-        }
+    match state {
         ConnectionState::Failed(error) => {
             toasts.error(error.into());
             next_state.set(GameState::MainMenu);
-            return;
         }
-        ConnectionState::Disconnected | ConnectionState::Connecting => return,
-    };
-
-    let bootstrap = RoundBootstrap::duel(match_info.seed);
-    let (local_handle, remote_handle) = match match_info.player_index {
-        0 => (0, 1),
-        1 => (1, 0),
-        _ => {
-            toasts.error("Invalid player assignment.".into());
+        // Protocol-3 lobby readiness above is the only supported online path.
+        ConnectionState::Ready => {
+            toasts.error("Invalid final lobby assignment.".into());
             next_state.set(GameState::MainMenu);
-            return;
         }
-    };
-
-    #[cfg(feature = "no_delay")]
-    let input_delay = 0;
-    #[cfg(not(feature = "no_delay"))]
-    let input_delay = 2;
-
-    let session_builder = ggrs::SessionBuilder::<GgrsConfig>::new()
-        .with_fps(ROLLBACK_FPS)
-        .unwrap()
-        .with_num_players(2)
-        .with_input_delay(input_delay)
-        .with_max_prediction_window(40)
-        .with_max_frames_behind(42)
-        .unwrap()
-        .add_player(
-            PlayerType::Local,
-            bootstrap
-                .handle(local_handle)
-                .expect("local handle in roster"),
-        )
-        .expect("adding local player")
-        .add_player(
-            PlayerType::Remote(
-                bootstrap
-                    .roster
-                    .iter()
-                    .find(|entry| entry.handle == remote_handle)
-                    .expect("remote player in roster")
-                    .player_id,
-            ),
-            bootstrap
-                .handle(remote_handle)
-                .expect("remote handle in roster"),
-        )
-        .expect("adding remote player");
-
-    let ggrs_session = session_builder
-        .start_p2p_session(socket.take_transport())
-        .expect("starting ggrs p2p session");
-
-    info!(
-        "started Cloudflare-signaled session {:#02x}",
-        match_info.seed
-    );
-    commands.insert_resource(LocalPlayerHandle(local_handle));
-    commands.insert_resource(SoundIdSeed::new(match_info.seed, bootstrap.roster.len()));
-    commands.insert_resource(Scores::from_bootstrap(&bootstrap));
-    commands.insert_resource(super::MatchFlow::Playing);
-    commands.insert_resource(super::RematchFlow::Idle);
-    commands.insert_resource(super::RoundProgress::default());
-    commands.insert_resource(super::ReportedOutcome::default());
-    commands.insert_resource(bootstrap);
-    commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
-    commands.insert_resource(GameSeed(match_info.seed));
-    next_state.set(GameState::InGame);
+        ConnectionState::Disconnected | ConnectionState::Connecting => {}
+    }
 }
 
 #[cfg(test)]

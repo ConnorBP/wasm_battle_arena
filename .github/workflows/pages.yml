@@ -35,6 +35,8 @@ jobs:
           cargo install wasm-bindgen-cli --version 0.2.88 --locked
           cargo build --locked --release --target wasm32-unknown-unknown
           mkdir -p site/out
+          # wasm-bindgen bundles /src/cloudflare_net.js into out/snippets and
+          # rewrites the generated import to that emitted module.
           wasm-bindgen --out-dir site/out --target web target/wasm32-unknown-unknown/release/wasm_battle_arena.wasm
 
           curl -fsSLO "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
@@ -61,6 +63,10 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
+      - name: Browser networking module contracts
+        run: |
+          npm run test:network-js
+          npm run test:network-js:browser
       - name: In-game sync-test smoke
         run: bash scripts/run-ingame-smoke.sh
       - name: Mobile input smoke

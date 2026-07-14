@@ -402,13 +402,7 @@ pub fn run() {
     // and all WebRTC channels are ready, so cleanup occurs at actual readiness.
     .add_systems(
         OnExit(GameState::Matchmaking),
-        (
-            cleanup_practice,
-            apply_deferred,
-            reset_practice_view,
-            stop_legacy_matchmaking_socket,
-        )
-            .chain(),
+        (cleanup_practice, apply_deferred, reset_practice_view).chain(),
     )
     .add_systems(
         OnExit(GameState::InGame),
