@@ -60,7 +60,9 @@ export function parseEpochLobbyQuery(searchParams) {
 }
 
 export function parseQueueQuery(searchParams) {
-  const allowed = new Set(["protocol", "preference"]);
+  // `target` is accepted for one compatibility release so already-loaded
+  // 0.7.x clients survive the Worker-first rollout. It never affects policy.
+  const allowed = new Set(["protocol", "preference", "target"]);
   const seen = new Set();
   for (const key of searchParams.keys()) {
     if (!allowed.has(key)) return fail(`unknown query parameter: ${key}`);
@@ -72,7 +74,17 @@ export function parseQueueQuery(searchParams) {
   if (!new Set(["any", "duel", "deathmatch"]).has(preference)) {
     return fail("preference must be any, duel, or deathmatch");
   }
-  return { ok: true, value: { preference } };
+  const targetText = searchParams.get("target");
+  if (targetText !== null && (!/^[3-8]$/.test(targetText))) {
+    return fail("legacy target must be an integer from 3 through 8");
+  }
+  return {
+    ok: true,
+    value: {
+      preference,
+      legacyTarget: targetText === null ? null : Number(targetText),
+    },
+  };
 }
 
 export function parseLobbyQuery(searchParams) {

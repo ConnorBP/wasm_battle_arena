@@ -30,13 +30,17 @@ test("routePath preserves the legacy /match route and adds /lobby", () => {
 test("queue query is protocol 4 public preference-only matchmaking", () => {
   for (const preference of ["any", "duel", "deathmatch"]) {
     assert.deepEqual(parseQueueQuery(new URLSearchParams(`protocol=4&preference=${preference}`)), {
-      ok: true, value: { preference },
+      ok: true, value: { preference, legacyTarget: null },
     });
   }
   assert.equal(parseQueueQuery(new URLSearchParams("protocol=3&preference=any")).ok, false);
   assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=unknown")).ok, false);
-  // The obsolete client-selected target is rejected rather than ignored.
-  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=3")).ok, false);
+  // One-release bridge: valid legacy targets are echoed but never enter reducer policy.
+  assert.deepEqual(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=3")), {
+    ok: true, value: { preference: "any", legacyTarget: 3 },
+  });
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=2")).ok, false);
+  assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&target=9")).ok, false);
   assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&extra=x")).ok, false);
   assert.equal(parseQueueQuery(new URLSearchParams("protocol=4&preference=any&preference=any")).ok, false);
 });

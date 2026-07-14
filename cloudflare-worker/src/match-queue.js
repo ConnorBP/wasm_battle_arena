@@ -37,8 +37,11 @@ export class MatchQueue extends DurableObject {
     const ticket = this.uniqueTicket();
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ ticket, rate: { windowStarted: now, windowMessages: 0 } });
-    const result = queueEntry(this.state, { ticket, ...parsed.value }, now);
-    this.send(server, { type: "queued", protocol: 4, ticket, preference: parsed.value.preference });
+    const result = queueEntry(this.state, { ticket, preference: parsed.value.preference }, now);
+    this.send(server, {
+      type: "queued", protocol: 4, ticket, preference: parsed.value.preference,
+      ...(parsed.value.legacyTarget === null ? {} : { target: parsed.value.legacyTarget }),
+    });
     await this.applyResult(result, now);
     return new Response(null, { status: 101, webSocket: client });
   }

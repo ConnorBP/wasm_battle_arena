@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 - 2026-07-14
+
+- Replaced public Last Ghost Standing target counts with dynamic 3–8-player staging lobbies.
+- Added strict-majority Vote to Start controls and a fixed 30-second automatic start countdown.
+- Added vote withdrawal, dynamic vote thresholds, immediate eight-player starts, and disconnect-safe staging dissolution.
+- Preserved exact 3–8-player Last Ghost Standing capacities for private room-code matches.
+- Added a one-release compatibility bridge for already-loaded 0.7.x queue clients.
+
 ## 0.7.1 - 2026-07-13
 
 - Fixed an Any Mode browser crash caused by polling protocol-v3 control messages during protocol-v4 queue waiting.
