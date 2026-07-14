@@ -222,6 +222,7 @@ function closeLobbyRound(session, epoch, round) {
 }
 
 async function installLobbyStart(session, start, bufferedSignals = []) {
+    session.reconnecting = false;
     session.roster = start.roster;
     session.seed = start.seed;
     session.epoch = start.epoch;
@@ -307,7 +308,19 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
             } else if (["rematch_pending", "rematch_accepted", "rematch_denied", "match_exit", "match_over", "requeue"].includes(message.type)) {
                 if (session.control.length >= 32) session.control.shift();
                 session.control.push(message);
-            } else if (["round_commit", "round_abort", "presence", "status", "profile_accepted", "report_ack", "pong"].includes(message.type)) {
+            } else if (message.type === "status") {
+                if (!["waiting", "active", "reconnecting"].includes(message.status)) throw new Error("invalid lobby status");
+                // A reloaded active member deliberately has no bootstrap until
+                // the server's short reconnect batch emits a changed `start`.
+                // Keep matchmaking pending rather than treating this as an
+                // error or attempting to revive the old WebRTC transport.
+                if (message.status === "reconnecting") {
+                    if (!message.active || !Number.isSafeInteger(message.active.epoch) || !Number.isSafeInteger(message.active.round) ||
+                        !Number.isSafeInteger(message.reconnectDeadline)) throw new Error("invalid reconnecting status");
+                    session.reconnecting = true;
+                }
+                return;
+            } else if (["round_commit", "round_abort", "presence", "profile_accepted", "report_ack", "pong"].includes(message.type)) {
                 return;
             } else if (message.type === "error") {
                 throw new Error(typeof message.error === "string" ? message.error : "lobby error");

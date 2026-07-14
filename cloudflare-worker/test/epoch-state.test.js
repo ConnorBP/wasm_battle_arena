@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createEpochState, startNextEpoch, submitReport, selectNextRoster } from "../src/epoch-state.js";
+import {
+  createEpochState, startNextEpoch, submitReport, selectNextRoster,
+  markActiveReconnect, rolloverActiveReconnect,
+} from "../src/epoch-state.js";
 import { rotateReconnectIdentity } from "../vendor/cloudflare-game-common/lifecycle.js";
 
 function player(id, joinedAt) {
@@ -94,6 +97,64 @@ test("reconnect accepts only the current token and rotates it", () => {
   assert.equal(identity.tokenHash, "next");
   assert.equal(identity.connected, true);
   assert.equal(rotateReconnectIdentity(identity, "old", "again", 51).code, "invalid_reconnect");
+});
+
+test("one active reload rolls to a fresh epoch without replaying a round", () => {
+  const state = createEpochState("duel", 2, 0);
+  state.players.a = player("a", 1); state.players.b = player("b", 2);
+  const first = startNextEpoch(state, "0".repeat(32), "initial");
+  const pending = markActiveReconnect(state, "a", 100);
+  assert.equal(pending.deadline, 400);
+  assert.equal(rolloverActiveReconnect(state, 399, "1".repeat(32)), null);
+  const result = rolloverActiveReconnect(state, 400, "1".repeat(32));
+  assert.equal(result.type, "rollover");
+  assert.deepEqual([result.next.epoch, result.next.round], [first.epoch + 1, 0]);
+  assert.equal(result.next.seed, "1".repeat(32));
+  assert.equal(state.reconnectBatchDeadline, null);
+});
+
+test("simultaneous and staggered reloads batch into one epoch increment", () => {
+  const state = createEpochState("deathmatch", 3, 0);
+  state.players.a = player("a", 1); state.players.b = player("b", 2); state.players.c = player("c", 3);
+  startNextEpoch(state, "0".repeat(32), "initial");
+  assert.equal(markActiveReconnect(state, "a", 100).deadline, 400);
+  assert.equal(markActiveReconnect(state, "b", 100).deadline, 400);
+  assert.equal(markActiveReconnect(state, "c", 250).deadline, 400);
+  assert.equal(rolloverActiveReconnect(state, 400, "2".repeat(32)).type, "rollover");
+  assert.equal(state.epoch, 1);
+  assert.equal(rolloverActiveReconnect(state, 900, "3".repeat(32)), null);
+  assert.equal(state.epoch, 1);
+});
+
+test("reconnect rollover preserves ids, profiles, scores, and match generation", () => {
+  const state = createEpochState("duel", 2, 0);
+  state.players.a = player("a", 1); state.players.b = player("b", 2);
+  state.players.a.score = 2;
+  state.players.b.score = 1;
+  state.players.a.profile = { name: "Alpha", paletteId: 2, cosmeticId: 3 };
+  state.matchGeneration = 7;
+  startNextEpoch(state, "0".repeat(32), "initial");
+  markActiveReconnect(state, "a", 10);
+  const next = rolloverActiveReconnect(state, 310, "f".repeat(32)).next;
+  assert.deepEqual(next.roster.map((entry) => [entry.playerId, entry.score]), [["a", 2], ["b", 1]]);
+  assert.deepEqual(next.roster[0].profile, { name: "Alpha", paletteId: 2, cosmeticId: 3 });
+  assert.equal(state.matchGeneration, 7);
+});
+
+test("absent active member clears only batch and retains reconnect grace", () => {
+  const state = createEpochState("duel", 2, 0);
+  state.players.a = player("a", 1); state.players.b = player("b", 2);
+  startNextEpoch(state, "0".repeat(32), "initial");
+  state.players.b.connected = false;
+  state.players.b.reconnectUntil = 30_000;
+  const before = structuredClone(state.active);
+  markActiveReconnect(state, "a", 100);
+  const result = rolloverActiveReconnect(state, 400, "1".repeat(32));
+  assert.deepEqual(result, { type: "waiting", missing: ["b"], next: null });
+  assert.deepEqual(state.active, before);
+  assert.equal(state.players.b.reconnectUntil, 30_000);
+  assert.equal(state.reconnectBatchDeadline, null);
+  assert.equal(state.epoch, 0);
 });
 
 test("roster selection prefers incumbents then waiters", () => {

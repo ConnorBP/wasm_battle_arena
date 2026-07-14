@@ -16,15 +16,19 @@ Protocol-v4 flexible matchmaking hands selected rosters to reserved `q4_*` v3 ro
 
 `welcome` contains `protocol: 3`, a 32-hex `playerId`, a rotating 32-hex `reconnectToken`, `reconnectGraceMs`, strictly validated `iceServers`, and `turnExpiresAt` (Unix milliseconds, or `null` for STUN-only fallback). The browser keeps the latest reconnect identity in `sessionStorage`: reconnects in the same tab/runtime preserve identity; a full browser storage reset (or a new tab) creates a new identity. Every successful reconnect rotates the token, supersedes any older live socket for that identity, and invalidates the previous token. The server stores only SHA-256 token hashes. The browser stores only reconnect identity in `sessionStorage`; short-lived TURN usernames/passwords remain in memory and must never be logged or stored. Every successful reconnect is admitted again and receives freshly minted credentials. There is no browser-callable/public credentials endpoint.
 
-Reconnect honors a grace window. A disconnected roster member is not removed immediately; their seat is reserved until `reconnectGraceMs` elapses, at which point the identity expires and an active round is aborted. A reconnect strictly before the boundary preserves the identity and replays the immutable `start` bootstrap.
+Reconnect honors a grace window. A disconnected roster member is not removed immediately; their seat is reserved until `reconnectGraceMs` elapses, at which point the identity expires and the roster is released to terminal cleanup. A reconnect strictly before that boundary preserves the identity.
 
-After `welcome`, send a validated `profile`, then `ready`. The control WebSocket stays open independently of epoch WebRTC/GGRS channels. Reconnect of an active member replays the immutable `start` bootstrap without creating or replacing an epoch.
+An active-roster reconnect does **not** replay the current `start`: a reloaded page has lost its old WebRTC/GGRS transport, while the other peers may still have theirs. After `welcome`, the Worker sends `status:"reconnecting"`, temporarily answers old-round reports/signals with `status:"reconnecting"`, and records a persisted deadline about 300 ms in the future. Reloads from other immutable roster members during that fixed window join the same batch and do not extend it. At the deadline (checked by the Durable Object alarm and incoming processing), if every immutable roster member is connected, the Worker atomically persists one replacement bootstrap and then broadcasts one `start` to all sockets. It preserves player IDs, current profiles, scores, and `matchGeneration`, uses a fresh seed, increments `epoch` exactly once, and resets `round` to zero. Existing clients stage that changed epoch through their normal reset barrier; reloaded clients with no installed roster install it immediately.
+
+If any immutable member is still absent at the batch deadline, no replacement epoch is made. The short batch marker is cleared, the active state remains reserved, and the ordinary 30-second identity grace continues. A later reconnect may open a new short batch; if the roster is not restored before grace expires, normal terminal cleanup applies. This separation prevents a partial roster, duplicate alarm, or staggered message from creating duplicate epoch restarts.
+
+After `welcome`, send a validated `profile`, then `ready`. The control WebSocket stays open independently of epoch WebRTC/GGRS channels.
 
 ## Epoch lifecycle
 
 A `start` message contains `protocol`, `epoch`, `round`, `mode`, `capacity`, a 32-hex `seed`, and a canonical roster with profile/score snapshots.
 
-* `ready` never replaces `active`. An immutable active epoch cannot be replaced by ready, profile, presence, reconnect, or mid-round join events.
+* `ready` never replaces `active`. An immutable active epoch cannot be replaced by ready, profile, presence, or mid-round join events. The sole reconnect exception is the server-authoritative, deadline-batched changed-epoch rollover described above; it never mutates/replays the current bootstrap in place.
 * Mid-round joiners are waiting candidates for the next selection; incumbents keep their seat until one leaves.
 * If the next canonical roster is unchanged, `round` increments and `epoch` does not.
 * If membership changes, `epoch` increments and `round` resets to zero.
@@ -52,7 +56,7 @@ The server may send `welcome`, `status`, `presence`, `profile_accepted`, `report
 
 * `welcome` — `{ type, protocol:3, playerId, reconnectToken, reconnectGraceMs, iceServers, turnExpiresAt }`
 * `start` — `{ type, protocol:3, epoch, round, mode, capacity, seed, roster:[{playerId,index,profile,score}] }`
-* `status` — `{ type, protocol:3, status:"active"|"waiting", mode, capacity, active:{epoch,round}|null, ready, score }`
+* `status` — `{ type, protocol:3, status:"active"|"waiting"|"reconnecting", mode, capacity, active:{epoch,round}|null, ready, score, reconnectDeadline? }`; `reconnectDeadline` is present for `reconnecting` and is the current absolute Unix-millisecond batch deadline, or the relevant grace deadline after an incomplete batch.
 * `presence` — `{ type, playerId, connected, expired }`
 * `profile_accepted` — `{ type }`
 * `report_ack` — `{ type, epoch, round, duplicate, received, required }`

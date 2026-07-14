@@ -105,7 +105,7 @@ fn sanitize_test_room(value: &str) -> String {
 /// Resolve an authoritative round on every peer. Most scenarios alternate the
 /// winner to avoid reaching match point. Endpoint scenarios deliberately award
 /// the same stable player three rounds in a row.
-pub fn drive_transition_round(
+fn drive_transition_round(
     frame: Res<GGFrameCount>,
     bootstrap: Res<RoundBootstrap>,
     harness: Res<TransitionHarness>,
@@ -113,7 +113,14 @@ pub fn drive_transition_round(
     mut next: ResMut<NextState<RollbackState>>,
 ) {
     if frame.frame == 0 {
-        emit_bootstrap_event("frame", &harness, &bootstrap, None, frame.frame, "round frame zero");
+        emit_bootstrap_event(
+            "frame",
+            &harness,
+            &bootstrap,
+            None,
+            frame.frame,
+            "round frame zero",
+        );
     } else if frame.frame == TEST_CHECKPOINT_FRAME {
         emit_bootstrap_event(
             "checkpoint",
@@ -149,7 +156,7 @@ pub fn drive_transition_round(
     );
 }
 
-pub fn emit_session_event(
+fn emit_session_event(
     bootstrap: Res<RoundBootstrap>,
     frame: Res<GGFrameCount>,
     scores: Res<Scores>,
@@ -183,7 +190,11 @@ fn auto_enter_transition_queue(
         "",
         "",
         "",
-        if harness.entered_queue { "returned" } else { "initial" },
+        if harness.entered_queue {
+            "returned"
+        } else {
+            "initial"
+        },
     );
     // A clean return to menu is observable and terminal. Only initial startup
     // auto-enters matchmaking; a disconnect must not silently requeue.
@@ -216,7 +227,11 @@ fn emit_matchmaking_event(harness: Res<TransitionHarness>) {
         "",
         "",
         "",
-        if harness.requeue_requested { "requeue" } else { "initial" },
+        if harness.requeue_requested {
+            "requeue"
+        } else {
+            "initial"
+        },
     );
 }
 
@@ -247,7 +262,11 @@ fn observe_rollover_barrier(
             "replacement bootstrap received",
         );
     }
-    if rollover.promoted && !rollover.install_ready && session.is_none() && harness.barrier != Some(pending) {
+    if rollover.promoted
+        && !rollover.install_ready
+        && session.is_none()
+        && harness.barrier != Some(pending)
+    {
         harness.barrier = Some(pending);
         transition_event(
             "reset_barrier",
@@ -266,11 +285,10 @@ fn observe_rollover_barrier(
     }
 }
 
-fn capture_rollover_pending(
-    socket: Res<CloudflareSocket>,
-    mut harness: ResMut<TransitionHarness>,
-) {
-    let Some(pending) = socket.pending_epoch_round() else { return };
+fn capture_rollover_pending(socket: Res<CloudflareSocket>, mut harness: ResMut<TransitionHarness>) {
+    let Some(pending) = socket.pending_epoch_round() else {
+        return;
+    };
     if harness.rollover_pending != Some(pending) {
         harness.rollover_pending = Some(pending);
         transition_event(
@@ -297,7 +315,9 @@ fn observe_match_endpoint(
     socket: Res<CloudflareSocket>,
     mut harness: ResMut<TransitionHarness>,
 ) {
-    let (MatchFlow::MatchOver { winner }, Some(bootstrap)) = (&*flow, bootstrap) else { return };
+    let (MatchFlow::MatchOver { winner }, Some(bootstrap)) = (&*flow, bootstrap) else {
+        return;
+    };
     let key = (bootstrap.epoch.0, bootstrap.round.0);
     if harness.endpoint == Some(key) {
         return;
@@ -330,7 +350,10 @@ fn poll_browser_command(
             let generation = socket.match_generation().unwrap_or(0).saturating_add(1);
             // Every peer uses the same bounded nonce. The call below is the real
             // production client API, not a synthetic protocol message.
-            let nonce = format!("{:032x}", bootstrap.match_id.0 ^ generation as u128);
+            let nonce = format!(
+                "{:032x}",
+                bootstrap.match_id.0 ^ generation as u128 ^ 0x7265_6d61_7463_685f_7465_7374u128
+            );
             let sent = socket.request_rematch(generation, &nonce);
             emit_bootstrap_event(
                 "rematch_api",
@@ -386,7 +409,10 @@ fn observe_fresh_queue(socket: Res<CloudflareSocket>, mut harness: ResMut<Transi
     if !harness.requeue_requested || harness.fresh_queue_reported {
         return;
     }
-    if matches!(socket.queue_status(), Some(QueueStatus::Searching | QueueStatus::HoldingForThird)) {
+    if matches!(
+        socket.queue_status(),
+        Some(QueueStatus::Searching | QueueStatus::HoldingForThird)
+    ) {
         harness.fresh_queue_reported = true;
         transition_event(
             "fresh_queue",
@@ -413,14 +439,27 @@ fn emit_bootstrap_event(
     frame: u32,
     detail: &str,
 ) {
-    let roster = bootstrap.roster.iter().map(|entry| player_text(entry.player_id)).collect::<Vec<_>>().join(",");
-    let score_source = live.map(|value| value.0.entries()).unwrap_or(&bootstrap.scores);
-    let scores = score_source.iter().map(|entry| format!("{}={}", player_text(entry.player_id), entry.score)).collect::<Vec<_>>().join(",");
+    let roster = bootstrap
+        .roster
+        .iter()
+        .map(|entry| player_text(entry.player_id))
+        .collect::<Vec<_>>()
+        .join(",");
+    let score_source = live
+        .map(|value| value.0.entries())
+        .unwrap_or(&bootstrap.scores);
+    let scores = score_source
+        .iter()
+        .map(|entry| format!("{}={}", player_text(entry.player_id), entry.score))
+        .collect::<Vec<_>>()
+        .join(",");
     let identity = live
         .and_then(|(_, socket)| socket.local_player_id())
         .map(player_text)
         .unwrap_or_default();
-    let generation = live.and_then(|(_, socket)| socket.match_generation()).unwrap_or(0);
+    let generation = live
+        .and_then(|(_, socket)| socket.match_generation())
+        .unwrap_or(0);
     transition_event(
         kind,
         harness.scenario,
@@ -437,7 +476,9 @@ fn emit_bootstrap_event(
     );
 }
 
-fn player_text(player: PlayerId) -> String { format!("{:032x}", player.0) }
+fn player_text(player: PlayerId) -> String {
+    format!("{:032x}", player.0)
+}
 
 pub fn install(app: &mut App) {
     app.init_resource::<TransitionHarness>()
@@ -482,7 +523,19 @@ fn transition_event(
     roster: &str,
     detail: &str,
 ) {
-    emit_transition_event(kind, scenario.name(), state, epoch, round, frame, generation, seed, identity, roster, detail);
+    emit_transition_event(
+        kind,
+        scenario.name(),
+        state,
+        epoch,
+        round,
+        frame,
+        generation,
+        seed,
+        identity,
+        roster,
+        detail,
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -499,14 +552,21 @@ fn transition_event(
     _identity: &str,
     _roster: &str,
     _detail: &str,
-) {}
+) {
+}
 
 #[cfg(not(target_arch = "wasm32"))]
-fn transition_scenario() -> String { "rollover".into() }
+fn transition_scenario() -> String {
+    "rollover".into()
+}
 #[cfg(not(target_arch = "wasm32"))]
-fn transition_room() -> String { "GTTRANSITION".into() }
+fn transition_room() -> String {
+    "GTTRANSITION".into()
+}
 #[cfg(not(target_arch = "wasm32"))]
-fn take_transition_command() -> String { String::new() }
+fn take_transition_command() -> String {
+    String::new()
+}
 #[cfg(not(target_arch = "wasm32"))]
 fn install_transition_bridge() {}
 

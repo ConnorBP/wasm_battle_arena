@@ -22,7 +22,7 @@ This Worker provides the legacy `/match` two-browser matcher, fixed-roster `/lob
 
 ## Tests
 
-`npm test` runs the pure source tests under `test/` with Node's built-in test runner. They cover protocol parsing/validation, v4 pre-stage arbitration, dynamic 3–8 staging/deadlines/voting/cancellation/disconnect/equal-time races, assignment HMAC tamper/replay/expiry semantics, and the vendored lifecycle reducer (2–8 supported capacities, active-ready immutability, roster/epoch continuity, mid-round joins, report consensus, terminal idempotence, reconnect token rotation/expiry/supersession, epoch signal validation, rematch generation/nonce idempotence, simultaneous requests, timeout/deny/disconnect, exit, and deterministic seed advancement) without a Workers runtime.
+`npm test` runs the pure source tests under `test/` with Node's built-in test runner. They cover protocol parsing/validation, v4 pre-stage arbitration, dynamic 3–8 staging/deadlines/voting/cancellation/disconnect/equal-time races, assignment HMAC tamper/replay/expiry semantics, Worker source ordering, and the vendored lifecycle reducer (2–8 supported capacities, active-ready immutability, roster/epoch continuity, mid-round joins, report consensus, terminal idempotence, reconnect token rotation/expiry/supersession, server-authoritative batched active reconnect rollover, single/staggered/simultaneous reloads, score/profile/generation preservation, absent-member grace, epoch signal validation, rematch generation/nonce idempotence, timeout/deny/disconnect, exit, and deterministic seed advancement) without a Workers runtime.
 
 For local development, run `npx wrangler dev` and add the exact local game origin to `ALLOWED_ORIGINS`. The game's `local` Cargo feature uses `ws://127.0.0.1:8787/match`.
 

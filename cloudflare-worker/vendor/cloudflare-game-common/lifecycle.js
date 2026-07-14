@@ -12,6 +12,9 @@
  *    cannot be changed by late conflicts.
  *  - Reconnect tokens are rotated on every successful reconnect and supersede
  *    the previous token hash. Only hashes are ever stored by the caller.
+ *  - An active-roster reconnect is collected into one short persisted batch.
+ *    Once due, a fully connected immutable roster is moved to exactly one new
+ *    epoch so every peer rebuilds its transport from a server bootstrap.
  */
 
 export function sameRoster(left = [], right = []) {
@@ -26,7 +29,7 @@ export function sameRoster(left = [], right = []) {
  */
 export function rotateReconnectIdentity(player, presentedHash, rotatedHash, now) {
   if (!player || player.tokenHash !== presentedHash) return { ok: false, code: "invalid_reconnect" };
-  if (player.expired || (player.reconnectUntil !== null && player.reconnectUntil <= now)) {
+  if (player.expired || (player.reconnectUntil != null && player.reconnectUntil <= now)) {
     return { ok: false, code: "reconnect_expired" };
   }
   player.tokenHash = rotatedHash;
@@ -53,6 +56,90 @@ export function createLifecycleState(mode, capacity, now) {
     matchOver: false,
     rematch: null,
     lastRematchDecision: null,
+    reconnectBatchDeadline: null,
+    reconnectBatchEpoch: null,
+    reconnectBatchRound: null,
+  };
+}
+
+export const ACTIVE_RECONNECT_BATCH_MS = 300;
+
+function clearReconnectBatch(state) {
+  state.reconnectBatchDeadline = null;
+  state.reconnectBatchEpoch = null;
+  state.reconnectBatchRound = null;
+}
+
+/**
+ * Marks the first reconnect of an immutable active roster. Further reconnects
+ * for that same round join the existing fixed window instead of extending it,
+ * which makes simultaneous reloads converge on one authoritative restart.
+ */
+export function markLifecycleActiveReconnect(state, playerId, now, delay = ACTIVE_RECONNECT_BATCH_MS) {
+  const active = state.active;
+  if (!active?.roster.some((entry) => entry.playerId === playerId)) return null;
+  const sameBatch = state.reconnectBatchDeadline != null &&
+    state.reconnectBatchEpoch === active.epoch && state.reconnectBatchRound === active.round;
+  if (!sameBatch) {
+    state.reconnectBatchDeadline = now + delay;
+    state.reconnectBatchEpoch = active.epoch;
+    state.reconnectBatchRound = active.round;
+  }
+  return {
+    type: "pending", deadline: state.reconnectBatchDeadline,
+    epoch: active.epoch, round: active.round, required: active.roster.length,
+  };
+}
+
+/**
+ * Resolves a due reconnect batch. The old active round remains immutable while
+ * the batch is pending. If every member is connected, this records the old
+ * round as aborted and installs one changed epoch using the same player IDs,
+ * current profiles/scores and match generation. An absent member leaves the
+ * round in place and keeps their caller-owned reconnect grace untouched.
+ */
+export function rolloverLifecycleActiveReconnect(state, now, seed) {
+  const deadline = state.reconnectBatchDeadline;
+  if (deadline == null || deadline > now) return null;
+  const expectedEpoch = state.reconnectBatchEpoch;
+  const expectedRound = state.reconnectBatchRound;
+  clearReconnectBatch(state);
+
+  const previous = state.active;
+  if (!previous || previous.epoch !== expectedEpoch || previous.round !== expectedRound) {
+    return { type: "stale", next: null };
+  }
+  const missing = previous.roster.map((entry) => entry.playerId).filter((playerId) => {
+    const player = state.players[playerId];
+    return !player || !player.connected || player.expired;
+  });
+  if (missing.length) return { type: "waiting", missing, next: null };
+
+  if (!state.decisions) state.decisions = {};
+  const key = decisionKey(previous.epoch, previous.round);
+  state.decisions[key] ??= {
+    type: "abort", roster: cloneRoster(previous.roster), outcomes: null,
+    reason: "active_reconnect_rollover",
+  };
+  state.epoch = previous.epoch + 1;
+  state.round = 0;
+  const roster = previous.roster.map((entry, index) => {
+    const player = state.players[entry.playerId];
+    return {
+      playerId: entry.playerId,
+      index,
+      profile: cloneProfile(entry.profile),
+      score: player.score,
+    };
+  });
+  state.lastRoster = roster.map((entry) => entry.playerId);
+  state.active = {
+    epoch: state.epoch, round: 0, seed, reason: "active_reconnect_rollover",
+    roster, proposal: null, reports: {},
+  };
+  return {
+    type: "rollover", previousEpoch: previous.epoch, previousRound: previous.round,
+    next: state.active,
   };
 }
 
@@ -212,6 +299,7 @@ export function submitLifecycleReport(state, playerId, epoch, round, outcomes, s
   };
   state.decisions[key] = { type: "commit", roster, outcomes: encoded };
   state.active = null;
+  clearReconnectBatch(state);
   const reachedMatchPoint = completed.scores.some((entry) => entry.score >= 3);
   if (reachedMatchPoint) {
     state.matchOver = true;
@@ -242,6 +330,7 @@ export function abortLifecycleRound(state, reason, seedForNext) {
     reason,
   };
   state.active = null;
+  clearReconnectBatch(state);
   return {
     type: "abort", epoch: previous.epoch, round: previous.round, reason,
     next: startLifecycleRound(state, seedForNext, "epoch_abort"),
@@ -283,6 +372,7 @@ function finishRematch(state) {
   state.lastRoster = roster.map((entry) => entry.playerId);
   state.active = { epoch: state.epoch, round: 0, seed: state.matchSeed, reason: "rematch_accepted", roster, proposal: null, reports: {} };
   state.matchOver = false;
+  clearReconnectBatch(state);
   const result = { type: "accepted", generation: proposal.generation, nonce: proposal.nonce, roster: [...state.lastRoster], next: state.active };
   state.lastRematchDecision = { type: "accepted", generation: result.generation, nonce: result.nonce };
   state.rematch = null;
@@ -334,6 +424,7 @@ export function denyLifecycleRematch(state, reason) {
   state.rematch = null;
   state.matchOver = false;
   state.active = null;
+  clearReconnectBatch(state);
   for (const id of state.lastRoster) if (state.players[id]) state.players[id].ready = false;
   state.lastRoster = [];
   return result;
@@ -348,6 +439,7 @@ export function leaveLifecycleMatch(state, playerId, reason = "exit") {
   if (!state.lastRoster.includes(playerId)) return { type: "left", destination: "main_menu", roster: [playerId], reason };
   const roster = [...state.lastRoster];
   state.active = null;
+  clearReconnectBatch(state);
   state.matchOver = false;
   state.rematch = null;
   for (const id of roster) if (state.players[id]) state.players[id].ready = false;

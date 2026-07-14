@@ -14,16 +14,22 @@ worker_pid=""
 site_pid=""
 
 mkdir -p "$artifact_dir"
-rm -rf "$site"
+# Use a unique persistence directory so a prior Windows workerd process cannot
+# lock the next scenario's startup cleanup.
+site="$site-$$-${RANDOM}"
 mkdir -p "$site/out"
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
   [[ -z "$site_pid" ]] || kill "$site_pid" 2>/dev/null || true
-  [[ -z "$worker_pid" ]] || kill "$worker_pid" 2>/dev/null || true
+  [[ -z "$worker_pid" ]] || {
+    kill "$worker_pid" 2>/dev/null || true
+    command -v taskkill.exe >/dev/null && cmd.exe //c taskkill //F //T //PID "$worker_pid" >/dev/null 2>&1 || true
+  }
   wait "$site_pid" 2>/dev/null || true
   wait "$worker_pid" 2>/dev/null || true
-  rm -rf "$site"
+  sleep 1
+  rm -rf "$site" 2>/dev/null || true
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -52,7 +58,9 @@ for target in "http://127.0.0.1:${worker_port}/lobby/readiness?protocol=3&mode=d
   [[ "$ready" == 1 ]] || { echo "listener did not become ready: $target" >&2; exit 1; }
 done
 
-if [[ -n "${TRANSITION_SCENARIO:-}" ]]; then
+if [[ -n "${1:-}" ]]; then
+  scenarios=("$1")
+elif [[ -n "${TRANSITION_SCENARIO:-}" ]]; then
   scenarios=("$TRANSITION_SCENARIO")
 else
   scenarios=(rollover active_disconnect rollover_disconnect reconnect rematch requeue changed_roster)

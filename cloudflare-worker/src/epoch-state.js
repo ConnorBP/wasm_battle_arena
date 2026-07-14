@@ -14,6 +14,8 @@ import {
   denyLifecycleRematch,
   leaveLifecycleMatch,
   requeueLifecyclePlayer,
+  markLifecycleActiveReconnect,
+  rolloverLifecycleActiveReconnect,
 } from "../vendor/cloudflare-game-common/lifecycle.js";
 
 export const createEpochState = createLifecycleState;
@@ -29,3 +31,5 @@ export const expireRematch = expireLifecycleRematch;
 export const denyRematch = denyLifecycleRematch;
 export const leaveMatch = leaveLifecycleMatch;
 export const requeuePlayer = requeueLifecyclePlayer;
+export const markActiveReconnect = markLifecycleActiveReconnect;
+export const rolloverActiveReconnect = rolloverLifecycleActiveReconnect;

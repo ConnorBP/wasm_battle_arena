@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   createEpochState, startNextEpoch, submitReport, validateSignal,
   requestRematch, respondRematch, expireRematch, denyRematch, leaveMatch, requeuePlayer,
+  markActiveReconnect, rolloverActiveReconnect,
 } from "./epoch-state.js";
 import { rotateReconnectIdentity } from "../vendor/cloudflare-game-common/lifecycle.js";
 import {
@@ -30,7 +31,7 @@ export class EpochLobby extends DurableObject {
     const now = Date.now();
     await this.expire(now);
     await this.expireRematch(now);
-    // expire may have aborted a round / expired identities; persist those side
+    // Expiry may have changed a round or identities; persist those side
     // effects even if this request later early-returns.
     if (this.state) await this.persist();
     // Reject new identities at capacity before consuming a one-use assignment.
@@ -53,6 +54,9 @@ export class EpochLobby extends DurableObject {
     this.state.matchOver ??= false;
     this.state.rematch ??= null;
     this.state.rematchDecision ??= null;
+    this.state.reconnectBatchDeadline ??= null;
+    this.state.reconnectBatchEpoch ??= null;
+    this.state.reconnectBatchRound ??= null;
     if (this.state.mode !== parsed.value.mode || this.state.capacity !== parsed.value.capacity) return text("Lobby configuration mismatch", 409);
     if (!assignmentAdmitted) {
       const admission = await this.admitAssignment(parsed.value, room, now);
@@ -100,19 +104,34 @@ export class EpochLobby extends DurableObject {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ playerId: player.playerId, superseded: false, rate: { windowStarted: now, windowMessages: 0 } });
     this.send(server, { type: "welcome", protocol: 3, playerId: player.playerId, reconnectToken: token, reconnectGraceMs: RECONNECT_GRACE_MS, ...turn });
-    // On reload/reconnect, replay the immutable active bootstrap after welcome.
-    // This does not create or replace an epoch. If no round is active but the
-    // (re)connecting identity is already ready, it may complete the next roster,
-    // so attempt a start; otherwise report waiting status.
-    if (this.isActive(player.playerId)) {
-      this.send(server, this.startMessage(this.state.active));
-    } else if (player.ready) {
-      const start = startNextEpoch(this.state, randomHex(), "reconnect_ready");
-      if (start) this.broadcastStart(start); else this.sendStatus(server, player);
+    // Never replay the current bootstrap to an active-roster reconnect. A page
+    // reload has no old transport to resume, while its still-open peers do. The
+    // persisted short batch lets simultaneous reloads converge on one changed
+    // epoch that every old client can stage and every empty client can install.
+    if (parsed.value.playerId && this.isActive(player.playerId)) {
+      markActiveReconnect(this.state, player.playerId, now);
+      this.sendStatus(server, player, "reconnecting");
+      const rollover = await this.processReconnectRollover(now);
+      if (!rollover) await this.persist();
     } else {
-      this.sendStatus(server, player);
+      // An unrelated incoming connection can also wake a due persisted batch.
+      // Process only after accepting this socket so a reconnect arriving at the
+      // boundary is included in the authoritative connected-roster check.
+      const rollover = await this.processReconnectRollover(now);
+      if (this.isActive(player.playerId)) {
+        // This is only defensive (new identities cannot belong to active), and
+        // deliberately avoids exposing a resumable active bootstrap.
+        this.sendStatus(server, player);
+        if (!rollover) await this.persist();
+      } else if (player.ready) {
+        const start = startNextEpoch(this.state, randomHex(), "reconnect_ready");
+        await this.persist();
+        if (start) this.broadcastStart(start); else this.sendStatus(server, player);
+      } else {
+        this.sendStatus(server, player);
+        if (!rollover) await this.persist();
+      }
     }
-    await this.persist();
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -142,9 +161,11 @@ export class EpochLobby extends DurableObject {
   }
 
   async webSocketMessage(socket, raw) {
-    // Enforce persisted wall-clock rematch expiry before every message, not
-    // only when an alarm happens to wake the Durable Object.
-    await this.expireRematch(Date.now());
+    // Enforce persisted wall-clock reconnect/rematch expiry before every
+    // message, not only when an alarm happens to wake the Durable Object.
+    const now = Date.now();
+    await this.processReconnectRollover(now);
+    await this.expireRematch(now);
     if (typeof raw !== "string" || new TextEncoder().encode(raw).byteLength > MAX_MESSAGE_BYTES) return this.violation(socket, "invalid message");
     const attachment = socket.deserializeAttachment();
     if (!attachment?.playerId || attachment.superseded) return this.violation(socket, "invalid session");
@@ -166,6 +187,7 @@ export class EpochLobby extends DurableObject {
       const result = message.type === "requeue"
         ? requeuePlayer(this.state, player.playerId)
         : leaveMatch(this.state, player.playerId);
+      this.clearReconnectBatch();
       await this.persist();
       this.broadcast({ type: "match_exit", destination: "main_menu", reason: result.reason, roster: result.roster });
       if (message.type === "requeue") {
@@ -182,6 +204,7 @@ export class EpochLobby extends DurableObject {
       const result = message.type === "rematch_request"
         ? requestRematch(this.state, player.playerId, message.generation, message.nonce, now)
         : respondRematch(this.state, player.playerId, message.generation, message.nonce, message.accept);
+      if (result.type === "accepted") this.clearReconnectBatch();
       await this.persist();
       if (result.type === "pending") this.broadcast({ type: "rematch_pending", generation: result.generation, nonce: result.nonce, requestedBy: result.requestedBy, deadline: result.deadline, accepted: result.accepted, required: result.required });
       else if (result.type === "accepted") {
@@ -207,6 +230,7 @@ export class EpochLobby extends DurableObject {
       return;
     }
     if (message.type === "signal") {
+      if (this.state.reconnectBatchDeadline != null) return this.sendStatus(socket, player, "reconnecting");
       // Stale/wrong-epoch/non-roster signaling is rejected before any relay.
       const check = validateSignal(this.state, attachment.playerId, message.to, message.epoch, message.round);
       if (!check.ok) return this.sendError(socket, "stale_or_invalid_signal");
@@ -216,6 +240,10 @@ export class EpochLobby extends DurableObject {
       return;
     }
     if (message.type === "report") {
+      // Freeze consensus while an active reload batch is pending. Otherwise a
+      // pair of already-in-flight reports could advance the old transport to a
+      // same-epoch round and defeat the required changed-epoch rebuild.
+      if (this.state.reconnectBatchDeadline != null) return this.sendStatus(socket, player, "reconnecting");
       const result = submitReport(this.state, attachment.playerId, message.epoch, message.round, message.outcomes, randomHex());
       await this.persist();
       if (result.type === "ack") this.send(socket, reportAckMessage(result));
@@ -232,7 +260,13 @@ export class EpochLobby extends DurableObject {
 
   async webSocketClose(socket) { await this.disconnect(socket); }
   async webSocketError(socket) { await this.disconnect(socket); }
-  async alarm() { const now = Date.now(); await this.expire(now); await this.expireRematch(now); await this.persist(); }
+  async alarm() {
+    const now = Date.now();
+    await this.processReconnectRollover(now);
+    await this.expire(now);
+    await this.expireRematch(now);
+    if (this.state) await this.persist();
+  }
 
   async disconnect(socket) {
     const attachment = socket.deserializeAttachment();
@@ -260,9 +294,43 @@ export class EpochLobby extends DurableObject {
       this.broadcastPresence(player);
       if (this.isActive(player.playerId)) {
         const result = leaveMatch(this.state, player.playerId, "disconnect");
+        this.clearReconnectBatch();
         this.broadcast({ type: "match_exit", destination: "main_menu", reason: result.reason, roster: result.roster });
+      } else if (this.state.reconnectBatchEpoch != null && this.state.lastRoster.includes(player.playerId)) {
+        // The active round may already have moved for another lifecycle reason;
+        // never leave an orphaned short deadline armed.
+        this.clearReconnectBatch();
       }
     }
+  }
+
+  async processReconnectRollover(now) {
+    if (!this.state || this.state.reconnectBatchDeadline == null || this.state.reconnectBatchDeadline > now) return null;
+    // `connected` is persisted for hibernation, but the accepted socket set is
+    // authoritative at the boundary. If close delivery trails the alarm, do
+    // not roll an absent peer into a new session; begin its normal grace now.
+    if (this.state.reconnectBatchDeadline != null && this.state.reconnectBatchDeadline <= now) {
+      for (const entry of this.state.active?.roster ?? []) {
+        const player = this.state.players[entry.playerId];
+        if (player?.connected && !this.socket(entry.playerId)) {
+          player.connected = false;
+          player.reconnectUntil ??= now + RECONNECT_GRACE_MS;
+        }
+      }
+    }
+    const result = rolloverActiveReconnect(this.state, now, randomHex());
+    if (!result) return null;
+    // State is durable before any peer observes the changed epoch. Repeated
+    // alarms/messages see a cleared deadline and cannot increment it again.
+    await this.persist();
+    if (result.type === "rollover") this.broadcastStart(result.next);
+    else if (result.type === "waiting") {
+      for (const entry of this.state.active?.roster ?? []) {
+        const socket = this.socket(entry.playerId);
+        if (socket) this.sendStatus(socket, this.state.players[entry.playerId], "reconnecting");
+      }
+    }
+    return result;
   }
 
   async expireRematch(now) {
@@ -274,17 +342,33 @@ export class EpochLobby extends DurableObject {
     }
   }
 
+  clearReconnectBatch() {
+    this.state.reconnectBatchDeadline = null;
+    this.state.reconnectBatchEpoch = null;
+    this.state.reconnectBatchRound = null;
+  }
+
   startMessage(active) {
     return { type: "start", protocol: 3, epoch: active.epoch, round: active.round, matchGeneration: this.state.matchGeneration, mode: this.state.mode, capacity: this.state.capacity, seed: active.seed, roster: active.roster };
   }
   broadcastStart(active) { this.broadcast(this.startMessage(active)); }
-  sendStatus(socket, player) {
+  sendStatus(socket, player, status = this.state.active ? "active" : "waiting") {
+    const reconnectDeadline = status === "reconnecting"
+      ? (this.state.reconnectBatchDeadline ?? this.activeReconnectGraceDeadline())
+      : null;
     this.send(socket, {
-      type: "status", protocol: 3, status: this.state.active ? "active" : "waiting",
+      type: "status", protocol: 3, status,
       mode: this.state.mode, capacity: this.state.capacity,
       active: this.state.active ? { epoch: this.state.active.epoch, round: this.state.active.round } : null,
       ready: player.ready, score: player.score,
+      ...(status === "reconnecting" ? { reconnectDeadline } : {}),
     });
+  }
+  activeReconnectGraceDeadline() {
+    return (this.state.active?.roster ?? []).reduce((nearest, entry) => {
+      const deadline = this.state.players[entry.playerId]?.reconnectUntil;
+      return deadline == null ? nearest : Math.min(nearest, deadline);
+    }, Date.now() + RECONNECT_GRACE_MS);
   }
   broadcastPresence(player) {
     this.broadcast({ type: "presence", playerId: player.playerId, connected: player.connected, expired: player.expired });
@@ -300,7 +384,7 @@ export class EpochLobby extends DurableObject {
   async persist() {
     await this.ctx.storage.put(KEY, this.state);
     const reconnectDeadline = Object.values(this.state.players).reduce((nearest, player) =>
-      player.reconnectUntil === null ? nearest : Math.min(nearest, player.reconnectUntil), Infinity);
+      player.reconnectUntil == null ? nearest : Math.min(nearest, player.reconnectUntil), Infinity);
     // Assignment consumption markers only need to outlive their signed expiry.
     // Delete expired markers opportunistically; they are not token material.
     const listed = await this.ctx.storage.list({ prefix: "queue-assignment:" });
@@ -308,8 +392,12 @@ export class EpochLobby extends DurableObject {
     for (const [key, value] of listed) {
       if ((value?.expiresAt ?? Infinity) <= now) await this.ctx.storage.delete(key);
     }
-    // Persisted rematch deadlines share the alarm with reconnect expiry.
-    const next = Math.min(reconnectDeadline, this.state.rematch?.deadline ?? Infinity);
+    // Reconnect batching, identity grace, and rematch expiry share one alarm.
+    const next = Math.min(
+      reconnectDeadline,
+      this.state.reconnectBatchDeadline ?? Infinity,
+      this.state.rematch?.deadline ?? Infinity,
+    );
     if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next); else await this.ctx.storage.deleteAlarm();
   }
 }

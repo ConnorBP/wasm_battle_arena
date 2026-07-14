@@ -7,6 +7,8 @@ import {
   rotateReconnectIdentity,
   sameRoster,
   selectLifecycleRoster,
+  markLifecycleActiveReconnect,
+  rolloverLifecycleActiveReconnect,
   startLifecycleRound,
   submitLifecycleReport,
   validateEpochSignal,
@@ -413,6 +415,43 @@ test("a still-connected identity can rotate on a same-tab reload", () => {
   const player = makePlayer(A, { tokenHash: hashed("v1"), connected: true, reconnectUntil: null });
   assert.equal(rotateReconnectIdentity(player, hashed("v1"), hashed("v2"), NOW).ok, true);
   assert.equal(player.connected, true);
+});
+
+// ---------------------------------------------------------------------------
+// Server-authoritative active reconnect rollover
+// ---------------------------------------------------------------------------
+
+test("active reconnect batches one changed epoch and preserves match state", () => {
+  const state = seededState([A, B]);
+  state.players[A].score = 2;
+  state.players[B].score = 1;
+  state.matchGeneration = 4;
+  startLifecycleRound(state, "0".repeat(32), "initial");
+
+  assert.equal(markLifecycleActiveReconnect(state, A, NOW).deadline, NOW + 300);
+  assert.equal(markLifecycleActiveReconnect(state, B, NOW + 200).deadline, NOW + 300);
+  assert.equal(rolloverLifecycleActiveReconnect(state, NOW + 299, "1".repeat(32)), null);
+  const result = rolloverLifecycleActiveReconnect(state, NOW + 300, "1".repeat(32));
+  assert.equal(result.type, "rollover");
+  assert.deepEqual([state.epoch, state.round], [1, 0]);
+  assert.deepEqual(state.active.roster.map((entry) => [entry.playerId, entry.score]), [[A, 2], [B, 1]]);
+  assert.equal(state.matchGeneration, 4);
+  assert.equal(state.reconnectBatchDeadline, null);
+  assert.equal(rolloverLifecycleActiveReconnect(state, NOW + 600, "2".repeat(32)), null);
+  assert.equal(state.epoch, 1);
+});
+
+test("due reconnect batch waits for absent member without consuming grace", () => {
+  const state = seededState([A, B]);
+  startLifecycleRound(state, "0".repeat(32), "initial");
+  state.players[B].connected = false;
+  state.players[B].reconnectUntil = NOW + 30_000;
+  markLifecycleActiveReconnect(state, A, NOW);
+  const active = structuredClone(state.active);
+  const result = rolloverLifecycleActiveReconnect(state, NOW + 300, "1".repeat(32));
+  assert.deepEqual(result, { type: "waiting", missing: [B], next: null });
+  assert.deepEqual(state.active, active);
+  assert.equal(state.players[B].reconnectUntil, NOW + 30_000);
 });
 
 // ---------------------------------------------------------------------------
