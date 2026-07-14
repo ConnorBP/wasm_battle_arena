@@ -182,6 +182,7 @@ impl CasualProfile {
         cosmetic(cosmetic_id).is_some() && self.unlocked_cosmetics & (1 << cosmetic_id) != 0
     }
 
+    #[cfg(test)]
     pub fn equip(&mut self, cosmetic_id: u8) -> bool {
         if !self.is_unlocked(cosmetic_id) {
             return false;

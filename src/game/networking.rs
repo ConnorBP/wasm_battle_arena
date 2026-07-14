@@ -302,9 +302,9 @@ pub fn advance_ggrs_reset_barrier(
 }
 
 pub fn wait_for_players(
-    mut commands: Commands,
+    commands: Commands,
     rollover: Option<Res<EpochRollover>>,
-    mut socket: ResMut<CloudflareSocket>,
+    socket: ResMut<CloudflareSocket>,
     mut next_state: ResMut<NextState<GameState>>,
     mut toasts: ResMut<Toasts>,
 ) {

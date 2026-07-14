@@ -52,6 +52,7 @@ pub fn wall_foundation_color() -> Color {
 }
 
 /// Coordinate-dependent brick variation remains visual-only and deterministic.
+#[cfg(test)]
 pub fn wall_brick_color(x: usize, y: usize, neighbors: usize) -> Color {
     let variation = decoration_hash(x, y, 0x4252_4943) as usize & 1;
     WALL_PALETTE[(1 + variation + usize::from(neighbors >= 3)).min(3)]
@@ -61,6 +62,7 @@ pub fn wall_face_color(shade: f32) -> Color {
     Color::rgb(0.20 * shade, 0.32 * shade, 0.23 * shade)
 }
 
+#[cfg(test)]
 pub fn wall_mortar_color() -> Color {
     Color::rgb(0.075, 0.13, 0.10)
 }

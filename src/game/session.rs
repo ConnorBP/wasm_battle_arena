@@ -20,6 +20,7 @@ pub const MAX_LOBBY_PLAYERS: usize = 8;
 /// Pure continuity rule shared by bootstrap installation and source tests.
 /// An unchanged canonical roster stays in the epoch and advances the round;
 /// any membership change starts round zero of the next epoch.
+#[cfg(test)]
 pub fn next_epoch_round(
     epoch: SessionEpoch,
     round: RoundNumber,
@@ -319,6 +320,7 @@ impl RoundBootstrap {
         })
     }
 
+    #[cfg(test)]
     pub fn handle(&self, handle: usize) -> Result<usize, BootstrapError> {
         self.roster
             .iter()
@@ -327,6 +329,7 @@ impl RoundBootstrap {
             .ok_or(BootstrapError::InvalidHandles)
     }
 
+    #[cfg(any(test, feature = "sync_test"))]
     pub fn duel(match_seed: u64) -> Self {
         let roster: Vec<_> = (0..2)
             .map(|handle| RosterEntry {

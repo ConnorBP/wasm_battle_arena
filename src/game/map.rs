@@ -49,6 +49,7 @@ impl<T: Default + Copy, const WIDTH: usize, const HEIGHT: usize> Default for Map
 }
 
 impl<const SIZE: usize> Map<CellType, SIZE, SIZE> {
+    #[cfg(any(test, feature = "sync_test"))]
     pub(crate) fn generated(seed: u64) -> Self {
         Self::generated_with_size(seed, SIZE)
     }
