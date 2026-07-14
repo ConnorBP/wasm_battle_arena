@@ -159,4 +159,11 @@ async function readyLobby(net, { epoch = 7, round = 9 } = {}) {
   assert.equal(net.cloudflare_telemetry(id, 0), 0n);
 }
 
+// Per-peer liveness watchdog contract.
+{
+const net = await freshModule();
+const { id: stallId } = await readyLobby(net, { epoch: 1, round: 0 });
+assert.equal(net.cloudflare_lobby_stalled(stallId), false);
+}
+
 console.log("PASS: cloudflare_net.js direct Node contract tests");

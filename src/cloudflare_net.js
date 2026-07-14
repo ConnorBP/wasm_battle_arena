@@ -13,6 +13,7 @@ const DEFAULT_ICE_SERVERS = Object.freeze([{ urls: "stun:stun.cloudflare.com:347
 const MAX_ICE_SERVERS = 8;
 const MAX_ICE_URLS = 8;
 const MAX_ICE_TEXT = 512;
+const PEER_PACKET_STALL_MS = 1500;
 
 function validIceUrl(value) {
     if (typeof value !== "string" || value.length === 0 || value.length > 256 || /[\u0000-\u0020\u007f]/.test(value)) return false;
@@ -130,6 +131,7 @@ function lobbyBindChannel(session, peerId, channel, epoch, round) {
         const packetRound = view.getUint32(4, false);
         if (packetEpoch !== session.epoch || packetRound !== session.round) { session.telemetry[3]++; return; }
         if (session.inbox.length >= MAX_QUEUED_PACKETS) { session.telemetry[2]++; return fail(session, "lobby receive queue overflow"); }
+        session.peerLastPacketAt.set(peerId, Date.now());
         session.telemetry[1]++;
         session.inbox.push({ epoch: packetEpoch, from: peerId, packet: bytes.slice(8) });
     };
@@ -138,6 +140,7 @@ function lobbyBindChannel(session, peerId, channel, epoch, round) {
     channel.onopen = () => {
         if (!sameEpochTransport(session, epoch)) return channel.close();
         session.openPeers.add(peerId);
+        session.peerLastPacketAt.set(peerId, Date.now());
         if (session.openPeers.size === session.roster.length - 1) {
             session.status = 1;
             window.clearTimeout(session.timeout);
@@ -217,6 +220,7 @@ function closeLobbyRound(session, epoch, round) {
     session.peers.clear();
     session.pendingIce.clear();
     session.openPeers.clear();
+    session.peerLastPacketAt.clear();
     session.inbox.length = 0;
     return true;
 }
@@ -256,7 +260,7 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}${handoff}`;
     const ws = new WebSocket(url);
     const id = existingId || nextTransportId++ || nextTransportId++;
-    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, pendingStart: null, pendingSignals: [], closedRound: null, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
+    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), peerLastPacketAt: new Map(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, pendingStart: null, pendingSignals: [], closedRound: null, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, assignment ? "assignment handoff timed out" : "lobby matchmaking timed out"), assignment ? ASSIGNMENT_HANDOFF_TIMEOUT_MS : MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
@@ -527,6 +531,16 @@ export function cloudflare_close_lobby(id) {
     for (const channel of session.channels?.values?.() ?? []) channel.close();
     for (const peer of session.peers?.values?.() ?? []) peer.close();
     session.ws.close(1000, "client closed");
+}
+
+export function cloudflare_lobby_stalled(id) {
+    const session = current(id);
+    if (!session?.lobby || session.status !== 1) return false;
+    const now = Date.now();
+    return session.roster.filter(entry => entry.playerId !== session.localPlayerId).some(entry => {
+        const last = session.peerLastPacketAt?.get(entry.playerId);
+        return !Number.isSafeInteger(last) || last <= 0 || now - last >= PEER_PACKET_STALL_MS;
+    });
 }
 
 export function cloudflare_telemetry(id, counter) {

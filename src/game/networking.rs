@@ -702,10 +702,19 @@ pub fn detect_transport_failure(
     if rollover.active() || session.is_none() {
         return;
     }
-    if let ConnectionState::Failed(error) = socket.state() {
-        commands.remove_resource::<Session<GgrsConfig>>();
-        toasts.error(error.into());
-        next_state.set(GameState::MainMenu);
+    match socket.state() {
+        ConnectionState::Failed(error) => {
+            commands.remove_resource::<Session<GgrsConfig>>();
+            toasts.error(error.into());
+            next_state.set(GameState::MainMenu);
+        }
+        _ if socket.transport_stalled() => {
+            commands.remove_resource::<Session<GgrsConfig>>();
+            socket.leave_lobby(false);
+            toasts.error("Peer connection stopped receiving packets.".into());
+            next_state.set(GameState::MainMenu);
+        }
+        _ => {}
     }
 }
 

@@ -517,6 +517,14 @@ impl CloudflareSocket {
         false
     }
 
+    pub fn transport_stalled(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.transport_id != 0 {
+            return cloudflare_lobby_stalled(self.transport_id);
+        }
+        false
+    }
+
     pub fn telemetry(&self) -> NetworkTelemetry {
         #[cfg(target_arch = "wasm32")]
         if self.transport_id != 0 {
@@ -662,6 +670,7 @@ fn codec() -> impl Options {
 #[wasm_bindgen::prelude::wasm_bindgen(module = "/src/cloudflare_net.js")]
 extern "C" {
     fn cloudflare_status(id: u32) -> u32;
+    fn cloudflare_lobby_stalled(id: u32) -> bool;
     fn cloudflare_telemetry(id: u32, counter: u32) -> u64;
     fn cloudflare_error(id: u32) -> String;
     fn cloudflare_connect_queue(
