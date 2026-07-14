@@ -161,6 +161,20 @@ async function exerciseRoundIdempotence(lobby) {
   nextStarts.forEach(start => assert(canonical(start.roster.map(entry => entry.playerId)) === canonical(lobby.start.roster.map(entry => entry.playerId)),
     "ordinary next round changed immutable membership"));
 
+  // Exercise another ordinary rollover on the same long-lived control sockets.
+  // This catches clients which survive one close/recreate but accidentally
+  // close the promoted-new epoch on the following cleanup.
+  const secondReport = { type: "report", epoch: lobby.start.epoch, round: lobby.start.round, outcomes: outcomes(lobby.start) };
+  const secondMarks = new Map(lobby.members.map(client => [client, client.mark()]));
+  for (const client of lobby.members) await client.send(secondReport);
+  await Promise.all(lobby.members.map(client => client.waitFor("round_commit", message =>
+    message.epoch === secondReport.epoch && message.round === secondReport.round, secondMarks.get(client))));
+  const thirdStarts = await Promise.all(lobby.members.map(client => client.waitFor("start", message =>
+    message.epoch === secondReport.epoch && message.round === secondReport.round + 1, secondMarks.get(client))));
+  lobby.start = thirdStarts[0];
+  thirdStarts.forEach(start => assert(canonical(start) === canonical(lobby.start),
+    "second consecutive round rollover diverged across clients"));
+
   mark = first.mark();
   await first.send(report);
   await first.waitFor("report_ack", message => message.duplicate === true, mark);
@@ -175,7 +189,7 @@ async function exerciseRoundIdempotence(lobby) {
     data: { type: "ice", candidate: null },
   });
   await first.waitFor("error", message => message.error === "stale_or_invalid_signal", mark);
-  console.log("PASS: duplicate, terminal, and stale epoch behavior");
+  console.log("PASS: duplicate, terminal, stale epoch, and consecutive round rollover behavior");
 }
 
 async function finishMatch(lobby) {

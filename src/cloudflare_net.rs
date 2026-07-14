@@ -155,6 +155,8 @@ pub struct LobbyMatchInfo {
     pub round: u32,
     pub match_generation: u32,
     pub roster: Vec<(PlayerId, usize)>,
+    /// Server-committed scores from the immutable start snapshot.
+    pub scores: Vec<(PlayerId, u32)>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +199,7 @@ pub struct CloudflareSocket {
     legacy_remote: Option<PlayerId>,
     mode: TransportMode,
     epoch: u32,
+    round: u32,
     owns_transport: bool,
 }
 
@@ -257,6 +260,7 @@ impl CloudflareSocket {
             // lobby. It is therefore a lobby transport once assigned.
             self.mode = TransportMode::Lobby;
             self.epoch = 0;
+            self.round = 0;
             self.owns_transport = true;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -310,6 +314,7 @@ impl CloudflareSocket {
             );
             self.mode = TransportMode::Lobby;
             self.epoch = 0;
+            self.round = 0;
             self.owns_transport = true;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -440,22 +445,23 @@ impl CloudflareSocket {
             if !((mode == 0 && len == 2) || (mode == 1 && (3..=8).contains(&len))) {
                 return None;
             }
-            let mut roster = Vec::with_capacity(len);
+            let mut snapshot = Vec::with_capacity(len);
             for index in 0..len {
-                roster.push((
+                snapshot.push((
                     parse_player_id(&cloudflare_lobby_roster_id(self.transport_id, index as u32))?,
-                    index,
+                    cloudflare_lobby_roster_score(self.transport_id, index as u32),
                 ));
             }
-            roster.sort_by_key(|entry| entry.0);
-            // Handles are canonical identity order, independent of the wire
-            // array's arrival ordering.
-            for (handle, entry) in roster.iter_mut().enumerate() {
-                entry.1 = handle;
-            }
+            snapshot.sort_by_key(|entry| entry.0);
+            let roster = snapshot
+                .iter()
+                .enumerate()
+                .map(|(handle, entry)| (entry.0, handle))
+                .collect::<Vec<_>>();
             if !roster.iter().any(|entry| entry.0 == local_player) {
                 return None;
             }
+            let scores = snapshot.into_iter().collect();
             let epoch = cloudflare_lobby_epoch(self.transport_id);
             Some(LobbyMatchInfo {
                 local_player,
@@ -466,6 +472,7 @@ impl CloudflareSocket {
                 round: cloudflare_lobby_round(self.transport_id),
                 match_generation: cloudflare_lobby_generation(self.transport_id),
                 roster,
+                scores,
             })
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -583,8 +590,64 @@ impl CloudflareSocket {
         None
     }
 
-    pub fn set_epoch(&mut self, epoch: u32) {
+    pub fn set_epoch_round(&mut self, epoch: u32, round: u32) {
         self.epoch = epoch;
+        self.round = round;
+    }
+
+    /// Returns the validated newer immutable start without exposing it as the
+    /// active transport snapshot.
+    pub fn pending_epoch_round(&self) -> Option<(u32, u32)> {
+        Some((self.pending_epoch()?, self.pending_round()?))
+    }
+
+    pub fn pending_epoch(&self) -> Option<u32> {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby
+            && self.transport_id != 0
+            && cloudflare_lobby_has_pending(self.transport_id)
+        {
+            return Some(cloudflare_lobby_pending_epoch(self.transport_id));
+        }
+        None
+    }
+
+    pub fn pending_round(&self) -> Option<u32> {
+        #[cfg(target_arch = "wasm32")]
+        if self.mode == TransportMode::Lobby
+            && self.transport_id != 0
+            && cloudflare_lobby_has_pending(self.transport_id)
+        {
+            return Some(cloudflare_lobby_pending_round(self.transport_id));
+        }
+        None
+    }
+
+    /// Retires exactly the old round and starts peer formation for the pending
+    /// immutable start. A stale cleanup cannot affect the promoted transport.
+    pub fn promote_pending(&mut self, old_epoch: u32, old_round: u32) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if self.mode == TransportMode::Lobby && self.transport_id != 0 {
+                let Some((epoch, round)) = self.pending_epoch_round() else {
+                    return false;
+                };
+                if cloudflare_lobby_promote_pending(
+                    self.transport_id,
+                    old_epoch,
+                    old_round,
+                    epoch,
+                    round,
+                ) {
+                    self.epoch = epoch;
+                    self.round = round;
+                    return true;
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = (old_epoch, old_round);
+        false
     }
 
     pub fn telemetry(&self) -> NetworkTelemetry {
@@ -607,11 +670,14 @@ impl CloudflareSocket {
         NetworkTelemetry::default()
     }
 
-    pub fn close_epoch_transport(&self) {
+    pub fn close_epoch_transport(&self, epoch: u32, round: u32) -> bool {
         #[cfg(target_arch = "wasm32")]
         if self.mode == TransportMode::Lobby && self.transport_id != 0 {
-            cloudflare_lobby_close_epoch(self.transport_id);
+            return cloudflare_lobby_close_epoch(self.transport_id, epoch, round);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = (epoch, round);
+        false
     }
 
     /// Creates the epoch packet adapter while retaining the owning lobby
@@ -633,6 +699,7 @@ impl CloudflareSocket {
             legacy_remote: self.legacy_remote,
             mode: self.mode,
             epoch: self.epoch,
+            round: self.round,
             owns_transport,
         }
     }
@@ -658,6 +725,7 @@ impl CloudflareSocket {
         self.legacy_remote = None;
         self.mode = TransportMode::Legacy;
         self.epoch = 0;
+        self.round = 0;
         self.owns_transport = false;
     }
 }
@@ -918,6 +986,18 @@ mod tests {
         assert!(source
             .contains("return BigInt(Number.isSafeInteger(value) && value >= 0 ? value : 0);"));
         assert!(source.contains("fn cloudflare_telemetry(id: u32, counter: u32) -> u64;"));
+    }
+
+    #[test]
+    fn browser_rollover_contract_is_two_phase_and_identity_guarded() {
+        let source = include_str!("cloudflare_net.rs");
+        assert!(source.contains("pendingStart: null, pendingSignals: []"));
+        assert!(source.contains("session.pendingStart = start"));
+        assert!(source.contains("session.pendingSignals.length >= MAX_QUEUED_PACKETS"));
+        assert!(source.contains("export function cloudflare_lobby_promote_pending"));
+        assert!(source.contains("session.epoch !== oldEpoch || session.round !== oldRound"));
+        assert!(source.contains("if (!closeLobbyRound(session, oldEpoch, oldRound)) return false"));
+        assert!(source.contains("installLobbyStart(session, start, signals)"));
     }
 
     #[test]
@@ -1220,27 +1300,33 @@ export function cloudflare_connect(baseUrl, room) {
     return id;
 }
 
-function lobbySendSignal(session, to, data) {
+function sameRound(session, epoch, round) {
+    return isCurrent(session) && session.epoch === epoch && session.round === round &&
+        session.closedRound !== `${epoch}:${round}`;
+}
+
+function lobbySendSignal(session, to, data, epoch = session.epoch) {
     if (isCurrent(session) && session.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({ type: "signal", epoch: session.epoch, to, data }));
+        session.ws.send(JSON.stringify({ type: "signal", epoch, to, data }));
     }
 }
 
-function lobbyBindChannel(session, peerId, channel) {
+function lobbyBindChannel(session, peerId, channel, epoch, round) {
+    if (!sameRound(session, epoch, round)) { channel.close(); return; }
     if (session.channels.has(peerId)) return fail(session, "duplicate lobby data channel");
     channel.binaryType = "arraybuffer";
     session.channels.set(peerId, channel);
     channel.onmessage = ({ data }) => {
-        if (!isCurrent(session) || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES + 4 || data.byteLength < 4) { session.telemetry[2]++; return; }
-        const bytes = new Uint8Array(data); const epoch = new DataView(data).getUint32(0, false);
-        if (epoch !== session.epoch) { session.telemetry[3]++; return; }
+        if (!sameRound(session, epoch, round) || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES + 4 || data.byteLength < 4) { session.telemetry[2]++; return; }
+        const bytes = new Uint8Array(data); const packetEpoch = new DataView(data).getUint32(0, false);
+        if (packetEpoch !== session.epoch) { session.telemetry[3]++; return; }
         if (session.inbox.length >= MAX_QUEUED_PACKETS) { session.telemetry[2]++; return fail(session, "lobby receive queue overflow"); }
-        session.telemetry[1]++; session.inbox.push({ epoch, from: peerId, packet: bytes.slice(4) });
+        session.telemetry[1]++; session.inbox.push({ epoch: packetEpoch, from: peerId, packet: bytes.slice(4) });
     };
-    channel.onclose = () => { if (isCurrent(session) && session.status === 1) fail(session, "lobby peer disconnected"); };
-    channel.onerror = () => fail(session, "lobby peer data channel failed");
+    channel.onclose = () => { if (sameRound(session, epoch, round) && session.status === 1) fail(session, "lobby peer disconnected"); };
+    channel.onerror = () => { if (sameRound(session, epoch, round)) fail(session, "lobby peer data channel failed"); };
     channel.onopen = () => {
-        if (!isCurrent(session)) return;
+        if (!sameRound(session, epoch, round)) return channel.close();
         session.openPeers.add(peerId);
         if (session.openPeers.size === session.roster.length - 1) {
             session.status = 1;
@@ -1249,44 +1335,91 @@ function lobbyBindChannel(session, peerId, channel) {
     };
 }
 
-async function lobbyCreatePeer(session, peerId, offerer) {
+async function lobbyCreatePeer(session, peerId, offerer, epoch, round) {
+    if (!sameRound(session, epoch, round)) return;
     const peer = new RTCPeerConnection(peerConfiguration(session));
     session.peers.set(peerId, peer);
     session.pendingIce.set(peerId, []);
-    peer.onicecandidate = ({ candidate }) => lobbySendSignal(session, peerId, { type: "ice", candidate });
-    peer.ondatachannel = ({ channel }) => lobbyBindChannel(session, peerId, channel);
+    peer.onicecandidate = ({ candidate }) => { if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "ice", candidate }, epoch); };
+    peer.ondatachannel = ({ channel }) => lobbyBindChannel(session, peerId, channel, epoch, round);
     peer.onconnectionstatechange = () => {
+        if (!sameRound(session, epoch, round)) return;
         if (peer.connectionState === "connected") recordCandidatePair(session, peer);
         if (peer.connectionState === "failed") fail(session, "lobby WebRTC connection failed");
     };
     if (offerer) {
-        lobbyBindChannel(session, peerId, peer.createDataChannel("ggrs", { ordered: false, maxRetransmits: 0 }));
+        lobbyBindChannel(session, peerId, peer.createDataChannel("ggrs", { ordered: false, maxRetransmits: 0 }), epoch, round);
         await peer.setLocalDescription(await peer.createOffer());
-        lobbySendSignal(session, peerId, { type: "offer", sdp: peer.localDescription.sdp });
+        if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "offer", sdp: peer.localDescription.sdp }, epoch);
     }
 }
 
+function validLobbySignal(session, message, start) {
+    return message && typeof message === "object" && Number.isInteger(message.epoch) &&
+        message.epoch === start.epoch && typeof message.from === "string" &&
+        start.roster.some(entry => entry.playerId === message.from) &&
+        message.from !== session.localPlayerId && message.data && typeof message.data === "object" &&
+        ["offer", "answer", "ice"].includes(message.data.type);
+}
+
 async function lobbyHandleSignal(session, message) {
-    const from = message.from;
-    if (!session.roster.some(entry => entry.playerId === from) || from === session.localPlayerId || message.epoch !== session.epoch) {
-        throw new Error("invalid lobby signal source");
-    }
+    const epoch = session.epoch, round = session.round, from = message.from;
+    if (!validLobbySignal(session, message, { epoch, roster: session.roster })) throw new Error("invalid lobby signal source");
     const peer = session.peers.get(from);
     if (!peer) throw new Error("lobby signal before peer setup");
     const data = message.data;
     if (data.type === "offer") {
         if (session.localPlayerId < from) throw new Error("unexpected lobby offer");
         await peer.setRemoteDescription({ type: "offer", sdp: data.sdp });
+        if (!sameRound(session, epoch, round)) return;
         for (const candidate of session.pendingIce.get(from).splice(0)) if (candidate) await peer.addIceCandidate(candidate);
         await peer.setLocalDescription(await peer.createAnswer());
-        lobbySendSignal(session, from, { type: "answer", sdp: peer.localDescription.sdp });
+        if (sameRound(session, epoch, round)) lobbySendSignal(session, from, { type: "answer", sdp: peer.localDescription.sdp }, epoch);
     } else if (data.type === "answer") {
         if (session.localPlayerId > from) throw new Error("unexpected lobby answer");
         await peer.setRemoteDescription({ type: "answer", sdp: data.sdp });
+        if (!sameRound(session, epoch, round)) return;
         for (const candidate of session.pendingIce.get(from).splice(0)) if (candidate) await peer.addIceCandidate(candidate);
     } else if (data.type === "ice") {
         if (peer.remoteDescription) { if (data.candidate) await peer.addIceCandidate(data.candidate); }
         else session.pendingIce.get(from).push(data.candidate);
+    }
+}
+
+function validLobbyStart(session, message) {
+    if (message.protocol !== 3 || !Number.isInteger(message.epoch) || message.epoch < 0 ||
+        !Number.isInteger(message.round) || message.round < 0 || !/^[0-9a-f]{32}$/.test(message.seed) ||
+        !Array.isArray(message.roster) || message.roster.length !== session.capacity ||
+        !Number.isInteger(message.matchGeneration ?? 0) || (message.matchGeneration ?? 0) < 0) return null;
+    const roster = [...message.roster].sort((a,b) => a.playerId.localeCompare(b.playerId));
+    if (roster.some((entry,index) => entry.index !== index || !/^[0-9a-f]{32}$/.test(entry.playerId) ||
+        !Number.isSafeInteger(entry.score) || entry.score < 0) ||
+        !roster.some(entry => entry.playerId === session.localPlayerId)) return null;
+    return { ...message, roster, matchGeneration: message.matchGeneration ?? session.matchGeneration };
+}
+
+function closeLobbyRound(session, epoch, round) {
+    if (session.epoch !== epoch || session.round !== round || session.closedRound === `${epoch}:${round}`) return false;
+    session.closedRound = `${epoch}:${round}`;
+    session.status = 0;
+    for (const channel of session.channels.values()) channel.close();
+    for (const peer of session.peers.values()) peer.close();
+    session.channels.clear(); session.peers.clear(); session.pendingIce.clear(); session.openPeers.clear(); session.inbox.length = 0;
+    return true;
+}
+
+async function installLobbyStart(session, start, bufferedSignals = []) {
+    session.roster = start.roster; session.seed = start.seed; session.epoch = start.epoch; session.round = start.round;
+    session.matchGeneration = start.matchGeneration; session.status = 0; session.closedRound = null;
+    window.clearTimeout(session.timeout);
+    session.timeout = window.setTimeout(() => fail(session, "lobby WebRTC timed out"), MATCHMAKING_TIMEOUT_MS);
+    const epoch = session.epoch, round = session.round;
+    for (const entry of session.roster) if (entry.playerId !== session.localPlayerId) {
+        await lobbyCreatePeer(session, entry.playerId, session.localPlayerId < entry.playerId, epoch, round);
+    }
+    for (const signal of bufferedSignals) {
+        if (!sameRound(session, epoch, round)) return;
+        await lobbyHandleSignal(session, signal);
     }
 }
 
@@ -1306,7 +1439,7 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}${handoff}`;
     const ws = new WebSocket(url);
     const id = existingId || nextTransportId++ || nextTransportId++;
-    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
+    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, pendingStart: null, pendingSignals: [], closedRound: null, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, assignment ? "assignment handoff timed out" : "lobby matchmaking timed out"), assignment ? ASSIGNMENT_HANDOFF_TIMEOUT_MS : MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
@@ -1335,17 +1468,31 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
                 session.ws.send(JSON.stringify({ type: "profile", name: profileName, paletteId, cosmeticId }));
                 session.ws.send(JSON.stringify({ type: "ready" }));
             } else if (message.type === "start") {
-                if (message.protocol !== 3 || !Number.isInteger(message.epoch) || message.epoch < 0 || !Number.isInteger(message.round) || message.round < 0 || !/^[0-9a-f]{32}$/.test(message.seed) || !Array.isArray(message.roster) || message.roster.length !== capacity) throw new Error("invalid lobby start");
-                if (session.roster.length && message.epoch === session.epoch && message.round === session.round) return;
-                if (session.roster.length && (message.epoch < session.epoch || (message.epoch === session.epoch && message.round < session.round))) return;
-                const roster = [...message.roster].sort((a,b) => a.playerId.localeCompare(b.playerId));
-                if (roster.some((entry,index) => entry.index !== index || !/^[0-9a-f]{32}$/.test(entry.playerId))) throw new Error("invalid lobby roster");
-                session.roster = roster; session.seed = message.seed; session.epoch = message.epoch; session.round = message.round; session.matchGeneration = message.matchGeneration ?? session.matchGeneration;
-                for (const channel of session.channels.values()) channel.close();
-                for (const peer of session.peers.values()) peer.close();
-                session.channels.clear(); session.peers.clear(); session.pendingIce.clear(); session.openPeers.clear(); session.inbox.length = 0;
-                for (const entry of roster) if (entry.playerId !== session.localPlayerId) await lobbyCreatePeer(session, entry.playerId, session.localPlayerId < entry.playerId);
+                const start = validLobbyStart(session, message);
+                if (!start) throw new Error("invalid lobby start");
+                const next = [start.epoch, start.round], active = [session.epoch, session.round];
+                if (session.roster.length && next[0] === active[0] && next[1] === active[1]) return;
+                if (session.roster.length && (next[0] < active[0] || (next[0] === active[0] && next[1] < active[1]))) return;
+                if (!session.roster.length) await installLobbyStart(session, start);
+                else {
+                    if (session.pendingStart) {
+                        const pending = [session.pendingStart.epoch, session.pendingStart.round];
+                        if (next[0] === pending[0] && next[1] === pending[1]) return;
+                        throw new Error("multiple pending lobby starts");
+                    }
+                    // Phase one: active GGRS and peers remain untouched until
+                    // Rust OnExit cleanup explicitly promotes this snapshot.
+                    session.pendingStart = start;
+                    session.pendingSignals.length = 0;
+
+                }
             } else if (message.type === "signal") {
+                if (session.pendingStart && message.epoch === session.pendingStart.epoch) {
+                    if (!validLobbySignal(session, message, session.pendingStart)) throw new Error("invalid pending lobby signal");
+                    if (session.pendingSignals.length >= MAX_QUEUED_PACKETS) throw new Error("pending lobby signal overflow");
+                    session.pendingSignals.push(message);
+                    return;
+                }
                 if (!Number.isInteger(message.epoch) || message.epoch !== session.epoch) return;
                 await lobbyHandleSignal(session, message);
             } else if (message.type === "rematch_pending" || message.type === "rematch_accepted" || message.type === "rematch_denied" || message.type === "match_exit" || message.type === "match_over" || message.type === "requeue") {
@@ -1484,8 +1631,12 @@ export function cloudflare_lobby_leave(id, requeue) { const session=current(id);
 export function cloudflare_lobby_seed(id) { return current(id)?.seed || ""; }
 export function cloudflare_lobby_epoch(id) { return current(id)?.epoch ?? 0; }
 export function cloudflare_lobby_round(id) { return current(id)?.round ?? 0; }
+export function cloudflare_lobby_has_pending(id) { return current(id)?.pendingStart != null; }
+export function cloudflare_lobby_pending_epoch(id) { return current(id)?.pendingStart?.epoch ?? 0; }
+export function cloudflare_lobby_pending_round(id) { return current(id)?.pendingStart?.round ?? 0; }
 export function cloudflare_lobby_roster_len(id) { return current(id)?.roster?.length ?? 0; }
 export function cloudflare_lobby_roster_id(id, index) { return current(id)?.roster?.[index]?.playerId || ""; }
+export function cloudflare_lobby_roster_score(id, index) { return current(id)?.roster?.[index]?.score ?? 0; }
 export function cloudflare_lobby_send(id, epoch, to, packet) {
     const session = current(id); const channel = session?.channels.get(to);
     if (session?.status !== 1 || epoch !== session.epoch || channel?.readyState !== "open" || packet.length > MAX_PACKET_BYTES || channel.bufferedAmount > MAX_BUFFERED_BYTES) { if (session) session.telemetry[2]++; return; }
@@ -1497,7 +1648,7 @@ export function cloudflare_lobby_receive(id) {
 }
 export function cloudflare_lobby_report(id, epoch, round, winners) {
     const session = current(id);
-    if (!session || session.ws.readyState !== WebSocket.OPEN || epoch !== session.epoch) return false;
+    if (!session || session.ws.readyState !== WebSocket.OPEN || epoch !== session.epoch || round !== session.round) return false;
     const winnerSet = new Set(Array.from(winners));
     const outcomes = session.roster.map((entry, index) => ({
         playerId: entry.playerId,
@@ -1508,12 +1659,24 @@ export function cloudflare_lobby_report(id, epoch, round, winners) {
     try { session.ws.send(JSON.stringify({ type: "report", epoch, round, outcomes })); (session.reported ??= new Set()).add(`${epoch}:${round}`); session.telemetry[5]++; return true; }
     catch (error) { fail(session, error); return false; }
 }
-export function cloudflare_lobby_close_epoch(id) {
-    const session = current(id); if (!session || session.queue) return;
-    for (const channel of session.channels.values()) channel.close();
-    for (const peer of session.peers.values()) peer.close();
-    session.channels.clear(); session.peers.clear(); session.pendingIce.clear(); session.openPeers.clear(); session.inbox.length = 0;
-    session.status = 0;
+export function cloudflare_lobby_close_epoch(id, epoch, round) {
+    const session = current(id); if (!session || session.queue) return false;
+    return closeLobbyRound(session, epoch, round);
+}
+export function cloudflare_lobby_promote_pending(id, oldEpoch, oldRound, pendingEpoch, pendingRound) {
+    const session = current(id);
+    if (!session || session.queue || !session.pendingStart || session.epoch !== oldEpoch || session.round !== oldRound ||
+        session.pendingStart.epoch !== pendingEpoch || session.pendingStart.round !== pendingRound) return false;
+    // The identity-guarded close is the single legal retirement point. Refuse
+    // promotion if another path already retired this round.
+    if (!closeLobbyRound(session, oldEpoch, oldRound)) return false;
+    const start = session.pendingStart;
+    const signals = session.pendingSignals.splice(0);
+    session.pendingStart = null;
+    // Install is queued on signalChain so offer/answer/ICE arrival order is
+    // retained across the synchronous phase boundary.
+    session.signalChain = session.signalChain.then(() => installLobbyStart(session, start, signals)).catch(error => fail(session, error));
+    return true;
 }
 export function cloudflare_close_lobby(id) {
     const session = current(id); if (!session) return;
@@ -1607,8 +1770,12 @@ extern "C" {
     fn cloudflare_lobby_seed(id: u32) -> String;
     fn cloudflare_lobby_epoch(id: u32) -> u32;
     fn cloudflare_lobby_round(id: u32) -> u32;
+    fn cloudflare_lobby_has_pending(id: u32) -> bool;
+    fn cloudflare_lobby_pending_epoch(id: u32) -> u32;
+    fn cloudflare_lobby_pending_round(id: u32) -> u32;
     fn cloudflare_lobby_roster_len(id: u32) -> u32;
     fn cloudflare_lobby_roster_id(id: u32, index: u32) -> String;
+    fn cloudflare_lobby_roster_score(id: u32, index: u32) -> u32;
     fn cloudflare_lobby_send(id: u32, epoch: u32, to: &str, packet: &[u8]);
     fn cloudflare_lobby_report(
         id: u32,
@@ -1617,6 +1784,13 @@ extern "C" {
         winners: wasm_bindgen::JsValue,
     ) -> bool;
     fn cloudflare_lobby_receive(id: u32) -> wasm_bindgen::JsValue;
-    fn cloudflare_lobby_close_epoch(id: u32);
+    fn cloudflare_lobby_close_epoch(id: u32, epoch: u32, round: u32) -> bool;
+    fn cloudflare_lobby_promote_pending(
+        id: u32,
+        old_epoch: u32,
+        old_round: u32,
+        pending_epoch: u32,
+        pending_round: u32,
+    ) -> bool;
     fn cloudflare_close_lobby(id: u32);
 }

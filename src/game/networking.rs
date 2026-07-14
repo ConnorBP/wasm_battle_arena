@@ -36,6 +36,30 @@ pub struct GgrsConfig;
 #[derive(Resource)]
 pub struct LocalPlayerHandle(pub usize);
 
+/// Non-rollback handoff state. The old GGRS world remains authoritative until
+/// `OnExit(InGame)` has removed it, then the browser pending start is promoted.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EpochRollover {
+    pub old: Option<(u32, u32)>,
+    pub pending: Option<(u32, u32)>,
+}
+
+impl EpochRollover {
+    fn begin(&mut self, old: (u32, u32), pending: (u32, u32)) {
+        self.old = Some(old);
+        self.pending = Some(pending);
+    }
+
+    pub fn active(&self) -> bool {
+        self.old.is_some() && self.pending.is_some()
+    }
+
+    fn clear(&mut self) {
+        self.old = None;
+        self.pending = None;
+    }
+}
+
 #[derive(Resource)]
 pub struct MatchmakingRoom {
     pub private_code: Option<String>,
@@ -185,6 +209,7 @@ pub fn stop_legacy_matchmaking_socket(_socket: Res<CloudflareSocket>) {
 pub fn cleanup_network_session(
     mut commands: Commands,
     socket: Res<CloudflareSocket>,
+    rollover: Res<EpochRollover>,
     mut rollback_state: ResMut<NextState<super::RollbackState>>,
     players: Query<Entity, With<super::components::Player>>,
     bullets: Query<Entity, With<super::components::Bullet>>,
@@ -198,16 +223,23 @@ pub fn cleanup_network_session(
         )>,
     >,
 ) {
-    // Atomically retire all epoch packet channels before deferred removal of
-    // the old GGRS session/bootstrap. Persistent lobby control remains open.
-    if socket.lobby_epoch().is_some() {
-        socket.close_epoch_transport();
+    // Normal exits retire the identified active round here. During rollover,
+    // promotion happens only after these deferred removals/despawns have been
+    // applied by the chained OnExit systems.
+    if let (Some(epoch), Some(round)) = (socket.lobby_epoch(), socket.lobby_round()) {
+        if !rollover.active() {
+            socket.close_epoch_transport(epoch, round);
+        }
     }
     commands.remove_resource::<Session<GgrsConfig>>();
     commands.remove_resource::<LocalPlayerHandle>();
     commands.remove_resource::<RoundBootstrap>();
     commands.remove_resource::<super::map::Map<super::map::CellType, MAP_SIZE, MAP_SIZE>>();
-    commands.insert_resource(super::Scores::default());
+    // Do not synthesize/reset scores during rollover. The promoted immutable
+    // start carries the server-authoritative committed score snapshot.
+    if !rollover.active() {
+        commands.insert_resource(super::Scores::default());
+    }
     commands.insert_resource(super::MatchFlow::Playing);
     commands.insert_resource(super::RematchFlow::Idle);
     commands.insert_resource(super::RoundEndTimer::default());
@@ -221,6 +253,27 @@ pub fn cleanup_network_session(
         .chain(pickups.iter())
     {
         commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Phase two of rollover. Scheduled after `apply_deferred` on InGame exit so
+/// no old Session or gameplay entity can observe the new packet channels.
+pub fn promote_pending_rollover(
+    mut socket: ResMut<CloudflareSocket>,
+    mut rollover: ResMut<EpochRollover>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut toasts: ResMut<Toasts>,
+) {
+    let (Some(old), Some(pending)) = (rollover.old, rollover.pending) else {
+        return;
+    };
+    let promoted = socket.pending_epoch_round() == Some(pending)
+        && socket.promote_pending(old.0, old.1);
+    if !promoted {
+        rollover.clear();
+        toasts.error("Could not promote the next lobby round.".into());
+        socket.disconnect();
+        next_state.set(GameState::MainMenu);
     }
 }
 
@@ -383,6 +436,33 @@ mod tests {
     }
 
     #[test]
+    fn two_phase_rollover_state_is_explicit_and_idempotent() {
+        let mut rollover = EpochRollover::default();
+        assert!(!rollover.active());
+        rollover.begin((2, 8), (3, 0));
+        assert!(rollover.active());
+        assert_eq!(rollover.old, Some((2, 8)));
+        assert_eq!(rollover.pending, Some((3, 0)));
+        rollover.clear();
+        assert!(!rollover.active());
+    }
+
+    #[test]
+    fn source_contract_does_not_close_transport_in_epoch_watcher() {
+        let source = include_str!("networking.rs");
+        let watcher = source
+            .split("pub fn watch_lobby_epoch")
+            .nth(1)
+            .and_then(|tail| tail.split("pub fn poll_lobby_control").next())
+            .expect("watcher source");
+        assert!(watcher.contains("pending_epoch()"));
+        assert!(watcher.contains("pending_round()"));
+        assert!(watcher.contains("rollover.begin"));
+        assert!(!watcher.contains("close_epoch_transport"));
+        assert!(!watcher.contains("remove_resource::<Session"));
+    }
+
+    #[test]
     fn private_room_codes_are_canonical_and_bounded() {
         assert_eq!(sanitize_room_code(" ab-c_12! "), "ABC12");
         assert_eq!(sanitize_room_code("abcdefghijklmnopq"), "ABCDEFGHIJKLMNOP");
@@ -432,11 +512,27 @@ fn start_lobby_session(
             cosmetic_id: 0,
         })
         .collect();
+    if info.scores.len() != roster.len()
+        || roster
+            .iter()
+            .any(|entry| !info.scores.iter().any(|score| score.0 == entry.player_id))
+    {
+        toasts.error("Invalid authoritative lobby scores.".into());
+        next_state.set(GameState::MainMenu);
+        return;
+    }
     let scores = roster
         .iter()
-        .map(|entry| PlayerScore {
-            player_id: entry.player_id,
-            score: 0,
+        .map(|entry| {
+            let score = info
+                .scores
+                .iter()
+                .find(|score| score.0 == entry.player_id)
+                .expect("score coverage validated");
+            PlayerScore {
+                player_id: score.0,
+                score: score.1,
+            }
         })
         .collect();
     let Ok(bootstrap) = RoundBootstrap::new(
@@ -484,7 +580,7 @@ fn start_lobby_session(
         };
         builder = next;
     }
-    socket.set_epoch(info.epoch);
+    socket.set_epoch_round(info.epoch, info.round);
     let Ok(session) = builder.start_p2p_session(socket.take_transport()) else {
         toasts.error("Could not start lobby session.".into());
         next_state.set(GameState::MainMenu);
@@ -500,6 +596,7 @@ fn start_lobby_session(
     commands.insert_resource(bootstrap);
     commands.insert_resource(Session::P2P(session));
     commands.insert_resource(GameSeed(info.seed));
+    commands.insert_resource(EpochRollover::default());
     next_state.set(GameState::InGame);
 }
 
@@ -537,42 +634,26 @@ pub fn report_confirmed_outcome(
 }
 
 pub fn watch_lobby_epoch(
-    mut commands: Commands,
-    mut socket: ResMut<CloudflareSocket>,
+    socket: Res<CloudflareSocket>,
     bootstrap: Option<Res<RoundBootstrap>>,
     progress: Res<super::RoundProgress>,
-    scores: Res<Scores>,
-    mut flow: ResMut<super::MatchFlow>,
+    mut rollover: ResMut<EpochRollover>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let (Some(current), Some(server_epoch), Some(server_round)) =
-        (bootstrap, socket.lobby_epoch(), socket.lobby_round())
+    let (Some(current), Some(pending_epoch), Some(pending_round)) =
+        (bootstrap, socket.pending_epoch(), socket.pending_round())
     else {
         return;
     };
-    let is_new_epoch = server_epoch > current.epoch.0;
-    if (!is_new_epoch && progress.resolved.is_none())
-        || (server_epoch, server_round) <= (current.epoch.0, current.round.0)
-    {
+    let pending = (pending_epoch, pending_round);
+    let active = (current.epoch.0, current.round.0);
+    if pending <= active || (pending.0 == active.0 && progress.resolved.is_none()) {
         return;
     }
-    // Retire the old immutable epoch as one operation before returning to the
-    // matchmaking installer. The persistent control socket remains open.
-    socket.close_epoch_transport();
-    commands.remove_resource::<Session<GgrsConfig>>();
-    // A larger epoch is a server-authoritative roster/rematch replacement and
-    // must recreate GGRS even when the old match was already over. Round-only
-    // advancement still respects the local first-to-three endpoint.
-    if is_new_epoch {
-        *flow = super::MatchFlow::Playing;
-        next_state.set(GameState::Matchmaking);
-    } else if let Some(winner) = super::session::match_winner(scores.entries()) {
-        *flow = super::MatchFlow::MatchOver {
-            winner: winner.player_id,
-        };
-    } else {
-        next_state.set(GameState::Matchmaking);
-    }
+    // Phase one only records intent. Active peers, channels, Session and game
+    // world remain untouched until the InGame exit cleanup barrier.
+    rollover.begin(active, pending);
+    next_state.set(GameState::Matchmaking);
 }
 
 pub fn poll_lobby_control(
@@ -631,6 +712,7 @@ pub fn update_network_telemetry(
 pub fn log_ggrs_events(
     mut session: ResMut<Session<GgrsConfig>>,
     socket: Res<CloudflareSocket>,
+    rollover: Res<EpochRollover>,
     bootstrap: Option<Res<RoundBootstrap>>,
     mut toasts: ResMut<Toasts>,
     mut next_state: ResMut<NextState<GameState>>,
@@ -639,11 +721,24 @@ pub fn log_ggrs_events(
         for event in session.events() {
             match event {
                 GGRSEvent::Disconnected { addr } => {
-                    // Server policy releases the whole immutable roster; the
-                    // control message prevents surviving peers from queueing.
+                    if rollover.active() {
+                        info!("ignoring expected old-round disconnect during epoch rollover: {addr:?}");
+                        continue;
+                    }
+                    // Outside a deliberate rollover, a disconnect is fatal for
+                    // the whole immutable roster.
                     socket.leave_lobby(false);
                     let size = bootstrap.as_ref().map(|b| b.roster.len()).unwrap_or(2);
                     toasts.error(format!("Peer {addr:?} disconnected; returning all {size} roster players to menu.").into());
+                    next_state.set(GameState::MainMenu);
+                }
+                GGRSEvent::NetworkInterrupted { addr, .. } => {
+                    if rollover.active() {
+                        info!("ignoring expected old-round interruption during epoch rollover: {addr:?}");
+                        continue;
+                    }
+                    socket.leave_lobby(false);
+                    toasts.error(format!("Peer {addr:?} connection interrupted; returning to menu.").into());
                     next_state.set(GameState::MainMenu);
                 }
                 event => info!("GGRS Event: {event:?}"),

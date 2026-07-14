@@ -368,6 +368,7 @@ pub fn run() {
     .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<AudioConfig>()
     .init_resource::<MatchmakingRoom>()
+    .init_resource::<EpochRollover>()
     .init_resource::<PendingPlayerProfile>()
     .init_resource::<CasualProfile>()
     .init_resource::<toasts::Toasts>()
@@ -414,6 +415,10 @@ pub fn run() {
             clear_explosion_presentations,
             clear_player_powerup_presentations,
             cleanup_network_session,
+            // Deferred Session/entity removal is the phase boundary. Only
+            // after it is applied may new epoch peers/channels be created.
+            apply_deferred,
+            promote_pending_rollover,
         )
             .chain(),
     )
