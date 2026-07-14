@@ -1305,6 +1305,13 @@ function sameRound(session, epoch, round) {
         session.closedRound !== `${epoch}:${round}`;
 }
 
+// Peer connections and data channels live for the roster epoch. Individual
+// GGRS sessions are round-scoped by the 8-byte packet header below.
+function sameEpochTransport(session, epoch) {
+    return isCurrent(session) && session.epoch === epoch &&
+        !(session.closedRound?.startsWith(`${epoch}:`));
+}
+
 function lobbySendSignal(session, to, data, epoch = session.epoch, round = session.round) {
     if (isCurrent(session) && session.ws.readyState === WebSocket.OPEN) {
         session.ws.send(JSON.stringify({ type: "signal", epoch, round, to, data }));
@@ -1317,16 +1324,16 @@ function lobbyBindChannel(session, peerId, channel, epoch, round) {
     channel.binaryType = "arraybuffer";
     session.channels.set(peerId, channel);
     channel.onmessage = ({ data }) => {
-        if (!sameRound(session, epoch, round) || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES + 8 || data.byteLength < 8) { session.telemetry[2]++; return; }
+        if (!sameEpochTransport(session, epoch) || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES + 8 || data.byteLength < 8) { session.telemetry[2]++; return; }
         const bytes = new Uint8Array(data); const view = new DataView(data); const packetEpoch = view.getUint32(0, false); const packetRound = view.getUint32(4, false);
         if (packetEpoch !== session.epoch || packetRound !== session.round) { session.telemetry[3]++; return; }
         if (session.inbox.length >= MAX_QUEUED_PACKETS) { session.telemetry[2]++; return fail(session, "lobby receive queue overflow"); }
         session.telemetry[1]++; session.inbox.push({ epoch: packetEpoch, from: peerId, packet: bytes.slice(8) });
     };
-    channel.onclose = () => { if (sameRound(session, epoch, round) && session.status === 1) fail(session, "lobby peer disconnected"); };
-    channel.onerror = () => { if (sameRound(session, epoch, round)) fail(session, "lobby peer data channel failed"); };
+    channel.onclose = () => { if (sameEpochTransport(session, epoch) && session.status === 1) fail(session, "lobby peer disconnected"); };
+    channel.onerror = () => { if (sameEpochTransport(session, epoch)) fail(session, "lobby peer data channel failed"); };
     channel.onopen = () => {
-        if (!sameRound(session, epoch, round)) return channel.close();
+        if (!sameEpochTransport(session, epoch)) return channel.close();
         session.openPeers.add(peerId);
         if (session.openPeers.size === session.roster.length - 1) {
             session.status = 1;
@@ -1343,7 +1350,7 @@ async function lobbyCreatePeer(session, peerId, offerer, epoch, round) {
     peer.onicecandidate = ({ candidate }) => { if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "ice", candidate }, epoch, round); };
     peer.ondatachannel = ({ channel }) => lobbyBindChannel(session, peerId, channel, epoch, round);
     peer.onconnectionstatechange = () => {
-        if (!sameRound(session, epoch, round)) return;
+        if (!sameEpochTransport(session, epoch)) return;
         if (peer.connectionState === "connected") recordCandidatePair(session, peer);
         if (peer.connectionState === "failed") fail(session, "lobby WebRTC connection failed");
     };
@@ -1669,8 +1676,20 @@ export function cloudflare_lobby_promote_pending(id, oldEpoch, oldRound, pending
     if (!session || session.queue || !session.pendingStart || session.epoch !== oldEpoch || session.round !== oldRound ||
         session.pendingStart.epoch !== pendingEpoch || session.pendingStart.round !== pendingRound) return false;
     const start = session.pendingStart;
-    // Every GGRS round receives a new peer mesh. The identity-guarded
-    // close is the single legal retirement point.
+    if (pendingEpoch === oldEpoch) {
+        // Same-roster rounds reuse the established epoch mesh. GGRS packets
+        // carry round in their header, so delayed old-round packets are
+        // rejected without racing another browser's teardown.
+        const activeIds = session.roster.map(entry => entry.playerId).join(",");
+        const pendingIds = start.roster.map(entry => entry.playerId).join(",");
+        if (activeIds !== pendingIds || session.status !== 1) return false;
+        session.roster = start.roster; session.seed = start.seed; session.round = start.round;
+        session.matchGeneration = start.matchGeneration; session.inbox.length = 0;
+        session.pendingStart = null; session.pendingSignals.length = 0;
+        return true;
+    }
+    // Changed-roster epochs receive a fresh mesh after the exact old mesh is
+    // retired. This is the only path that closes peer connections on rollover.
     if (!closeLobbyRound(session, oldEpoch, oldRound)) return false;
     const signals = session.pendingSignals.splice(0);
     session.pendingStart = null;

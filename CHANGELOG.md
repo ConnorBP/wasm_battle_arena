@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.3 - 2026-07-14
+
+- Reuse the established WebRTC mesh across same-roster rounds to eliminate cross-browser teardown races.
+- Keep per-round GGRS isolation through epoch-and-round packet framing; only roster-changing epochs rebuild peers.
+
 ## 0.8.2 - 2026-07-14
 
 - Fixed a round-rollover race that could report a false peer disconnect and close the newly created lobby transport.
