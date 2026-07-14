@@ -344,6 +344,17 @@ impl CloudflareSocket {
         None
     }
 
+    /// Feature-only lifecycle observation. Production builds expose no browser
+    /// harness getter and retain the normal opaque transport boundary.
+    #[cfg(feature = "network_transition_test")]
+    pub fn local_player_id(&self) -> Option<PlayerId> {
+        #[cfg(target_arch = "wasm32")]
+        if self.transport_id != 0 {
+            return parse_player_id(&cloudflare_lobby_local_id(self.transport_id));
+        }
+        None
+    }
+
     pub fn request_rematch(&self, generation: u32, nonce: &str) -> bool {
         #[cfg(target_arch = "wasm32")]
         if self.transport_id != 0 {

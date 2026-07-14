@@ -51,6 +51,12 @@ A Cloudflare Durable Object protocol-v4 public queue turns Any/Duel/Last Ghost S
 
 The wasm-bindgen networking imports live in [`src/cloudflare_net.js`](src/cloudflare_net.js). The binding uses wasm-bindgen's project-root module path `/src/cloudflare_net.js`; `wasm-bindgen --target web` copies it into the generated `out/snippets` tree and rewrites the generated import, so deploy the complete `out` directory. The direct JS contract suites can be run with `npm run test:network-js` and, after installing Chromium for Playwright, `npm run test:network-js:browser`.
 
+### Extended transition harness
+
+`npm run smoke:network-transition:all` builds a separate local-only WASM artifact with `network_transition_test`, starts the local Worker, and executes one-shot real browser scenarios for rollover, active/reset-barrier disconnect, grace reload/reconnect, rematch, requeue, and changed-roster capability. Set `TRANSITION_SCENARIO=<name>` to run one scenario. Each run uses isolated browser contexts and emits bounded schema-1 events into its artifact JSON. The harness calls the normal client rematch/requeue APIs and does not retry assertions.
+
+The URL parameters (`ghost_transition`, `ghost_room`), `window.__ghostTransitionEvents`, and `window.__ghostTransitionApi` exist only in that feature build. The normal production build and Pages artifact contain none of them. `changed_roster` verifies a real three-player LGS with a waiting fourth, then explicitly reports the boundary-departure step as unsupported because the current Worker has no boundary-only incumbent-departure API (`leave` releases the active roster).
+
 ```
 cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen --out-dir ./out/ --target web ./target/wasm32-unknown-unknown/release/wasm_battle_arena.wasm

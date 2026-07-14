@@ -71,6 +71,22 @@ jobs:
         run: bash scripts/run-ingame-smoke.sh
       - name: Mobile input smoke
         run: bash scripts/run-mobile-input-smoke.sh
+      # Real transition tests intentionally build a separate feature-gated WASM
+      # artifact and run a local Worker. The production Pages artifact above is
+      # unchanged and contains no transition URL/bridge code.
+      - name: Extended real WebRTC/GGRS transition smoke
+        run: |
+          cd cloudflare-worker
+          npm ci --ignore-scripts
+          cd ..
+          npm run smoke:network-transition:all
+      - name: Upload transition diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-transition-diagnostics
+          path: artifacts/network-transition
+          if-no-files-found: warn
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
