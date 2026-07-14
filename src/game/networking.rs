@@ -42,12 +42,20 @@ pub struct LocalPlayerHandle(pub usize);
 pub struct EpochRollover {
     pub old: Option<(u32, u32)>,
     pub pending: Option<(u32, u32)>,
+    pub promoted: bool,
+    pub empty_update_frames: u8,
+    pub empty_elapsed_ms: u32,
+    pub install_ready: bool,
 }
 
 impl EpochRollover {
     fn begin(&mut self, old: (u32, u32), pending: (u32, u32)) {
         self.old = Some(old);
         self.pending = Some(pending);
+        self.promoted = false;
+        self.empty_update_frames = 0;
+        self.empty_elapsed_ms = 0;
+        self.install_ready = false;
     }
 
     pub fn active(&self) -> bool {
@@ -55,8 +63,7 @@ impl EpochRollover {
     }
 
     fn clear(&mut self) {
-        self.old = None;
-        self.pending = None;
+        *self = Self::default();
     }
 }
 
@@ -269,7 +276,9 @@ pub fn promote_pending_rollover(
     };
     let promoted =
         socket.pending_epoch_round() == Some(pending) && socket.promote_pending(old.0, old.1);
-    if !promoted {
+    if promoted {
+        rollover.promoted = true;
+    } else {
         rollover.clear();
         toasts.error("Could not promote the next lobby round.".into());
         socket.disconnect();
@@ -277,12 +286,36 @@ pub fn promote_pending_rollover(
     }
 }
 
+/// Leaves bevy_ggrs without a Session long enough for its private GgrsStage to
+/// execute the no-session reset path before a frame-zero replacement session.
+fn advance_reset_barrier_state(rollover: &mut EpochRollover, delta_ms: u32) {
+    rollover.empty_update_frames = rollover.empty_update_frames.saturating_add(1);
+    rollover.empty_elapsed_ms = rollover.empty_elapsed_ms.saturating_add(delta_ms);
+    rollover.install_ready = rollover.empty_update_frames >= 4 && rollover.empty_elapsed_ms >= 75;
+}
+
+pub fn advance_ggrs_reset_barrier(
+    time: Res<Time>,
+    session: Option<Res<Session<GgrsConfig>>>,
+    mut rollover: ResMut<EpochRollover>,
+) {
+    if !rollover.active() || !rollover.promoted || rollover.install_ready || session.is_some() {
+        return;
+    }
+    let delta_ms = time.delta().as_millis().min(u32::MAX as u128) as u32;
+    advance_reset_barrier_state(&mut rollover, delta_ms);
+}
+
 pub fn wait_for_players(
     mut commands: Commands,
+    rollover: Option<Res<EpochRollover>>,
     mut socket: ResMut<CloudflareSocket>,
     mut next_state: ResMut<NextState<GameState>>,
     mut toasts: ResMut<Toasts>,
 ) {
+    if rollover.is_some_and(|rollover| rollover.active() && !rollover.install_ready) {
+        return;
+    }
     let state = socket.state();
     // Coordinator assignment is not readiness. The browser closes v4, opens
     // the exact signed v3 room, receives welcome (and TURN), then completes
@@ -448,6 +481,29 @@ mod tests {
     }
 
     #[test]
+    fn ggrs_reset_barrier_requires_frames_and_elapsed_time() {
+        let mut rollover = EpochRollover::default();
+        rollover.begin((1, 0), (1, 1));
+        rollover.promoted = true;
+        for _ in 0..3 {
+            advance_reset_barrier_state(&mut rollover, 25);
+            assert!(!rollover.install_ready);
+        }
+        advance_reset_barrier_state(&mut rollover, 0);
+        assert!(rollover.install_ready);
+
+        let mut slow = EpochRollover::default();
+        slow.begin((2, 0), (2, 1));
+        slow.promoted = true;
+        for _ in 0..10 {
+            advance_reset_barrier_state(&mut slow, 7);
+        }
+        assert!(!slow.install_ready);
+        advance_reset_barrier_state(&mut slow, 5);
+        assert!(slow.install_ready);
+    }
+
+    #[test]
     fn source_contract_does_not_close_transport_in_epoch_watcher() {
         let source = include_str!("networking.rs");
         let watcher = source
@@ -580,6 +636,11 @@ fn start_lobby_session(
         };
         builder = next;
     }
+    // Reset rollback resources before the frame-zero replacement is visible.
+    commands.insert_resource(super::ggrs_framecount::GGFrameCount::default());
+    commands.insert_resource(super::RoundProgress::default());
+    commands.insert_resource(super::ReportedOutcome::default());
+    commands.insert_resource(super::RoundEndTimer::default());
     socket.set_epoch_round(info.epoch, info.round);
     let Ok(session) = builder.start_p2p_session(socket.take_transport()) else {
         toasts.error("Could not start lobby session.".into());

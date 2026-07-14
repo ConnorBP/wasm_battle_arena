@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.4 - 2026-07-14
+
+- Added an explicit no-session reset barrier before replacing GGRS so bevy_ggrs resets its private frame counter to zero.
+- Reset rollback frame and round resources before the new frame-zero session is installed.
+
 ## 0.8.3 - 2026-07-14
 
 - Reuse the established WebRTC mesh across same-roster rounds to eliminate cross-browser teardown races.

@@ -483,7 +483,10 @@ pub fn run() {
     .add_systems(
         Update,
         (
-            wait_for_players.run_if(in_state(GameState::Matchmaking)),
+            advance_ggrs_reset_barrier.run_if(in_state(GameState::Matchmaking)),
+            wait_for_players
+                .after(advance_ggrs_reset_barrier)
+                .run_if(in_state(GameState::Matchmaking)),
             report_confirmed_outcome.run_if(in_state(GameState::InGame)),
             award_confirmed_progression.run_if(in_state(GameState::InGame)),
             update_network_telemetry.run_if(in_state(GameState::InGame)),
