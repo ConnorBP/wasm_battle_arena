@@ -14,8 +14,7 @@ worker_pid=""
 site_pid=""
 
 mkdir -p "$artifact_dir"
-# Use a unique persistence directory so a prior Windows workerd process cannot
-# lock the next scenario's startup cleanup.
+# Use a unique persistence directory so repeated runs do not share state.
 site="$site-$$-${RANDOM}"
 mkdir -p "$site/out"
 cleanup() {

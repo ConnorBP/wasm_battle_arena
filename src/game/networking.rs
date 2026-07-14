@@ -688,6 +688,27 @@ pub fn poll_lobby_control(
     }
 }
 
+/// Retire GGRS before its PreUpdate poll when the browser transport has already
+/// reported a hard failure. This avoids polling a vanished peer long enough to
+/// overflow GGRS's i8 frame-advantage quality report.
+pub fn detect_transport_failure(
+    mut commands: Commands,
+    socket: Res<CloudflareSocket>,
+    rollover: Res<EpochRollover>,
+    session: Option<Res<Session<GgrsConfig>>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut toasts: ResMut<Toasts>,
+) {
+    if rollover.active() || session.is_none() {
+        return;
+    }
+    if let ConnectionState::Failed(error) = socket.state() {
+        commands.remove_resource::<Session<GgrsConfig>>();
+        toasts.error(error.into());
+        next_state.set(GameState::MainMenu);
+    }
+}
+
 pub fn update_network_telemetry(
     socket: Res<CloudflareSocket>,
     mut telemetry: ResMut<crate::cloudflare_net::NetworkTelemetry>,

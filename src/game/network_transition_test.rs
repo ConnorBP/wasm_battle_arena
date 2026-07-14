@@ -480,15 +480,16 @@ fn player_text(player: PlayerId) -> String {
     format!("{:032x}", player.0)
 }
 
+fn transition_schedule_ambiguities() -> impl IntoSystemConfigs<()> {
+    drive_transition_round
+        .before(super::player::process_deaths)
+        .ambiguous_with_all()
+}
+
 pub fn install(app: &mut App) {
     app.init_resource::<TransitionHarness>()
         .add_systems(Startup, configure_harness)
-        .add_systems(
-            GgrsSchedule,
-            drive_transition_round
-                .before(super::player::process_deaths)
-                .ambiguous_with_all(),
-        )
+        .add_systems(GgrsSchedule, transition_schedule_ambiguities())
         .add_systems(
             OnEnter(GameState::MainMenu),
             auto_enter_transition_queue.after(super::networking::stop_cloudflare_socket),

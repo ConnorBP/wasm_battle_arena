@@ -2,7 +2,7 @@
 
 ## 0.9.0 - 2026-07-14
 
-- Added a feature-gated real two-browser WASM/WebRTC/GGRS transition harness that completes three consecutive rollovers at frame zero.
+- Added a feature-gated real multi-browser WASM/WebRTC/GGRS harness covering rollovers, reconnect, disconnect, rematch, requeue, and LGS staging.
 - Fixed rematch browser crashes by replacing unsupported `std::time::SystemTime` with a WASM-compatible clock.
 - Hardened FFI integer validation, rematch/control parsing, WebSocket send failures, and transport lifecycle invariants.
 - Added a no-session reset barrier for safe GGRS session replacement and retained epoch-and-round packet isolation.

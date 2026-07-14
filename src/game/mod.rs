@@ -477,6 +477,10 @@ pub fn run() {
             .run_if(in_state(GameState::Matchmaking)),
     )
     .add_systems(
+        First,
+        detect_transport_failure.run_if(in_state(GameState::InGame)),
+    )
+    .add_systems(
         Update,
         (
             advance_ggrs_reset_barrier.run_if(in_state(GameState::Matchmaking)),
