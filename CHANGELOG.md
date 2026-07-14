@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 - 2026-07-14
+
+- Fixed a WASM BigInt conversion crash when reading network telemetry after dynamic queue matchmaking.
+- Added ABI regression coverage requiring JavaScript BigInt values for Rust `u64` imports.
+
 ## 0.8.0 - 2026-07-14
 
 - Replaced public Last Ghost Standing target counts with dynamic 3–8-player staging lobbies.

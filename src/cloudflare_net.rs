@@ -912,6 +912,15 @@ mod tests {
     }
 
     #[test]
+    fn wasm_u64_exports_use_javascript_bigint() {
+        let source = include_str!("cloudflare_net.rs");
+        assert!(source.contains("export function cloudflare_telemetry"));
+        assert!(source
+            .contains("return BigInt(Number.isSafeInteger(value) && value >= 0 ? value : 0);"));
+        assert!(source.contains("fn cloudflare_telemetry(id: u32, counter: u32) -> u64;"));
+    }
+
+    #[test]
     fn public_client_source_has_no_obsolete_roster_size_parameter() {
         let source = include_str!("cloudflare_net.rs");
         for forbidden in [
@@ -1518,7 +1527,10 @@ export function cloudflare_close_lobby(id) {
     session.ws.close(1000, "client closed");
 }
 
-export function cloudflare_telemetry(id, counter) { return current(id)?.telemetry?.[counter] ?? 0; }
+export function cloudflare_telemetry(id, counter) {
+    const value = current(id)?.telemetry?.[counter] ?? 0;
+    return BigInt(Number.isSafeInteger(value) && value >= 0 ? value : 0);
+}
 export function cloudflare_status(id) { const session=current(id); return session ? session.status : 0; }
 export function cloudflare_error(id) { return current(id)?.error || "network connection failed"; }
 export function cloudflare_player_index(id) { return current(id)?.playerIndex ?? 255; }
