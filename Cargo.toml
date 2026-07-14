@@ -28,7 +28,7 @@ bincode = "1.3"
 bevy_asset_loader = { version = "0.17", features=["2d"]}
 bevy_roll_safe = { git = "https://github.com/johanhelsing/bevy_roll_safe" }
 bevy_egui = "0.22"
-bevy_kira_audio = { version = "0.17", features=["ogg"] }
+bevy_kira_audio = { version = "0.18", features=["ogg"] }
 seeded-random = "0.6"
 bevy-inspector-egui = { version = "0.20", optional = true }
 egui-toast = "0.9"
