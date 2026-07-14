@@ -185,7 +185,7 @@ async function exerciseRoundIdempotence(lobby) {
   await first.waitFor("error", message => message.error === "conflicting_terminal_report", mark);
   mark = first.mark();
   await first.send({
-    type: "signal", epoch: lobby.start.epoch + 99, to: rest[0].playerId,
+    type: "signal", epoch: lobby.start.epoch + 99, round: lobby.start.round, to: rest[0].playerId,
     data: { type: "ice", candidate: null },
   });
   await first.waitFor("error", message => message.error === "stale_or_invalid_signal", mark);
@@ -341,7 +341,7 @@ async function main() {
   }
   const queuedErrorMark = queued.mark();
   await queued.send({
-    type: "signal", epoch: eight.start.epoch, to: eight.members[0].playerId,
+    type: "signal", epoch: eight.start.epoch, round: eight.start.round, to: eight.members[0].playerId,
     data: { type: "ice", candidate: null },
   });
   await queued.waitFor("error", message => message.error === "stale_or_invalid_signal", queuedErrorMark);

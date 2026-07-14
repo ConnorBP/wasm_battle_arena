@@ -1305,9 +1305,9 @@ function sameRound(session, epoch, round) {
         session.closedRound !== `${epoch}:${round}`;
 }
 
-function lobbySendSignal(session, to, data, epoch = session.epoch) {
+function lobbySendSignal(session, to, data, epoch = session.epoch, round = session.round) {
     if (isCurrent(session) && session.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({ type: "signal", epoch, to, data }));
+        session.ws.send(JSON.stringify({ type: "signal", epoch, round, to, data }));
     }
 }
 
@@ -1317,11 +1317,11 @@ function lobbyBindChannel(session, peerId, channel, epoch, round) {
     channel.binaryType = "arraybuffer";
     session.channels.set(peerId, channel);
     channel.onmessage = ({ data }) => {
-        if (!sameRound(session, epoch, round) || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES + 4 || data.byteLength < 4) { session.telemetry[2]++; return; }
-        const bytes = new Uint8Array(data); const packetEpoch = new DataView(data).getUint32(0, false);
-        if (packetEpoch !== session.epoch) { session.telemetry[3]++; return; }
+        if (!sameRound(session, epoch, round) || !(data instanceof ArrayBuffer) || data.byteLength > MAX_PACKET_BYTES + 8 || data.byteLength < 8) { session.telemetry[2]++; return; }
+        const bytes = new Uint8Array(data); const view = new DataView(data); const packetEpoch = view.getUint32(0, false); const packetRound = view.getUint32(4, false);
+        if (packetEpoch !== session.epoch || packetRound !== session.round) { session.telemetry[3]++; return; }
         if (session.inbox.length >= MAX_QUEUED_PACKETS) { session.telemetry[2]++; return fail(session, "lobby receive queue overflow"); }
-        session.telemetry[1]++; session.inbox.push({ epoch: packetEpoch, from: peerId, packet: bytes.slice(4) });
+        session.telemetry[1]++; session.inbox.push({ epoch: packetEpoch, from: peerId, packet: bytes.slice(8) });
     };
     channel.onclose = () => { if (sameRound(session, epoch, round) && session.status === 1) fail(session, "lobby peer disconnected"); };
     channel.onerror = () => { if (sameRound(session, epoch, round)) fail(session, "lobby peer data channel failed"); };
@@ -1340,7 +1340,7 @@ async function lobbyCreatePeer(session, peerId, offerer, epoch, round) {
     const peer = new RTCPeerConnection(peerConfiguration(session));
     session.peers.set(peerId, peer);
     session.pendingIce.set(peerId, []);
-    peer.onicecandidate = ({ candidate }) => { if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "ice", candidate }, epoch); };
+    peer.onicecandidate = ({ candidate }) => { if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "ice", candidate }, epoch, round); };
     peer.ondatachannel = ({ channel }) => lobbyBindChannel(session, peerId, channel, epoch, round);
     peer.onconnectionstatechange = () => {
         if (!sameRound(session, epoch, round)) return;
@@ -1350,13 +1350,13 @@ async function lobbyCreatePeer(session, peerId, offerer, epoch, round) {
     if (offerer) {
         lobbyBindChannel(session, peerId, peer.createDataChannel("ggrs", { ordered: false, maxRetransmits: 0 }), epoch, round);
         await peer.setLocalDescription(await peer.createOffer());
-        if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "offer", sdp: peer.localDescription.sdp }, epoch);
+        if (sameRound(session, epoch, round)) lobbySendSignal(session, peerId, { type: "offer", sdp: peer.localDescription.sdp }, epoch, round);
     }
 }
 
 function validLobbySignal(session, message, start) {
     return message && typeof message === "object" && Number.isInteger(message.epoch) &&
-        message.epoch === start.epoch && typeof message.from === "string" &&
+        message.epoch === start.epoch && message.round === start.round && typeof message.from === "string" &&
         start.roster.some(entry => entry.playerId === message.from) &&
         message.from !== session.localPlayerId && message.data && typeof message.data === "object" &&
         ["offer", "answer", "ice"].includes(message.data.type);
@@ -1364,7 +1364,7 @@ function validLobbySignal(session, message, start) {
 
 async function lobbyHandleSignal(session, message) {
     const epoch = session.epoch, round = session.round, from = message.from;
-    if (!validLobbySignal(session, message, { epoch, roster: session.roster })) throw new Error("invalid lobby signal source");
+    if (!validLobbySignal(session, message, { epoch, round, roster: session.roster })) throw new Error("invalid lobby signal source");
     const peer = session.peers.get(from);
     if (!peer) throw new Error("lobby signal before peer setup");
     const data = message.data;
@@ -1374,7 +1374,7 @@ async function lobbyHandleSignal(session, message) {
         if (!sameRound(session, epoch, round)) return;
         for (const candidate of session.pendingIce.get(from).splice(0)) if (candidate) await peer.addIceCandidate(candidate);
         await peer.setLocalDescription(await peer.createAnswer());
-        if (sameRound(session, epoch, round)) lobbySendSignal(session, from, { type: "answer", sdp: peer.localDescription.sdp }, epoch);
+        if (sameRound(session, epoch, round)) lobbySendSignal(session, from, { type: "answer", sdp: peer.localDescription.sdp }, epoch, round);
     } else if (data.type === "answer") {
         if (session.localPlayerId > from) throw new Error("unexpected lobby answer");
         await peer.setRemoteDescription({ type: "answer", sdp: data.sdp });
@@ -1487,13 +1487,14 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
 
                 }
             } else if (message.type === "signal") {
-                if (session.pendingStart && message.epoch === session.pendingStart.epoch) {
+                if (session.pendingStart && message.epoch === session.pendingStart.epoch &&
+                    message.round === session.pendingStart.round) {
                     if (!validLobbySignal(session, message, session.pendingStart)) throw new Error("invalid pending lobby signal");
                     if (session.pendingSignals.length >= MAX_QUEUED_PACKETS) throw new Error("pending lobby signal overflow");
                     session.pendingSignals.push(message);
                     return;
                 }
-                if (!Number.isInteger(message.epoch) || message.epoch !== session.epoch) return;
+                if (!Number.isInteger(message.epoch) || message.epoch !== session.epoch || message.round !== session.round) return;
                 await lobbyHandleSignal(session, message);
             } else if (message.type === "rematch_pending" || message.type === "rematch_accepted" || message.type === "rematch_denied" || message.type === "match_exit" || message.type === "match_over" || message.type === "requeue") {
                 if (session.control.length >= 32) session.control.shift();
@@ -1640,7 +1641,7 @@ export function cloudflare_lobby_roster_score(id, index) { return current(id)?.r
 export function cloudflare_lobby_send(id, epoch, to, packet) {
     const session = current(id); const channel = session?.channels.get(to);
     if (session?.status !== 1 || epoch !== session.epoch || channel?.readyState !== "open" || packet.length > MAX_PACKET_BYTES || channel.bufferedAmount > MAX_BUFFERED_BYTES) { if (session) session.telemetry[2]++; return; }
-    try { const framed = new Uint8Array(packet.length + 4); new DataView(framed.buffer).setUint32(0, epoch, false); framed.set(packet, 4); channel.send(framed); session.telemetry[0]++; } catch (error) { fail(session, error); }
+    try { const framed = new Uint8Array(packet.length + 8); const view = new DataView(framed.buffer); view.setUint32(0, epoch, false); view.setUint32(4, session.round, false); framed.set(packet, 8); channel.send(framed); session.telemetry[0]++; } catch (error) { fail(session, error); }
 }
 export function cloudflare_lobby_receive(id) {
     const item = current(id)?.inbox?.shift();
@@ -1667,14 +1668,12 @@ export function cloudflare_lobby_promote_pending(id, oldEpoch, oldRound, pending
     const session = current(id);
     if (!session || session.queue || !session.pendingStart || session.epoch !== oldEpoch || session.round !== oldRound ||
         session.pendingStart.epoch !== pendingEpoch || session.pendingStart.round !== pendingRound) return false;
-    // The identity-guarded close is the single legal retirement point. Refuse
-    // promotion if another path already retired this round.
-    if (!closeLobbyRound(session, oldEpoch, oldRound)) return false;
     const start = session.pendingStart;
+    // Every GGRS round receives a new peer mesh. The identity-guarded
+    // close is the single legal retirement point.
+    if (!closeLobbyRound(session, oldEpoch, oldRound)) return false;
     const signals = session.pendingSignals.splice(0);
     session.pendingStart = null;
-    // Install is queued on signalChain so offer/answer/ICE arrival order is
-    // retained across the synchronous phase boundary.
     session.signalChain = session.signalChain.then(() => installLobbyStart(session, start, signals)).catch(error => fail(session, error));
     return true;
 }

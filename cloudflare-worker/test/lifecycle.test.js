@@ -172,11 +172,11 @@ test("validateEpochSignal rejects stale, wrong-epoch, and non-roster signaling",
   const active = startLifecycleRound(state, "s0", "roster_ready");
   const epoch = active.epoch;
 
-  assert.deepEqual(validateEpochSignal(state, A, B, epoch), { ok: true, epoch });
-  assert.equal(validateEpochSignal(state, A, B, epoch + 1).code, "stale_epoch");
-  assert.equal(validateEpochSignal(state, A, A, epoch).code, "invalid_target");
-  assert.equal(validateEpochSignal(state, A, C, epoch).code, "not_in_roster");
-  assert.equal(validateEpochSignal(state, C, B, epoch).code, "not_in_roster");
+  assert.deepEqual(validateEpochSignal(state, A, B, epoch, state.active?.round ?? 0), { ok: true, epoch, round: state.active.round });
+  assert.equal(validateEpochSignal(state, A, B, epoch + 1, state.active?.round ?? 0).code, "stale_epoch");
+  assert.equal(validateEpochSignal(state, A, A, epoch, state.active?.round ?? 0).code, "invalid_target");
+  assert.equal(validateEpochSignal(state, A, C, epoch, state.active?.round ?? 0).code, "not_in_roster");
+  assert.equal(validateEpochSignal(state, C, B, epoch, state.active?.round ?? 0).code, "not_in_roster");
 
   // Advance to a new epoch (A leaves, the queued C is promoted); signaling for
   // the old epoch is now stale while the new epoch is valid.
@@ -185,13 +185,13 @@ test("validateEpochSignal rejects stale, wrong-epoch, and non-roster signaling",
   state.players[A].connected = false;
   submitLifecycleReport(state, B, 0, 0, outcomes, "s2");
   assert.equal(state.active.epoch, 1);
-  assert.equal(validateEpochSignal(state, B, C, 0).code, "stale_epoch");
-  assert.deepEqual(validateEpochSignal(state, B, C, 1), { ok: true, epoch: 1 });
+  assert.equal(validateEpochSignal(state, B, C, 0, state.active?.round ?? 0).code, "stale_epoch");
+  assert.deepEqual(validateEpochSignal(state, B, C, 1, state.active?.round ?? 0), { ok: true, epoch: 1, round: state.active.round });
 });
 
 test("validateEpochSignal rejects signaling when no round is active", () => {
   const state = seededState([A, B]);
-  assert.equal(validateEpochSignal(state, A, B, 0).code, "no_active_round");
+  assert.equal(validateEpochSignal(state, A, B, 0, state.active?.round ?? 0).code, "no_active_round");
 });
 
 // ---------------------------------------------------------------------------

@@ -208,11 +208,11 @@ export class EpochLobby extends DurableObject {
     }
     if (message.type === "signal") {
       // Stale/wrong-epoch/non-roster signaling is rejected before any relay.
-      const check = validateSignal(this.state, attachment.playerId, message.to, message.epoch);
+      const check = validateSignal(this.state, attachment.playerId, message.to, message.epoch, message.round);
       if (!check.ok) return this.sendError(socket, "stale_or_invalid_signal");
       const target = this.socket(message.to);
       if (!target) return this.sendError(socket, "target_offline");
-      this.send(target, { type: "signal", epoch: check.epoch, from: attachment.playerId, data: message.data });
+      this.send(target, { type: "signal", epoch: check.epoch, round: check.round, from: attachment.playerId, data: message.data });
       return;
     }
     if (message.type === "report") {

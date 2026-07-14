@@ -103,15 +103,15 @@ export function selectLifecycleRoster(state) {
  * the control WebSocket so stale/wrong-epoch signaling is rejected before any
  * relay, and unit-testable without a Workers runtime.
  */
-export function validateEpochSignal(state, fromPlayerId, toPlayerId, epoch) {
+export function validateEpochSignal(state, fromPlayerId, toPlayerId, epoch, round) {
   const active = state.active;
   if (!active) return { ok: false, code: "no_active_round" };
-  if (epoch !== active.epoch) return { ok: false, code: "stale_epoch" };
+  if (epoch !== active.epoch || round !== active.round) return { ok: false, code: "stale_epoch" };
   if (fromPlayerId === toPlayerId) return { ok: false, code: "invalid_target" };
   const fromActive = active.roster.some((entry) => entry.playerId === fromPlayerId);
   const toActive = active.roster.some((entry) => entry.playerId === toPlayerId);
   if (!fromActive || !toActive) return { ok: false, code: "not_in_roster" };
-  return { ok: true, epoch: active.epoch };
+  return { ok: true, epoch: active.epoch, round: active.round };
 }
 
 /**

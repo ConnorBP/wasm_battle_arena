@@ -166,8 +166,9 @@ export function parseEpochClientMessage(text) {
   if (message.type === "signal") {
     // Protocol 3 signals are always epoch-scoped. A signal missing `epoch` is
     // not silently downgraded to the legacy v2 schema.
-    if (!onlyKeys(message, ["type", "epoch", "to", "data"])) return fail("invalid signal schema");
-    if (!Number.isInteger(message.epoch) || message.epoch < 0) return fail("invalid signal epoch");
+    if (!onlyKeys(message, ["type", "epoch", "round", "to", "data"])) return fail("invalid signal schema");
+    if (!Number.isInteger(message.epoch) || message.epoch < 0 ||
+        !Number.isInteger(message.round) || message.round < 0) return fail("invalid signal round identity");
     const signal = parseClientMessage(JSON.stringify({ type: "signal", to: message.to, data: message.data }));
     return signal.ok ? { ok: true, value: { ...message, to: signal.value.to } } : fail("invalid signal");
   }

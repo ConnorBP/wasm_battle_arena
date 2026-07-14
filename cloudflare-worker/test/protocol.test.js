@@ -121,7 +121,7 @@ test("epoch protocol validates profiles and reports", () => {
 test("epoch signals are always epoch-scoped and never downgrade to v2", () => {
   const target = "1".repeat(32);
   const valid = parseEpochClientMessage(JSON.stringify({
-    type: "signal", epoch: 0, to: target, data: { type: "offer", sdp: "v=0" },
+    type: "signal", epoch: 0, round: 0, to: target, data: { type: "offer", sdp: "v=0" },
   }));
   assert.equal(valid.ok, true);
   assert.equal(valid.value.epoch, 0);
@@ -132,14 +132,14 @@ test("epoch signals are always epoch-scoped and never downgrade to v2", () => {
   })).ok, false);
   // A negative or non-integer epoch is rejected.
   assert.equal(parseEpochClientMessage(JSON.stringify({
-    type: "signal", epoch: -1, to: target, data: { type: "offer", sdp: "v=0" },
+    type: "signal", epoch: -1, round: 0, to: target, data: { type: "offer", sdp: "v=0" },
   })).ok, false);
   assert.equal(parseEpochClientMessage(JSON.stringify({
-    type: "signal", epoch: "0", to: target, data: { type: "offer", sdp: "v=0" },
+    type: "signal", epoch: "0", round: 0, to: target, data: { type: "offer", sdp: "v=0" },
   })).ok, false);
   // Extra keys on a signal are rejected.
   assert.equal(parseEpochClientMessage(JSON.stringify({
-    type: "signal", epoch: 0, to: target, data: { type: "offer", sdp: "v=0" }, extra: 1 },
+    type: "signal", epoch: 0, round: 0, to: target, data: { type: "offer", sdp: "v=0" }, extra: 1 },
   )).ok, false);
 });
 

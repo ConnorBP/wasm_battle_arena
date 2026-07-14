@@ -267,8 +267,8 @@ pub fn promote_pending_rollover(
     let (Some(old), Some(pending)) = (rollover.old, rollover.pending) else {
         return;
     };
-    let promoted = socket.pending_epoch_round() == Some(pending)
-        && socket.promote_pending(old.0, old.1);
+    let promoted =
+        socket.pending_epoch_round() == Some(pending) && socket.promote_pending(old.0, old.1);
     if !promoted {
         rollover.clear();
         toasts.error("Could not promote the next lobby round.".into());
@@ -451,8 +451,8 @@ mod tests {
     fn source_contract_does_not_close_transport_in_epoch_watcher() {
         let source = include_str!("networking.rs");
         let watcher = source
-            .split("pub fn watch_lobby_epoch")
-            .nth(1)
+            .rsplit("pub fn watch_lobby_epoch")
+            .next()
             .and_then(|tail| tail.split("pub fn poll_lobby_control").next())
             .expect("watcher source");
         assert!(watcher.contains("pending_epoch()"));
@@ -738,7 +738,9 @@ pub fn log_ggrs_events(
                         continue;
                     }
                     socket.leave_lobby(false);
-                    toasts.error(format!("Peer {addr:?} connection interrupted; returning to menu.").into());
+                    toasts.error(
+                        format!("Peer {addr:?} connection interrupted; returning to menu.").into(),
+                    );
                     next_state.set(GameState::MainMenu);
                 }
                 event => info!("GGRS Event: {event:?}"),

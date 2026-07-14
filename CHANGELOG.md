@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2 - 2026-07-14
+
+- Fixed a round-rollover race that could report a false peer disconnect and close the newly created lobby transport.
+- Added two-phase pending-start promotion with exact epoch-and-round signaling and packet framing.
+- Added consecutive-round rollover regression coverage.
+
 ## 0.8.1 - 2026-07-14
 
 - Fixed a WASM BigInt conversion crash when reading network telemetry after dynamic queue matchmaking.
