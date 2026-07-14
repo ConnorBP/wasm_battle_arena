@@ -133,6 +133,9 @@ export class MatchQueue extends DurableObject {
     await this.replayAssignments(now);
   }
 
+  // Staging snapshots include recipient-local vote membership. Keeping that
+  // boolean server-authored lets clients render vote/withdraw safely after
+  // joins, disconnects, and Worker hibernation without optimistic state.
   publishStatuses() {
     for (const entry of Object.values(this.state.entries)) {
       const socket = this.socket(entry.ticket);
@@ -145,12 +148,14 @@ export class MatchQueue extends DurableObject {
           votes: this.state.lock.votes?.length ?? 0,
           votesRequired: startVotesRequired(this.state.lock.tickets.length),
           deadline: this.state.lock.deadline,
+          voted: this.state.lock.votes?.includes(entry.ticket) ?? false,
         };
       } else if (entry.preference === "any" && entry.anyHoldDeadline !== null) {
         status = { type: "status", status: "holding_for_third" };
       }
       const encoded = JSON.stringify(status);
       const attachment = socket.deserializeAttachment() ?? {};
+      // `voted` is ticket-local, so deduplication also remains per recipient.
       if (attachment.queueStatus === encoded) continue;
       attachment.queueStatus = encoded;
       socket.serializeAttachment(attachment);

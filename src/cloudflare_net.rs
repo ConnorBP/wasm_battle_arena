@@ -45,19 +45,41 @@ pub enum LobbyControlEvent {
 pub enum QueueStatus {
     Searching,
     HoldingForThird,
-    Forming { count: u8, target: u8 },
+    Staging {
+        count: u8,
+        votes: u8,
+        votes_required: u8,
+        deadline_ms: u64,
+        voted: bool,
+    },
     Assigned,
 }
 
 #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-fn queue_status_from_scalars(phase: u32, count: u32, target: u32) -> Option<QueueStatus> {
+fn queue_status_from_scalars(
+    phase: u32,
+    count: u32,
+    votes: u32,
+    votes_required: u32,
+    deadline_ms: u64,
+    voted: bool,
+) -> Option<QueueStatus> {
     match phase {
         1 => Some(QueueStatus::Searching),
         2 => Some(QueueStatus::HoldingForThird),
-        3 if (3..=8).contains(&count) && (count..=8).contains(&target) => {
-            Some(QueueStatus::Forming {
+        3 if (3..=8).contains(&count)
+            && votes <= count
+            && votes_required == count / 2 + 1
+            && deadline_ms > 0
+            && deadline_ms <= 9_007_199_254_740_991
+            && (!voted || votes > 0) =>
+        {
+            Some(QueueStatus::Staging {
                 count: count as u8,
-                target: target as u8,
+                votes: votes as u8,
+                votes_required: votes_required as u8,
+                deadline_ms,
+                voted,
             })
         }
         4 => Some(QueueStatus::Assigned),
@@ -212,14 +234,13 @@ impl CloudflareSocket {
         signaling_url: &str,
         compatibility_room: &str,
         preference: &str,
-        target: u8,
         profile_name: &str,
         palette_id: u8,
         cosmetic_id: u8,
     ) {
         self.close();
-        if !matches!(preference, "any" | "duel" | "deathmatch") || !(3..=8).contains(&target) {
-            self.native_error = Some("invalid public queue preference or target".into());
+        if !matches!(preference, "any" | "duel" | "deathmatch") {
+            self.native_error = Some("invalid public queue preference".into());
             return;
         }
         #[cfg(target_arch = "wasm32")]
@@ -228,7 +249,6 @@ impl CloudflareSocket {
                 signaling_url,
                 compatibility_room,
                 preference,
-                target as u32,
                 profile_name,
                 palette_id as u32,
                 cosmetic_id as u32,
@@ -245,7 +265,6 @@ impl CloudflareSocket {
                 signaling_url,
                 compatibility_room,
                 preference,
-                target,
                 profile_name,
                 palette_id,
                 cosmetic_id,
@@ -330,7 +349,7 @@ impl CloudflareSocket {
         matches!(
             self.queue_status(),
             Some(
-                QueueStatus::Searching | QueueStatus::HoldingForThird | QueueStatus::Forming { .. }
+                QueueStatus::Searching | QueueStatus::HoldingForThird | QueueStatus::Staging { .. }
             )
         )
     }
@@ -341,7 +360,10 @@ impl CloudflareSocket {
             return queue_status_from_scalars(
                 cloudflare_queue_phase(self.transport_id),
                 cloudflare_queue_count(self.transport_id),
-                cloudflare_queue_target(self.transport_id),
+                cloudflare_queue_votes(self.transport_id),
+                cloudflare_queue_votes_required(self.transport_id),
+                cloudflare_queue_deadline(self.transport_id).parse().ok()?,
+                cloudflare_queue_voted(self.transport_id),
             );
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -350,6 +372,35 @@ impl CloudflareSocket {
         }
         #[cfg(target_arch = "wasm32")]
         None
+    }
+
+    /// Casts this queue ticket's start vote. Voting is deliberately unavailable
+    /// before a dynamic LGS group reaches staging or after assignment.
+    pub fn vote_start(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.transport_id != 0
+            && matches!(
+                self.queue_status(),
+                Some(QueueStatus::Staging { voted: false, .. })
+            )
+        {
+            return cloudflare_queue_vote_start(self.transport_id);
+        }
+        false
+    }
+
+    /// Withdraws this queue ticket's vote while its LGS group is staging.
+    pub fn withdraw_start_vote(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.transport_id != 0
+            && matches!(
+                self.queue_status(),
+                Some(QueueStatus::Staging { voted: true, .. })
+            )
+        {
+            return cloudflare_queue_withdraw_start_vote(self.transport_id);
+        }
+        false
     }
 
     pub fn match_info(&self) -> Option<MatchInfo> {
@@ -730,19 +781,19 @@ mod tests {
     #[test]
     fn coordinator_phases_skip_lobby_control_polling() {
         assert!(matches!(
-            queue_status_from_scalars(1, 0, 8),
+            queue_status_from_scalars(1, 0, 0, 0, 0, false),
             Some(QueueStatus::Searching)
         ));
         assert!(matches!(
-            queue_status_from_scalars(2, 0, 8),
+            queue_status_from_scalars(2, 0, 0, 0, 0, false),
             Some(QueueStatus::HoldingForThird)
         ));
         assert!(matches!(
-            queue_status_from_scalars(3, 3, 8),
-            Some(QueueStatus::Forming { .. })
+            queue_status_from_scalars(3, 3, 0, 2, 40_000, false),
+            Some(QueueStatus::Staging { .. })
         ));
         assert!(matches!(
-            queue_status_from_scalars(4, 0, 0),
+            queue_status_from_scalars(4, 0, 0, 0, 0, false),
             Some(QueueStatus::Assigned)
         ));
     }
@@ -750,24 +801,40 @@ mod tests {
     #[test]
     fn queue_status_scalars_are_strict_and_bounded() {
         assert_eq!(
-            queue_status_from_scalars(1, 0, 8),
+            queue_status_from_scalars(1, 0, 0, 0, 0, false),
             Some(QueueStatus::Searching)
         );
         assert_eq!(
-            queue_status_from_scalars(2, 0, 8),
+            queue_status_from_scalars(2, 0, 0, 0, 0, false),
             Some(QueueStatus::HoldingForThird)
         );
         assert_eq!(
-            queue_status_from_scalars(3, 4, 7),
-            Some(QueueStatus::Forming {
+            queue_status_from_scalars(3, 4, 2, 3, 40_000, true),
+            Some(QueueStatus::Staging {
                 count: 4,
-                target: 7
+                votes: 2,
+                votes_required: 3,
+                deadline_ms: 40_000,
+                voted: true,
             })
         );
-        assert_eq!(queue_status_from_scalars(3, 2, 8), None);
-        assert_eq!(queue_status_from_scalars(3, 6, 5), None);
+        assert_eq!(queue_status_from_scalars(3, 2, 0, 2, 40_000, false), None);
+        assert_eq!(queue_status_from_scalars(3, 9, 0, 5, 40_000, false), None);
+        assert_eq!(queue_status_from_scalars(3, 5, 6, 3, 40_000, false), None);
+        assert_eq!(queue_status_from_scalars(3, 5, 2, 2, 40_000, false), None);
+        assert_eq!(queue_status_from_scalars(3, 5, 0, 3, 0, false), None);
+        assert_eq!(queue_status_from_scalars(3, 5, 0, 3, u64::MAX, false), None);
+        assert_eq!(queue_status_from_scalars(3, 5, 0, 3, 40_000, true), None);
+        for count in 3..=8 {
+            let required = count / 2 + 1;
+            assert!(matches!(
+                queue_status_from_scalars(3, count, required - 1, required, 40_000, false),
+                Some(QueueStatus::Staging { count: parsed, votes_required: parsed_required, .. })
+                    if parsed == count as u8 && parsed_required == required as u8
+            ));
+        }
         assert_eq!(
-            queue_status_from_scalars(4, 0, 0),
+            queue_status_from_scalars(4, 0, 0, 0, 0, false),
             Some(QueueStatus::Assigned)
         );
     }
@@ -828,18 +895,39 @@ mod tests {
     }
 
     #[test]
-    fn queue_connect_rejects_invalid_preference_or_target_before_transport() {
+    fn queue_connect_rejects_invalid_preference_before_transport() {
         let mut socket = CloudflareSocket::default();
-        socket.connect_queue("", "battle-0-7-0", "surprise", 8, "Ghost", 0, 0);
+        socket.connect_queue("", "battle-0-7-0", "surprise", "Ghost", 0, 0);
         assert_eq!(
             socket.state(),
-            ConnectionState::Failed("invalid public queue preference or target".into())
+            ConnectionState::Failed("invalid public queue preference".into())
         );
-        socket.connect_queue("", "battle-0-7-0", "any", 2, "Ghost", 0, 0);
-        assert_eq!(
-            socket.state(),
-            ConnectionState::Failed("invalid public queue preference or target".into())
-        );
+    }
+
+    #[test]
+    fn voting_is_safe_outside_browser_staging() {
+        let socket = CloudflareSocket::default();
+        assert!(!socket.vote_start());
+        assert!(!socket.withdraw_start_vote());
+    }
+
+    #[test]
+    fn public_client_source_has_no_obsolete_roster_size_parameter() {
+        let source = include_str!("cloudflare_net.rs");
+        for forbidden in [
+            ["queue", "Target"].concat(),
+            ["&tar", "get="].concat(),
+            ["message.tar", "get"].concat(),
+        ] {
+            assert!(
+                !source.contains(&forbidden),
+                "obsolete public queue field remains"
+            );
+        }
+        let networking = include_str!("game/networking.rs");
+        assert!(!networking.contains(&["pub tar", "get:"].concat()));
+        let gui = include_str!("game/gui.rs");
+        assert!(!gui.contains(&["Target ", "ghosts"].concat()));
     }
 }
 
@@ -1209,7 +1297,7 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
     const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(room)}?protocol=3&mode=${modeName}&capacity=${capacity}${reconnect}${handoff}`;
     const ws = new WebSocket(url);
     const id = existingId || nextTransportId++ || nextTransportId++;
-    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, queueTarget: capacity, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
+    const session = { id, ws, identityKey, status: 0, error: "", lobby: true, assignmentHandoff: !!assignment, mode, capacity, inbox: [], peers: new Map(), channels: new Map(), pendingIce: new Map(), openPeers: new Set(), roster: [], localPlayerId: "", seed: "", epoch: 0, round: 0, matchGeneration: 0, control: [], signalChain: Promise.resolve(), timeout: 0, heartbeat: 0, queuePhase: assignment ? 4 : 0, queueCount: 0, profileName, paletteId, cosmeticId, iceServers: DEFAULT_ICE_SERVERS, turnExpiresAt: null, iceHasTurn: false, telemetry: [0,0,0,0,reconnect ? 1 : 0,0,0,0,0,0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, assignment ? "assignment handoff timed out" : "lobby matchmaking timed out"), assignment ? ASSIGNMENT_HANDOFF_TIMEOUT_MS : MATCHMAKING_TIMEOUT_MS);
     ws.onopen = () => {};
@@ -1281,14 +1369,18 @@ function validAssignment(message, ticket) {
 }
 
 function queueStatus(session, message) {
-    if (!message || typeof message !== "object" || Array.isArray(message) ||
-        !Object.keys(message).every(key => ["type","status","phase","count","target"].includes(key))) return false;
-    const value = message.status ?? message.phase;
-    if (value === "searching" || value === "queued") { session.queuePhase = 1; return true; }
-    if (value === "holding" || value === "holding_for_third" || value === "holding_briefly_for_third") { session.queuePhase = 2; return true; }
-    if ((value === "forming" || value === "forming_lgs") && Number.isInteger(message.count) && Number.isInteger(message.target) &&
-        message.count >= 3 && message.count <= 8 && message.target >= message.count && message.target <= 8) {
-        session.queuePhase = 3; session.queueCount = message.count; session.queueTarget = message.target; return true;
+    if (!message || typeof message !== "object" || Array.isArray(message) || message.type !== "status" ||
+        !Object.keys(message).every(key => ["type","status","count","votes","votesRequired","deadline","voted"].includes(key))) return false;
+    if (message.status === "searching" && Object.keys(message).length === 2) { session.queuePhase = 1; return true; }
+    if (message.status === "holding_for_third" && Object.keys(message).length === 2) { session.queuePhase = 2; return true; }
+    if (message.status === "staging" && Object.keys(message).length === 7 && Number.isInteger(message.count) && message.count >= 3 && message.count <= 8 &&
+        Number.isInteger(message.votes) && message.votes >= 0 && message.votes <= message.count &&
+        Number.isInteger(message.votesRequired) && message.votesRequired === Math.floor(message.count / 2) + 1 &&
+        Number.isSafeInteger(message.deadline) && message.deadline > 0 && typeof message.voted === "boolean" &&
+        (!message.voted || message.votes > 0)) {
+        session.queuePhase = 3; session.queueCount = message.count; session.queueVotes = message.votes;
+        session.queueVotesRequired = message.votesRequired; session.queueDeadline = message.deadline;
+        session.queueVoted = message.voted; return true;
     }
     return false;
 }
@@ -1303,12 +1395,12 @@ function timeoutForPhase(phase) {
     return MATCHMAKING_TIMEOUT_MS;
 }
 
-export function cloudflare_connect_queue(baseUrl, compatibilityRoom, preference, target, profileName, paletteId, cosmeticId) {
+export function cloudflare_connect_queue(baseUrl, compatibilityRoom, preference, profileName, paletteId, cosmeticId) {
     const endpoint = (baseUrl || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/queue`).replace(/\/match\/?$/, "/queue").replace(/\/lobby\/?$/, "/queue");
-    const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(compatibilityRoom)}?protocol=4&preference=${encodeURIComponent(preference)}&target=${target}`;
+    const url = `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(compatibilityRoom)}?protocol=4&preference=${encodeURIComponent(preference)}`;
     const ws = new WebSocket(url);
     const id = nextTransportId++ || nextTransportId++;
-    const session = { id, ws, queue: true, status: 0, error: "", queuePhase: 1, queueCount: 0, queueTarget: target, ticket: "", control: [], inbox: [], roster: [], channels: new Map(), peers: new Map(), pendingIce: new Map(), openPeers: new Set(), timeout: 0, heartbeat: 0, signalChain: Promise.resolve(), telemetry: [0,0,0,0,0,0,0,0,0,0,0] };
+    const session = { id, ws, queue: true, status: 0, error: "", queuePhase: 1, queueCount: 0, queueVotes: 0, queueVotesRequired: 0, queueDeadline: 0, queueVoted: false, ticket: "", control: [], inbox: [], roster: [], channels: new Map(), peers: new Map(), pendingIce: new Map(), openPeers: new Set(), timeout: 0, heartbeat: 0, signalChain: Promise.resolve(), telemetry: [0,0,0,0,0,0,0,0,0,0,0] };
     networks.set(id, session);
     session.timeout = window.setTimeout(() => fail(session, "could not open public queue"), timeoutForPhase("socket_open"));
     ws.onopen = () => {
@@ -1326,7 +1418,7 @@ export function cloudflare_connect_queue(baseUrl, compatibilityRoom, preference,
         session.signalChain = session.signalChain.then(() => {
             const message = JSON.parse(data);
             if (message?.type === "queued") {
-                if (message.protocol !== 4 || !/^[0-9a-f]{32}$/.test(message.ticket) || message.preference !== preference || message.target !== target) throw new Error("invalid queue acknowledgement");
+                if (message.protocol !== 4 || !/^[0-9a-f]{32}$/.test(message.ticket) || message.preference !== preference || !Object.keys(message).every(key => ["type","protocol","ticket","preference"].includes(key))) throw new Error("invalid queue acknowledgement");
                 session.ticket = message.ticket; session.queuePhase = 1;
                 window.clearTimeout(session.timeout);
                 session.timeout = 0; // Ordinary admitted queue waiting is unbounded.
@@ -1358,7 +1450,20 @@ export function cloudflare_connect_queue(baseUrl, compatibilityRoom, preference,
 
 export function cloudflare_queue_phase(id) { return current(id)?.queuePhase ?? 0; }
 export function cloudflare_queue_count(id) { return current(id)?.queueCount ?? 0; }
-export function cloudflare_queue_target(id) { return current(id)?.queueTarget ?? 0; }
+export function cloudflare_queue_votes(id) { return current(id)?.queueVotes ?? 0; }
+export function cloudflare_queue_votes_required(id) { return current(id)?.queueVotesRequired ?? 0; }
+export function cloudflare_queue_deadline(id) { return String(current(id)?.queueDeadline ?? 0); }
+export function cloudflare_queue_voted(id) { return current(id)?.queueVoted === true; }
+export function cloudflare_queue_vote_start(id) {
+    const session = current(id);
+    if (!session?.queue || session.queuePhase !== 3 || session.queueVoted || session.ws.readyState !== WebSocket.OPEN) return false;
+    try { session.ws.send(JSON.stringify({ type: "vote_start" })); return true; } catch (error) { fail(session, error); return false; }
+}
+export function cloudflare_queue_withdraw_start_vote(id) {
+    const session = current(id);
+    if (!session?.queue || session.queuePhase !== 3 || !session.queueVoted || session.ws.readyState !== WebSocket.OPEN) return false;
+    try { session.ws.send(JSON.stringify({ type: "withdraw_start_vote" })); return true; } catch (error) { fail(session, error); return false; }
+}
 
 export function cloudflare_lobby_local_id(id) { return current(id)?.localPlayerId || ""; }
 export function cloudflare_lobby_mode(id) { return current(id)?.mode ?? 0; }
@@ -1454,14 +1559,18 @@ extern "C" {
         base_url: &str,
         compatibility_room: &str,
         preference: &str,
-        target: u32,
         profile_name: &str,
         palette_id: u32,
         cosmetic_id: u32,
     ) -> u32;
     fn cloudflare_queue_phase(id: u32) -> u32;
     fn cloudflare_queue_count(id: u32) -> u32;
-    fn cloudflare_queue_target(id: u32) -> u32;
+    fn cloudflare_queue_votes(id: u32) -> u32;
+    fn cloudflare_queue_votes_required(id: u32) -> u32;
+    fn cloudflare_queue_deadline(id: u32) -> String;
+    fn cloudflare_queue_voted(id: u32) -> bool;
+    fn cloudflare_queue_vote_start(id: u32) -> bool;
+    fn cloudflare_queue_withdraw_start_vote(id: u32) -> bool;
     fn cloudflare_connect_lobby(
         base_url: &str,
         room: &str,

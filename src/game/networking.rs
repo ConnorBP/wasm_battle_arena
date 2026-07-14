@@ -41,9 +41,6 @@ pub struct MatchmakingRoom {
     pub private_code: Option<String>,
     /// Public protocol-v4 selection. Distinct from the exact v3 game mode.
     pub preference: MatchPreference,
-    /// Requested LGS expansion target. It is still sent for Any/Duel because
-    /// protocol 4 requires a bounded target on every queue request.
-    pub target: u8,
     /// Exact private-room mode/capacity; private rooms bypass protocol 4.
     pub private_mode: GameMode,
     pub private_capacity: u8,
@@ -54,7 +51,6 @@ impl Default for MatchmakingRoom {
         Self {
             private_code: None,
             preference: MatchPreference::Any,
-            target: 8,
             private_mode: GameMode::Duel,
             private_capacity: 2,
         }
@@ -93,6 +89,13 @@ impl ggrs::Config for GgrsConfig {
     type Address = PlayerId;
 }
 
+fn private_lobby_mode_capacity(room: &MatchmakingRoom) -> (u32, u32) {
+    match room.private_mode {
+        GameMode::Duel => (0, 2),
+        GameMode::Deathmatch => (1, room.private_capacity.clamp(3, 8) as u32),
+    }
+}
+
 pub fn start_cloudflare_socket(
     mut socket: ResMut<CloudflareSocket>,
     room: Res<MatchmakingRoom>,
@@ -109,7 +112,6 @@ pub fn start_cloudflare_socket(
             SIGNALING_URL,
             &versioned_room_name(None),
             room.preference.protocol_name(),
-            room.target.clamp(3, 8),
             &profile.name,
             profile.palette_id,
             profile.cosmetic_id,
@@ -120,10 +122,7 @@ pub fn start_cloudflare_socket(
     // Private rooms remain direct, exact protocol 3 and never enter the
     // flexible public queue.
     let room_name = versioned_room_name(room.private_code.as_deref());
-    let (mode, capacity) = match room.private_mode {
-        GameMode::Duel => (0, 2),
-        GameMode::Deathmatch => (1, room.private_capacity.clamp(3, 8) as u32),
-    };
+    let (mode, capacity) = private_lobby_mode_capacity(&room);
     socket.connect_lobby(
         SIGNALING_URL,
         &format!("v3-{room_name}-{mode}-{capacity}"),
@@ -350,7 +349,6 @@ mod tests {
         let public = MatchmakingRoom::default();
         assert!(public.private_code.is_none());
         assert_eq!(public.preference, MatchPreference::Any);
-        assert_eq!(public.target, 8);
 
         let private = MatchmakingRoom {
             private_code: Some("ROOM".into()),
@@ -361,6 +359,27 @@ mod tests {
         assert!(private.private_code.is_some());
         assert_eq!(private.private_mode, GameMode::Deathmatch);
         assert_eq!(private.private_capacity, 5);
+    }
+
+    #[test]
+    fn private_lgs_supports_every_exact_capacity_from_three_through_eight() {
+        for capacity in 3..=8 {
+            let room = MatchmakingRoom {
+                private_code: Some("ROOM".into()),
+                private_mode: GameMode::Deathmatch,
+                private_capacity: capacity,
+                ..Default::default()
+            };
+            let (mode, exact_capacity) = private_lobby_mode_capacity(&room);
+            assert_eq!((mode, exact_capacity), (1, capacity as u32));
+            let room_name = format!(
+                "v3-{}-{mode}-{exact_capacity}",
+                versioned_room_name(room.private_code.as_deref())
+            );
+            assert!(room_name.ends_with(&format!("-1-{capacity}")));
+        }
+        let duel = MatchmakingRoom::default();
+        assert_eq!(private_lobby_mode_capacity(&duel), (0, 2));
     }
 
     #[test]

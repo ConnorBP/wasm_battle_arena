@@ -22,11 +22,13 @@ Queue sockets are long-lived and have no ordinary matchmaking timeout. Clients m
 {"type":"heartbeat","nonce":"optional bounded string"}
 ```
 
-The server responds with `heartbeat_ack`. Before staging it may send `searching` or `holding_for_third`. Once an LGS group stages, every member receives its current count, vote count, dynamic strict-majority requirement, and fixed absolute deadline:
+The server responds with `heartbeat_ack`. Before staging it may send `searching` or `holding_for_third`. Once an LGS group stages, every member receives its current count, vote count, dynamic strict-majority requirement, fixed absolute deadline, and recipient-specific vote state:
 
 ```json
-{"type":"status","status":"staging","count":5,"votes":2,"votesRequired":3,"deadline":2000000000000}
+{"type":"status","status":"staging","count":5,"votes":2,"votesRequired":3,"deadline":2000000000000,"voted":true}
 ```
+
+`voted` is computed for each recipient's ticket rather than broadcast as shared state. Clients use it to offer **Vote to Start** or **Withdraw Vote** without guessing whether their vote is included.
 
 A missing heartbeat/dead connection is removed by the watchdog. Clients may send exactly `{"type":"cancel"}`; cancellation and disconnect immediately remove the ticket unless an assignment deadline at the same timestamp has already won. Message rate/size limits and a 256-entry pool cap protect the Durable Object.
 
@@ -64,6 +66,8 @@ It withdraws with exactly:
 ```
 
 Duplicate votes and duplicate withdrawals are idempotent. Joining changes `votesRequired` for the new count but preserves existing votes and the deadline. Leaving or disconnecting removes that member's vote and recomputes the majority. If fewer than three remain, staging dissolves; survivors become unlocked and retain their original queue sequence for pre-stage arbitration.
+
+The game keeps target practice active while this stage is visible. Its status panel shows assembled count, votes/required, and seconds to the fixed deadline; it renders **Vote to Start** or **Withdraw Vote** from `voted`, alongside **Cancel**. Public players never select an exact LGS size. Private protocol-v3 rooms remain the exact-capacity path and expose every LGS capacity from 3 through 8.
 
 Durable Object event serialization plus reducer checks make equal-time races deterministic: expiry at timestamp `T` is decided before a join, vote, cancellation, or disconnect also observed at `T`. Decisions, staging state, votes, and absolute deadlines are persisted before handoff.
 

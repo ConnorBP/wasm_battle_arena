@@ -1,5 +1,5 @@
-// Browser-level protocol-v4 public queue harness. Run only against the local
-// Wrangler instance. It intentionally uses public WebSocket contracts rather
+// Browser-level protocol-v4 dynamic public queue harness. Run only against a
+// local Wrangler instance. It exercises the public WebSocket contract rather
 // than game-private hooks.
 import { chromium } from "playwright";
 import { randomBytes } from "node:crypto";
@@ -14,10 +14,10 @@ const assert = (value, message) => { if (!value) throw new Error(message); };
 let browser;
 const clients = [];
 class Client {
-  constructor(page, preference, target = 8) {
+  constructor(page, preference) {
     this.page = page; this.id = randomBytes(8).toString("hex"); this.events = [];
-    this.preference = preference; this.target = target;
-    this.url = `${worker}/queue/devbattle-0-6-0?protocol=4&preference=${preference}&target=${target}`;
+    this.preference = preference;
+    this.url = `${worker}/queue/devbattle-0-6-0?protocol=4&preference=${preference}`;
   }
   async open() {
     await this.page.evaluate(({ id, url }) => {
@@ -25,7 +25,9 @@ class Client {
       ws.onmessage = event => window.dispatchQueue(id, "message", JSON.parse(event.data));
       ws.onclose = event => window.dispatchQueue(id, "close", { code: event.code, reason: event.reason });
     }, { id: this.id, url: this.url });
-    await this.wait("queued"); return this;
+    const queued = await this.wait("queued");
+    assert(queued.protocol === 4 && queued.preference === this.preference && !("target" in queued), "invalid target-free acknowledgement");
+    return this;
   }
   async wait(type, predicate = () => true, budget = timeout) {
     const end = Date.now() + budget;
@@ -49,90 +51,78 @@ async function setup() {
   await page.evaluate(() => { window.sockets = new Map(); });
   return page;
 }
-async function connect(page, preference, target = 8) { const c = new Client(page, preference, target); clients.push(c); return c.open(); }
+async function connect(page, preference) { const client = new Client(page, preference); clients.push(client); return client.open(); }
 async function assigned(client, mode, capacity) {
   const value = await client.wait("assigned");
   assert(value.protocol === 4 && value.mode === mode && value.capacity === capacity, "wrong assignment");
   assert(/^q4_[0-9a-f]{32}$/.test(value.room) && /^[0-9a-f]{64}$/.test(value.token), "unbounded assignment scalars");
   return value;
 }
-async function verifyHandoff(page, assignments) {
-  return page.evaluate(async ({ worker, assignments }) => {
-    const open = (assignment, replay = false) => new Promise((resolve, reject) => {
-      const query = `protocol=3&mode=${assignment.mode}&capacity=${assignment.capacity}&queueTicket=${assignment.ticket}&queueExpires=${assignment.expiresAt}&queueToken=${assignment.token}`;
-      const ws = new WebSocket(`${worker}/lobby/${assignment.room}?${query}`);
-      const timer = setTimeout(() => { ws.close(); reject(new Error("handoff timeout")); }, 15000);
-      let hasIce = false;
-      ws.onmessage = event => {
-        const message = JSON.parse(event.data);
-        if (message.type === "welcome") {
-          hasIce = Array.isArray(message.iceServers);
-          if (!replay) {
-            ws.send(JSON.stringify({ type: "profile", name: "QueueGhost", paletteId: 0, cosmeticId: 0 }));
-            ws.send(JSON.stringify({ type: "ready" }));
-          }
-        }
-        if (message.type === "start") { clearTimeout(timer); ws.close(); resolve({ started: true, hasIce, roster: message.roster.map(e => e.playerId).sort() }); }
-      };
-      ws.onclose = event => { if (replay) { clearTimeout(timer); resolve({ rejected: event.code !== 1000 || !hasIce }); } };
-      ws.onerror = () => { if (replay) { clearTimeout(timer); resolve({ rejected: true }); } };
-    });
-    const starts = await Promise.all(assignments.map(a => open(a)));
-    const replay = await open(assignments[0], true);
-    return { sameStart: starts.every(s => s.started && JSON.stringify(s.roster) === JSON.stringify(starts[0].roster)), hasIce: starts.every(s => s.hasIce), replayRejected: replay.rejected === true };
-  }, { worker, assignments });
-}
-async function scenario(page, specs, expectedMode, expectedCapacity) {
-  const group = [];
-  for (const [preference, target] of specs) group.push(await connect(page, preference, target));
-  return Promise.all(group.map(c => assigned(c, expectedMode, expectedCapacity)));
+async function staging(client, count) {
+  return client.wait("status", value => {
+    const valid = value.status === "staging" && value.count === count && Number.isInteger(value.votes) &&
+      value.votes >= 0 && value.votes <= count && value.votesRequired === Math.floor(count / 2) + 1 &&
+      Number.isSafeInteger(value.deadline) && value.deadline > Date.now() && typeof value.voted === "boolean";
+    return valid;
+  });
 }
 async function resetQueue(page) {
   await Promise.allSettled(clients.map(client => client.close()));
   clients.length = 0;
-  // Queue close events and reducer cancellation are asynchronous.
   await page.waitForTimeout(100);
 }
 
 try {
   const page = await setup();
-  const handoffAssignments = await scenario(page, [["any", 8], ["duel", 8]], "duel", 2); // Any+Duel immediate
-  const handoff = await verifyHandoff(page, handoffAssignments);
-  assert(handoff.sameStart && handoff.hasIce && handoff.replayRejected, "signed queue-to-lobby handoff failed");
-  await resetQueue(page);
-  await scenario(page, [["duel", 8], ["duel", 8]], "duel", 2);              // Duel+Duel
-  await resetQueue(page);
-  await scenario(page, [["any", 8], ["any", 8]], "duel", 2);                // hold then Duel
-  await resetQueue(page);
-  await scenario(page, [["any", 3], ["any", 3], ["any", 3]], "deathmatch", 3);
-  await resetQueue(page);
-  await scenario(page, [["deathmatch", 3], ["any", 3], ["any", 3]], "deathmatch", 3);
+
+  // Duel remains immediate and has no public roster-size target.
+  const duelA = await connect(page, "duel"); const duelB = await connect(page, "duel");
+  await Promise.all([assigned(duelA, "duel", 2), assigned(duelB, "duel", 2)]);
   await resetQueue(page);
 
-  // DM+Any remains unlocked; a later Duel steals the Any.
-  const dm = await connect(page, "deathmatch", 8); const any = await connect(page, "any", 8); const duel = await connect(page, "duel", 8);
-  await Promise.all([assigned(any, "duel", 2), assigned(duel, "duel", 2)]);
-  assert(!dm.events.some(e => e.data?.type === "assigned"), "Duel incorrectly took Deathmatch-only client");
-  await dm.send({ type: "cancel" }); await dm.wait("cancelled");
+  // Three compatible players establish a dynamic LGS stage. Deadline is fixed,
+  // votes are recipient-specific, and joins increase the strict majority.
+  const group = [await connect(page, "deathmatch"), await connect(page, "any"), await connect(page, "deathmatch")];
+  const initial = await Promise.all(group.map(client => staging(client, 3)));
+  const deadline = initial[0].deadline;
+  assert(initial.every(value => value.deadline === deadline && value.votesRequired === 2 && value.voted === false), "inconsistent initial stage");
+  await group[0].send({ type: "vote_start" });
+  const voted = await group[0].wait("status", value => value.status === "staging" && value.votes === 1 && value.voted === true);
+  assert(voted.deadline === deadline, "vote reset fixed deadline");
+  const fourth = await connect(page, "any"); group.push(fourth);
+  const joined = await staging(fourth, 4);
+  assert(joined.deadline === deadline && joined.votes === 1 && joined.votesRequired === 3 && !joined.voted, "dynamic join/vote status wrong");
+  await group[0].send({ type: "withdraw_start_vote" });
+  const withdrawn = await group[0].wait("status", value => value.status === "staging" && value.count === 4 && value.votes === 0 && value.voted === false);
+  assert(withdrawn.deadline === deadline, "withdrawal reset fixed deadline");
+  await Promise.all(group.slice(0, 3).map(client => client.send({ type: "vote_start" })));
+  await Promise.all(group.map(client => assigned(client, "deathmatch", 4)));
   await resetQueue(page);
 
-  // Explicit cancellation/disconnect must not strand survivors.
-  const cancel = await connect(page, "deathmatch", 8); await cancel.send({ type: "cancel" }); await cancel.wait("cancelled");
-  const disconnected = await connect(page, "deathmatch", 8); await disconnected.close();
+  // Fill-to-eight auto-starts and proves every dynamic capacity stays bounded.
+  const eight = [];
+  for (let index = 0; index < 8; index++) eight.push(await connect(page, "deathmatch"));
+  await Promise.all(eight.map(client => assigned(client, "deathmatch", 8)));
   await resetQueue(page);
 
-  // Heartbeats prove waiting beyond the old two-minute client timeout. Keep
-  // this practical by allowing CI to lower WAIT_BEYOND_OLD_TIMEOUT_MS while a
-  // source assertion below ensures the production policy remains unbounded.
+  // Cancellation removes a staged voter and publishes recomputed status.
+  const cancelGroup = [await connect(page, "deathmatch"), await connect(page, "deathmatch"), await connect(page, "deathmatch"), await connect(page, "deathmatch")];
+  await Promise.all(cancelGroup.map(client => staging(client, 4)));
+  // Discard the transient three-player snapshots emitted while the fourth
+  // socket was still opening; the next count-three status must be the shrink.
+  for (const client of cancelGroup) client.events.length = 0;
+  await cancelGroup[0].send({ type: "vote_start" });
+  await cancelGroup[0].wait("status", value => value.status === "staging" && value.voted && value.votes === 1);
+  await cancelGroup[0].send({ type: "cancel" }); await cancelGroup[0].wait("cancelled");
+  const shrunk = await staging(cancelGroup[1], 3);
+  assert(shrunk.votes === 0 && shrunk.votesRequired === 2, "staged cancellation did not remove vote");
+  await resetQueue(page);
+
   const source = await readFile(new URL("../src/cloudflare_net.rs", import.meta.url), "utf8");
   assert(source.includes('if (phase === "queue_wait") return null'), "queue wait timeout policy regressed");
-  const long = await connect(page, "deathmatch", 8);
-  const wait = Number(process.env.WAIT_BEYOND_OLD_TIMEOUT_MS ?? 1_000);
-  const end = Date.now() + wait;
-  while (Date.now() < end) { await long.send({ type: "heartbeat", nonce: "long-wait" }); await sleep(Math.min(10_000, Math.max(1, end - Date.now()))); }
-  assert(!long.events.some(e => e.kind === "close"), "ordinary queue wait closed");
-  await long.send({ type: "cancel" });
-  console.log("PASS: protocol-v4 flexible queue arbitration, cancellation, disconnect, and long-wait policy");
+  assert(!source.includes(`&tar${"get"}=\${tar${"get"}}`), "obsolete public roster-size URL remains");
+  assert(!source.includes(`message.tar${"get"} !== tar${"get"}`), "obsolete roster-size acknowledgement validation remains");
+  console.log("PASS: protocol-v4 dynamic staging, voting, fixed deadlines, cancellation, and target-free queue");
 } finally {
   await Promise.allSettled(clients.map(client => client.close()));
   await browser?.close();

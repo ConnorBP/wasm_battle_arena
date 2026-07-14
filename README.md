@@ -16,7 +16,7 @@ Project for me to learn the basics of the bevy ecs system as well as: peer2peer 
 - non authoritative deterministic net code and game logic
 - desktop, mobile, and web (wasm) support
 - local moving-target practice while matchmaking (WASD/arrows + Space/Enter, or split touch controls)
-- recommended flexible **Any** public queue, or specific two-player Duel / 3–8 player Last Ghost Standing preferences (first to 3)
+- recommended flexible **Any** public queue, or specific Duel / Last Ghost Standing preferences; dynamic LGS groups assemble 3–8 ghosts and start at eight, at the fixed deadline, or by strict-majority vote (first to 3)
 - deterministic seeded map generation
 - game music
 - retro sound effects
@@ -47,7 +47,7 @@ The canonical production deployment is [`.github/workflows/pages.yml`](.github/w
 
 ## Networking
 
-A Cloudflare Durable Object protocol-v4 public queue turns Any/Duel/Last Ghost Standing preferences into a signed exact protocol-v3 lobby assignment. Private room codes bypass the queue and connect directly to an exact v3 Duel or 3–8 player Last Ghost Standing room. Durable Objects relay WebRTC signaling only; GGRS game traffic remains peer-to-peer. See [`cloudflare-worker/README.md`](cloudflare-worker/README.md). By default the game connects to `/match` on its own origin; set compile-time `GHOST_BATTLE_SIGNALING_URL` when the game host is not Cloudflare-proxied. Browser networking uses Cloudflare STUN plus short-lived Cloudflare Realtime TURN credentials minted privately by the signaling Worker, so restrictive NAT/firewall combinations can relay without exposing the TURN API token. See the Worker setup for required encrypted secrets. Native builds compile, but online play is browser-only.
+A Cloudflare Durable Object protocol-v4 public queue turns Any/Duel/Last Ghost Standing preferences into a signed exact protocol-v3 lobby assignment. Public LGS has no requested roster-size setting: compatible groups dynamically stage from 3–8 players, show the assembled count and fixed auto-start deadline, and support strict-majority start voting/withdrawal. Private room codes bypass the queue and keep a prominent exact v3 choice of Duel or any Last Ghost Standing capacity from 3 through 8. Durable Objects relay WebRTC signaling only; GGRS game traffic remains peer-to-peer. See [`cloudflare-worker/README.md`](cloudflare-worker/README.md). By default the game connects to `/match` on its own origin; set compile-time `GHOST_BATTLE_SIGNALING_URL` when the game host is not Cloudflare-proxied. Browser networking uses Cloudflare STUN plus short-lived Cloudflare Realtime TURN credentials minted privately by the signaling Worker, so restrictive NAT/firewall combinations can relay without exposing the TURN API token. See the Worker setup for required encrypted secrets. Native builds compile, but online play is browser-only.
 
 ```
 cargo build --release --target wasm32-unknown-unknown

@@ -273,9 +273,6 @@ pub fn update_main_menu(
                                 room.preference = MatchPreference::LastGhostStanding;
                             }
                         });
-                        if room.preference == MatchPreference::LastGhostStanding {
-                            ui.add(Slider::new(&mut room.target, 3..=8).text("Target ghosts"));
-                        }
                         ui.small(match room.preference {
                             MatchPreference::Any => "Recommended • coordinator may assign Duel or Last Ghost Standing",
                             MatchPreference::Duel => "Exactly 2 players • first to 3",
@@ -334,13 +331,14 @@ pub fn update_direct_connect_ui(
                                 room.private_mode = super::session::GameMode::Duel;
                                 room.private_capacity = 2;
                             }
-                            if ui.selectable_label(room.private_mode == super::session::GameMode::Deathmatch, "Last Ghost Standing").clicked() {
+                            if ui.selectable_label(room.private_mode == super::session::GameMode::Deathmatch, "Last Ghost Standing (Exact 3–8)").clicked() {
                                 room.private_mode = super::session::GameMode::Deathmatch;
                                 room.private_capacity = room.private_capacity.clamp(3, 8);
                             }
                         });
                         if room.private_mode == super::session::GameMode::Deathmatch {
-                            ui.add(Slider::new(&mut room.private_capacity, 3..=8).text("Exact ghosts"));
+                            ui.label(RichText::new("Choose the exact private LGS roster size").strong().color(ACCENT));
+                            ui.add(Slider::new(&mut room.private_capacity, 3..=8).text("Exact ghosts (3–8)"));
                         }
                         if ui.text_edit_singleline(&mut *code).changed() {
                             *code = sanitize_room_code(code.as_str());
@@ -862,7 +860,6 @@ pub fn update_match_status_ui(
                         socket.leave_lobby(true);
                         room.private_code = None;
                         room.preference = MatchPreference::Any;
-                        room.target = 8;
                         socket.disconnect();
                         *rematch = RematchFlow::Idle;
                         next_game.set(GameState::Matchmaking);
@@ -1014,13 +1011,17 @@ pub fn update_matchmaking_ui(
                         .font(FontId::proportional(42.0 * scale)),
                 );
                 ui.label(RichText::new("Game by Connor Postma 2023").color(Color32::GRAY));
-                let status = match socket.queue_status() {
+                let queue_status = socket.queue_status();
+                let status = match queue_status {
                     Some(QueueStatus::Searching) => "Searching the public queue…".to_owned(),
                     Some(QueueStatus::HoldingForThird) => {
                         "Holding briefly for a third ghost…".to_owned()
                     }
-                    Some(QueueStatus::Forming { count, target }) => {
-                        format!("Forming Last Ghost Standing: {count}/{target}")
+                    Some(QueueStatus::Staging { count, votes, votes_required, deadline_ms, .. }) => {
+                        let now = SystemTime::now().duration_since(UNIX_EPOCH)
+                            .map(|value| value.as_millis() as u64).unwrap_or(0);
+                        let seconds = deadline_ms.saturating_sub(now).saturating_add(999) / 1000;
+                        format!("LAST GHOST STANDING ASSEMBLED\n{count} ghosts • {votes}/{votes_required} start votes • auto-start in {seconds}s")
                     }
                     Some(QueueStatus::Assigned) => {
                         "Assigned — joining the secure lobby…".to_owned()
@@ -1032,10 +1033,16 @@ pub fn update_matchmaking_ui(
                         .color(Color32::WHITE)
                         .font(FontId::proportional(28.0 * scale)),
                 );
+                if let Some(QueueStatus::Staging { voted, .. }) = queue_status {
+                    let label = if voted { "Withdraw Vote" } else { "Vote to Start" };
+                    if ui.add_sized(vec2(220.0_f32.min(safe.width()), 44.0), Button::new(label)).clicked() {
+                        if voted { socket.withdraw_start_vote(); } else { socket.vote_start(); }
+                    }
+                }
                 if ui
                     .add_sized(
                         vec2(220.0_f32.min(safe.width()), 44.0),
-                        Button::new("Cancel Matchmaking"),
+                        Button::new("Cancel"),
                     )
                     .clicked()
                 {
