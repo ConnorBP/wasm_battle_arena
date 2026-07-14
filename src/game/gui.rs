@@ -4,7 +4,7 @@ use bevy_egui::{
     egui::{self, *},
     EguiContexts,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use instant::SystemTime;
 
 use super::{
     assets::sounds::AudioConfig,
@@ -819,7 +819,7 @@ pub fn update_match_status_ui(
                 match &*rematch {
                     RematchFlow::Idle => ui.label("Rematch keeps this lobby and roster. Every opponent must accept within 10 seconds."),
                     RematchFlow::Pending { deadline_ms, accepted, required, .. } => {
-                        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
+                        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
                         let seconds = deadline_ms.saturating_sub(now).saturating_add(999) / 1000;
                         ui.label(format!("Rematch requested — {accepted}/{required} accepted • {seconds}s. Accept or deny."))
                     }
@@ -837,7 +837,7 @@ pub fn update_match_status_ui(
                                 let generation = socket.match_generation().unwrap_or(0).saturating_add(1);
                                 let nonce = format!("{:032x}", bootstrap.match_id.0 ^ generation as u128 ^ local_id.unwrap_or_default().0);
                                 if socket.request_rematch(generation, &nonce) {
-                                    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
+                                    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0);
                                     *rematch = RematchFlow::Pending { generation, nonce, deadline_ms: now + 10_000, accepted: 1, required: bootstrap.roster.len() as u8 };
                                 } else {
                                     toasts.error("Could not send rematch request; returning to menu.".into());
@@ -1018,7 +1018,7 @@ pub fn update_matchmaking_ui(
                         "Holding briefly for a third ghost…".to_owned()
                     }
                     Some(QueueStatus::Staging { count, votes, votes_required, deadline_ms, .. }) => {
-                        let now = SystemTime::now().duration_since(UNIX_EPOCH)
+                        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
                             .map(|value| value.as_millis() as u64).unwrap_or(0);
                         let seconds = deadline_ms.saturating_sub(now).saturating_add(999) / 1000;
                         format!("LAST GHOST STANDING ASSEMBLED\n{count} ghosts • {votes}/{votes_required} start votes • auto-start in {seconds}s")

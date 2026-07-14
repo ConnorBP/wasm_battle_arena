@@ -14,6 +14,8 @@ mod ggrs_framecount;
 mod gui;
 mod input;
 mod map;
+#[cfg(feature = "network_transition_test")]
+mod network_transition_test;
 mod networking;
 mod player;
 mod practice;
@@ -570,8 +572,13 @@ pub fn run() {
             .ambiguous_with(apply_deferred)
             .distributive_run_if(in_state(RollbackState::RoundEnd))
             .after(apply_state_transition::<RollbackState>),
-    )
-    .run();
+    );
+
+    // Install after GgrsPlugin creates its custom schedule; installing before
+    // the plugin would let schedule initialization replace the test systems.
+    #[cfg(feature = "network_transition_test")]
+    network_transition_test::install(&mut app);
+    app.run();
 }
 
 #[cfg(feature = "auto_mobile_input_test")]

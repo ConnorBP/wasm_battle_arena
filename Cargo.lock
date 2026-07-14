@@ -3370,7 +3370,7 @@ checksum = "0d046c5d029ba91a1ed14da14dca44b68bf2f124cfbaf741c54151fdb3e0750b"
 
 [[package]]
 name = "wasm_battle_arena"
-version = "0.8.4"
+version = "0.9.0"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
@@ -3382,6 +3382,7 @@ dependencies = [
  "bincode",
  "egui-toast",
  "ggrs",
+ "instant",
  "js-sys",
  "seeded-random",
  "wasm-bindgen",

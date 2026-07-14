@@ -1,6 +1,6 @@
 [package]
 name = "wasm_battle_arena"
-version = "0.8.4"
+version = "0.9.0"
 edition = "2021"
 
 [profile.release]
@@ -23,6 +23,7 @@ opt-level = 3
 bevy = { version = "0.11", default-features = false, features = ["bevy_asset","bevy_winit","bevy_core_pipeline","bevy_render","bevy_sprite","multi-threaded","png","default_font","webgl2"]}
 bevy_ggrs = { version = "0.13", features = ["wasm-bindgen"]}
 ggrs = "0.9"
+instant = { version = "0.1", features = ["wasm-bindgen"] }
 bincode = "1.3"
 bevy_asset_loader = { version = "0.17", features=["2d"]}
 bevy_roll_safe = { git = "https://github.com/johanhelsing/bevy_roll_safe" }
@@ -66,6 +67,7 @@ debug_render = ["dep:bevy-inspector-egui"]
 sync_test = []
 auto_sync_test = ["sync_test"]
 auto_mobile_input_test = []
+network_transition_test = ["no_delay", "dev_net", "local"]
 bindgen = []
 # connects to a separate development matchmaking room
 dev_net = []

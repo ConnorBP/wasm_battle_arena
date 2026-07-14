@@ -522,10 +522,11 @@ impl CloudflareSocket {
                 .ok()?
                 .as_string()?;
             let number = |key: &str| {
-                js_sys::Reflect::get(&value, &key.into())
-                    .ok()?
-                    .as_f64()
-                    .map(|v| v as u64)
+                let value = js_sys::Reflect::get(&value, &key.into()).ok()?.as_f64()?;
+                (value.is_finite()
+                    && value.fract() == 0.0
+                    && (0.0..=9_007_199_254_740_991.0).contains(&value))
+                .then_some(value as u64)
             };
             return match kind.as_str() {
                 "rematch_pending" => Some(LobbyControlEvent::RematchPending {
@@ -534,10 +535,17 @@ impl CloudflareSocket {
                         .ok()?
                         .as_string()?,
                     deadline_ms: number("deadline")?,
-                    accepted: js_sys::Reflect::get(&value, &"accepted".into())
-                        .ok()
-                        .map(|v| js_sys::Array::from(&v).length() as u8)
-                        .unwrap_or(0),
+                    accepted: {
+                        let accepted = js_sys::Reflect::get(&value, &"accepted".into()).ok()?;
+                        if !js_sys::Array::is_array(&accepted) {
+                            return Some(LobbyControlEvent::Ignored);
+                        }
+                        let len = js_sys::Array::from(&accepted).length();
+                        if len > 8 {
+                            return Some(LobbyControlEvent::Ignored);
+                        }
+                        len as u8
+                    },
                     required: number("required")? as u8,
                 }),
                 "rematch_accepted" => Some(LobbyControlEvent::RematchAccepted {
@@ -1314,7 +1322,8 @@ function sameEpochTransport(session, epoch) {
 
 function lobbySendSignal(session, to, data, epoch = session.epoch, round = session.round) {
     if (isCurrent(session) && session.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({ type: "signal", epoch, round, to, data }));
+        try { session.ws.send(JSON.stringify({ type: "signal", epoch, round, to, data })); }
+        catch (error) { fail(session, error); }
     }
 }
 
@@ -1394,13 +1403,14 @@ async function lobbyHandleSignal(session, message) {
 }
 
 function validLobbyStart(session, message) {
-    if (message.protocol !== 3 || !Number.isInteger(message.epoch) || message.epoch < 0 ||
-        !Number.isInteger(message.round) || message.round < 0 || !/^[0-9a-f]{32}$/.test(message.seed) ||
+    if (message.protocol !== 3 || !Number.isInteger(message.epoch) || message.epoch < 0 || message.epoch > 0xffffffff ||
+        !Number.isInteger(message.round) || message.round < 0 || message.round > 0xffffffff || !/^[0-9a-f]{32}$/.test(message.seed) ||
         !Array.isArray(message.roster) || message.roster.length !== session.capacity ||
-        !Number.isInteger(message.matchGeneration ?? 0) || (message.matchGeneration ?? 0) < 0) return null;
+        !Number.isInteger(message.matchGeneration ?? 0) || (message.matchGeneration ?? 0) < 0 ||
+        (message.matchGeneration ?? 0) > 0xffffffff) return null;
     const roster = [...message.roster].sort((a,b) => a.playerId.localeCompare(b.playerId));
     if (roster.some((entry,index) => entry.index !== index || !/^[0-9a-f]{32}$/.test(entry.playerId) ||
-        !Number.isSafeInteger(entry.score) || entry.score < 0) ||
+        !Number.isSafeInteger(entry.score) || entry.score < 0 || entry.score > 0xffffffff) ||
         !roster.some(entry => entry.playerId === session.localPlayerId)) return null;
     return { ...message, roster, matchGeneration: message.matchGeneration ?? session.matchGeneration };
 }
@@ -1633,9 +1643,9 @@ export function cloudflare_lobby_local_id(id) { return current(id)?.localPlayerI
 export function cloudflare_lobby_mode(id) { return current(id)?.mode ?? 0; }
 export function cloudflare_lobby_generation(id) { return current(id)?.matchGeneration ?? 0; }
 export function cloudflare_lobby_control(id) { return current(id)?.control?.shift() ?? null; }
-export function cloudflare_lobby_rematch_request(id, generation, nonce) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:"rematch_request",generation,nonce})); return true; }
-export function cloudflare_lobby_rematch_response(id, generation, nonce, accept) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:"rematch_response",generation,nonce,accept})); return true; }
-export function cloudflare_lobby_leave(id, requeue) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; session.ws.send(JSON.stringify({type:requeue?"requeue":"leave"})); return true; }
+export function cloudflare_lobby_rematch_request(id, generation, nonce) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; try { session.ws.send(JSON.stringify({type:"rematch_request",generation,nonce})); return true; } catch (error) { fail(session,error); return false; } }
+export function cloudflare_lobby_rematch_response(id, generation, nonce, accept) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; try { session.ws.send(JSON.stringify({type:"rematch_response",generation,nonce,accept})); return true; } catch (error) { fail(session,error); return false; } }
+export function cloudflare_lobby_leave(id, requeue) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; try { session.ws.send(JSON.stringify({type:requeue?"requeue":"leave"})); return true; } catch (error) { fail(session,error); return false; } }
 export function cloudflare_lobby_seed(id) { return current(id)?.seed || ""; }
 export function cloudflare_lobby_epoch(id) { return current(id)?.epoch ?? 0; }
 export function cloudflare_lobby_round(id) { return current(id)?.round ?? 0; }
