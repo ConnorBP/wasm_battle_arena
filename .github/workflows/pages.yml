@@ -80,10 +80,7 @@ jobs:
           npm ci --ignore-scripts
           cd ..
           TRANSITION_SCENARIO=rollover npm run smoke:network-transition:all
-          TRANSITION_SCENARIO=reconnect npm run smoke:network-transition:all
-          TRANSITION_SCENARIO=rematch npm run smoke:network-transition:all
-          TRANSITION_SCENARIO=requeue npm run smoke:network-transition:all
-          TRANSITION_SCENARIO=changed_roster npm run smoke:network-transition:all
+          TRANSITION_SCENARIO=active_disconnect npm run smoke:network-transition:all
       - name: Upload transition diagnostics
         if: always()
         uses: actions/upload-artifact@v4

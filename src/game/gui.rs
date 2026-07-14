@@ -161,17 +161,18 @@ fn apply_retro_style(ctx: &Context) {
     style.visuals.override_text_color = Some(Color32::from_rgb(240, 246, 248));
     style.visuals.hyperlink_color = OUTLINE;
     style.visuals.selection.bg_fill = Color32::from_rgb(33, 104, 124);
-    style.visuals.selection.stroke = Stroke::new(2.0, ACCENT);
+    style.visuals.selection.stroke = Stroke::new(2.0_f32, ACCENT);
     style.visuals.widgets.inactive.bg_fill = PANEL_RAISED;
-    style.visuals.widgets.inactive.bg_stroke = Stroke::new(2.0, Color32::from_rgb(76, 105, 119));
-    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+    style.visuals.widgets.inactive.bg_stroke =
+        Stroke::new(2.0_f32, Color32::from_rgb(76, 105, 119));
+    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
     style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(39, 82, 98);
-    style.visuals.widgets.hovered.bg_stroke = Stroke::new(3.0, OUTLINE);
+    style.visuals.widgets.hovered.bg_stroke = Stroke::new(3.0_f32, OUTLINE);
     style.visuals.widgets.active.bg_fill = Color32::from_rgb(75, 64, 39);
-    style.visuals.widgets.active.bg_stroke = Stroke::new(3.0, ACCENT);
+    style.visuals.widgets.active.bg_stroke = Stroke::new(3.0_f32, ACCENT);
     style.visuals.widgets.noninteractive.bg_stroke =
-        Stroke::new(1.0, Color32::from_rgb(66, 76, 92));
-    style.visuals.window_stroke = Stroke::new(3.0, OUTLINE);
+        Stroke::new(1.0_f32, Color32::from_rgb(66, 76, 92));
+    style.visuals.window_stroke = Stroke::new(3.0_f32, OUTLINE);
     style.visuals.window_rounding = Rounding::same(2.0);
     style.visuals.widgets.inactive.rounding = Rounding::same(2.0);
     style.visuals.widgets.hovered.rounding = Rounding::same(2.0);
@@ -1066,7 +1067,7 @@ pub fn update_practice_ui(
             ui.set_width(safe.width());
             Frame::none()
                 .fill(Color32::from_rgba_unmultiplied(20, 24, 34, 225))
-                .stroke(Stroke::new(2.0, OUTLINE))
+                .stroke(Stroke::new(2.0_f32, OUTLINE))
                 .inner_margin(Margin::symmetric(14.0, 8.0))
                 .show(ui, |ui| {
                     ui.vertical_centered(|ui| {
