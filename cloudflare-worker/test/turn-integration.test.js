@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const workerFiles = ["src/index.js", "src/lobby.js", "src/epoch-lobby.js"];
-const clientPath = new URL("../../src/cloudflare_net.rs", import.meta.url);
+const clientPath = new URL("../../src/cloudflare_net.js", import.meta.url);
+const rustClientPath = new URL("../../src/cloudflare_net.rs", import.meta.url);
 
 async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -32,7 +33,7 @@ test("credentials mint occurs after request and room admission", async () => {
 test("both legacy and lobby RTCPeerConnection constructors use validated session config", async () => {
   const text = await readFile(clientPath, "utf8");
   const constructors = [...text.matchAll(/new RTCPeerConnection\(([^\n]+)\)/g)].map((match) => match[1]);
-  assert.deepEqual(constructors, ["peerConfiguration(session)", "peerConfiguration(session)"]);
+  assert.deepEqual(constructors, ["peerConfiguration(session)"]);
   assert.match(text, /validatedIceConfiguration\(message\)/);
   assert.match(text, /DEFAULT_ICE_SERVERS/);
   assert.match(text, /port === 53/);
@@ -52,6 +53,7 @@ test("TURN credentials are memory-only and reconnect obtains a fresh welcome", a
 
 test("candidate-pair telemetry classifies host, srflx, and relay without credential fields", async () => {
   const text = await readFile(clientPath, "utf8");
+  const rust = await readFile(rustClientPath, "utf8");
   assert.match(text, /peer\.getStats\(\)/);
   assert.match(text, /candidate-pair/);
   assert.match(text, /candidateType/);
@@ -59,6 +61,6 @@ test("candidate-pair telemetry classifies host, srflx, and relay without credent
   assert.match(text, /"srflx"/);
   const statsFunction = text.slice(text.indexOf("async function recordCandidatePair"), text.indexOf("function peerConfiguration"));
   assert.doesNotMatch(statsFunction, /username|credential/);
-  assert.match(text, /relay_connections/);
-  assert.match(text, /stun_fallbacks/);
+  assert.match(rust, /relay_connections/);
+  assert.match(rust, /stun_fallbacks/);
 });

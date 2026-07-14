@@ -40,7 +40,6 @@ export class MatchQueue extends DurableObject {
     const result = queueEntry(this.state, { ticket, preference: parsed.value.preference }, now);
     this.send(server, {
       type: "queued", protocol: 4, ticket, preference: parsed.value.preference,
-      ...(parsed.value.legacyTarget === null ? {} : { target: parsed.value.legacyTarget }),
     });
     await this.applyResult(result, now);
     return new Response(null, { status: 101, webSocket: client });
