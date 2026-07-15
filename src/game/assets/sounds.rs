@@ -38,17 +38,12 @@ impl Default for AudioConfig {
     }
 }
 
-pub fn update_volume(
-    conf: Res<AudioConfig>,
-    music: Res<AudioChannel<MusicChannel>>,
-    sfx: Res<AudioChannel<SfxChannel>>,
-) {
+pub fn update_volume(conf: Res<AudioConfig>, music: Res<AudioChannel<MusicChannel>>) {
     if conf.is_changed() {
-        // Scale every channel by the master value.
+        // Rollback SFX apply master volume alongside positional attenuation.
         let master_scale = conf.master_volume / 100.;
 
         music.set_volume((conf.music_volume / 100.) * MAX_MUSIC_VOL * master_scale);
-        sfx.set_volume((conf.sfx_volume / 100.) * master_scale);
     }
 }
 

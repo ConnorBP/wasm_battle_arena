@@ -367,7 +367,6 @@ pub fn run() {
             .register_rollback_component::<TextureAtlasSprite>(),
     )
     .insert_resource(ClearColor(Color::BLACK))
-    .insert_resource(SpacialAudio { max_distance: 20. })
     .init_resource::<AudioConfig>()
     .init_resource::<MatchmakingRoom>()
     .init_resource::<EpochRollover>()
@@ -463,6 +462,10 @@ pub fn run() {
             // audio volume update in response to ui
             update_volume,
         ),
+    )
+    .add_systems(
+        Last,
+        update_rollback_sound_spatial_audio.run_if(in_state(GameState::InGame)),
     )
     .add_systems(
         Update,

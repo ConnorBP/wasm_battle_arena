@@ -865,6 +865,7 @@ pub fn fire_bullets(
                     clip: sounds.laser_shoot.clone(),
                     start_frame: frame.frame,
                     sub_key: snd,
+                    volume: 0.65,
                 },
                 transform: Transform::from_translation(
                     transform.translation + move_dir.0.extend(0.),
@@ -947,6 +948,7 @@ fn collect_pickups<P: Component>(
                     clip: sounds.ray.clone(),
                     start_frame: frame,
                     sub_key: sound_id.next(handle),
+                    ..default()
                 },
                 transform: Transform::from_translation(position),
                 ..default()
@@ -1031,6 +1033,7 @@ pub fn trigger_traps(
                     clip: sounds.swoosh_death.clone(),
                     start_frame: frame.frame,
                     sub_key: sound_id.next(handle),
+                    ..default()
                 },
                 transform: Transform::from_translation(position),
                 ..default()
@@ -1082,6 +1085,7 @@ pub fn move_bullets(
                                 clip: sounds.ray.clone(),
                                 start_frame: frame.frame,
                                 sub_key: sound_id.next(bullet.owner_handle),
+                                ..default()
                             },
                             transform: Transform::from_translation(transform.translation),
                             ..default()
@@ -1156,6 +1160,7 @@ pub fn kill_players(
                             clip: sounds.ray.clone(),
                             start_frame: frame.frame,
                             sub_key: sound_id.next(handle),
+                            ..default()
                         },
                         transform: Transform::from_translation(bullet_position),
                         ..default()
@@ -1180,6 +1185,7 @@ pub fn kill_players(
                         clip: sounds.swoosh_death.clone(),
                         start_frame: frame.frame,
                         sub_key: sound_id.next(handle),
+                        ..default()
                     },
                     transform: Transform::from_translation(bullet_position),
                     ..default()
