@@ -16,6 +16,7 @@ import {
   requeueLifecyclePlayer,
   markLifecycleActiveReconnect,
   rolloverLifecycleActiveReconnect,
+  requestLifecycleBoundaryLeave,
 } from "../vendor/cloudflare-game-common/lifecycle.js";
 
 export const createEpochState = createLifecycleState;
@@ -33,3 +34,4 @@ export const leaveMatch = leaveLifecycleMatch;
 export const requeuePlayer = requeueLifecyclePlayer;
 export const markActiveReconnect = markLifecycleActiveReconnect;
 export const rolloverActiveReconnect = rolloverLifecycleActiveReconnect;
+export const requestBoundaryLeave = requestLifecycleBoundaryLeave;

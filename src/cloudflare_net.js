@@ -201,7 +201,9 @@ async function lobbyHandleSignal(session, message) {
 function validLobbyStart(session, message) {
     if (message.protocol !== 3 || !Number.isInteger(message.epoch) || message.epoch < 0 || message.epoch > 0xffffffff ||
         !Number.isInteger(message.round) || message.round < 0 || message.round > 0xffffffff || !/^[0-9a-f]{32}$/.test(message.seed) ||
-        !Array.isArray(message.roster) || message.roster.length !== session.capacity ||
+        !Array.isArray(message.roster) ||
+        !((session.mode === 0 && message.roster.length === 2) ||
+          (session.mode === 1 && message.roster.length >= 3 && message.roster.length <= session.capacity)) ||
         !Number.isInteger(message.matchGeneration ?? 0) || (message.matchGeneration ?? 0) < 0 || (message.matchGeneration ?? 0) > 0xffffffff) return null;
     const roster = [...message.roster].sort((a,b) => a.playerId.localeCompare(b.playerId));
     if (roster.some((entry,index) => entry.index !== index || !/^[0-9a-f]{32}$/.test(entry.playerId) ||
@@ -324,7 +326,7 @@ function connectLobbyInternal(baseUrl, room, mode, capacity, profileName, palett
                     session.reconnecting = true;
                 }
                 return;
-            } else if (["round_commit", "round_abort", "presence", "profile_accepted", "report_ack", "pong"].includes(message.type)) {
+            } else if (["round_commit", "round_abort", "presence", "profile_accepted", "report_ack", "leave_at_boundary_ack", "pong"].includes(message.type)) {
                 return;
             } else if (message.type === "error") {
                 throw new Error(typeof message.error === "string" ? message.error : "lobby error");
@@ -446,6 +448,7 @@ export function cloudflare_lobby_control(id) { return current(id)?.control?.shif
 export function cloudflare_lobby_rematch_request(id, generation, nonce) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; try { session.ws.send(JSON.stringify({type:"rematch_request",generation,nonce})); return true; } catch (error) { fail(session,error); return false; } }
 export function cloudflare_lobby_rematch_response(id, generation, nonce, accept) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; try { session.ws.send(JSON.stringify({type:"rematch_response",generation,nonce,accept})); return true; } catch (error) { fail(session,error); return false; } }
 export function cloudflare_lobby_leave(id, requeue) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN) return false; try { session.ws.send(JSON.stringify({type:requeue?"requeue":"leave"})); return true; } catch (error) { fail(session,error); return false; } }
+export function cloudflare_lobby_leave_at_boundary(id) { const session=current(id); if (!session || session.ws.readyState!==WebSocket.OPEN || !session.roster.some(entry => entry.playerId === session.localPlayerId)) return false; try { session.ws.send(JSON.stringify({type:"leave_at_boundary"})); return true; } catch (error) { fail(session,error); return false; } }
 export function cloudflare_lobby_seed(id) { return current(id)?.seed || ""; }
 export function cloudflare_lobby_epoch(id) { return current(id)?.epoch ?? 0; }
 export function cloudflare_lobby_round(id) { return current(id)?.round ?? 0; }

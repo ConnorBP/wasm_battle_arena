@@ -166,4 +166,15 @@ const { id: stallId } = await readyLobby(net, { epoch: 1, round: 0 });
 assert.equal(net.cloudflare_lobby_stalled(stallId), false);
 }
 
+// Boundary departure uses the real open protocol-v3 control socket and has no
+// local transport side effect before the server's terminal round boundary.
+{
+  const net = await freshModule();
+  const { id, ws } = await readyLobby(net, { epoch: 2, round: 3 });
+  assert.equal(net.cloudflare_lobby_leave_at_boundary(id), true);
+  assert.deepEqual(JSON.parse(ws.sent.at(-1)), { type: "leave_at_boundary" });
+  assert.equal(net.cloudflare_lobby_epoch(id), 2);
+  assert.equal(net.cloudflare_lobby_round(id), 3);
+}
+
 console.log("PASS: cloudflare_net.js direct Node contract tests");

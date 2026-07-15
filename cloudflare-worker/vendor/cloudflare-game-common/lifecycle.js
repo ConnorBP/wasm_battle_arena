@@ -59,6 +59,10 @@ export function createLifecycleState(mode, capacity, now) {
     reconnectBatchDeadline: null,
     reconnectBatchEpoch: null,
     reconnectBatchRound: null,
+    // Active members may opt out only at the report boundary. Entries are
+    // persisted with the immutable round identity so duplicate requests are
+    // harmless and can never affect a later round accidentally.
+    boundaryDepartures: {},
   };
 }
 
@@ -204,13 +208,18 @@ export function validateEpochSignal(state, fromPlayerId, toPlayerId, epoch, roun
 /**
  * Installs one immutable epoch bootstrap. An active bootstrap is never replaced:
  * ready/profile/join events during a round only affect the next selection, so a
- * call while `state.active` is set is a no-op (returns null). A fixed-capacity
- * game never constructs a partial GGRS session, so a short roster also no-ops.
+ * call while `state.active` is set is a no-op (returns null). Ordinary assembly
+ * requires exact capacity; a boundary-departure transition can explicitly allow
+ * LGS to continue down to three players, while Duel still requires both seats.
  */
-export function startLifecycleRound(state, seed, reason) {
+export function startLifecycleRound(state, seed, reason, allowReduced = false) {
   if (state.active) return null;
   const ids = selectLifecycleRoster(state);
-  if (ids.length !== state.capacity) return null;
+  // Ordinary assembly remains exact-capacity. A boundary departure may
+  // explicitly continue LGS with fewer seats, but never below mode minimum.
+  const minimum = state.mode === "duel" ? 2 : 3;
+  const required = allowReduced ? minimum : state.capacity;
+  if (ids.length < required) return null;
 
   if (state.epoch < 0) {
     state.epoch = 0;
@@ -238,6 +247,57 @@ export function startLifecycleRound(state, seed, reason) {
 }
 
 function decisionKey(epoch, round) { return `${epoch}:${round}`; }
+
+/**
+ * Queues an active member's departure without changing the current immutable
+ * round. The request itself is durable and idempotent; readiness changes only
+ * when that exact round commits or aborts.
+ */
+export function requestLifecycleBoundaryLeave(state, playerId) {
+  const active = state.active;
+  if (!active || !active.roster.some((entry) => entry.playerId === playerId)) {
+    return { type: "error", code: "not_in_active_roster" };
+  }
+  state.boundaryDepartures ??= {};
+  const existing = state.boundaryDepartures[playerId];
+  const duplicate = existing?.epoch === active.epoch && existing?.round === active.round;
+  if (!duplicate) state.boundaryDepartures[playerId] = { epoch: active.epoch, round: active.round };
+  return {
+    type: "pending", duplicate, playerId,
+    epoch: active.epoch, round: active.round,
+  };
+}
+
+function applyBoundaryDepartures(state, previous) {
+  const pending = state.boundaryDepartures ?? {};
+  const departing = previous.roster
+    .map((entry) => entry.playerId)
+    .filter((playerId) => pending[playerId]?.epoch === previous.epoch && pending[playerId]?.round === previous.round)
+    .sort();
+  // The terminal boundary consumes all requests for that immutable round.
+  state.boundaryDepartures = {};
+  for (const playerId of departing) {
+    if (state.players[playerId]) state.players[playerId].ready = false;
+  }
+  return departing;
+}
+
+function finishBoundarySelection(state, completed, previous, seedForNext, reason) {
+  const departing = applyBoundaryDepartures(state, previous);
+  completed.next = startLifecycleRound(state, seedForNext, reason, departing.length > 0);
+  if (!departing.length) return;
+
+  const minimum = state.mode === "duel" ? 2 : 3;
+  const eligible = selectLifecycleRoster(state);
+  const terminated = !completed.next && eligible.length < minimum
+    ? previous.roster.map((entry) => entry.playerId).filter((id) => !departing.includes(id)).sort()
+    : [];
+  if (terminated.length) {
+    for (const playerId of terminated) if (state.players[playerId]) state.players[playerId].ready = false;
+    state.lastRoster = [];
+  }
+  completed.boundary = { departing, terminated };
+}
 
 /**
  * Consensus is idempotent. Scores are applied once, only after every member
@@ -301,13 +361,20 @@ export function submitLifecycleReport(state, playerId, epoch, round, outcomes, s
   state.active = null;
   clearReconnectBatch(state);
   const reachedMatchPoint = completed.scores.some((entry) => entry.score >= 3);
-  if (reachedMatchPoint) {
+  const hasBoundaryDeparture = active.roster.some((entry) => {
+    const pending = state.boundaryDepartures?.[entry.playerId];
+    return pending?.epoch === active.epoch && pending?.round === active.round;
+  });
+  if (reachedMatchPoint && !hasBoundaryDeparture) {
     state.matchOver = true;
     completed.next = null;
     completed.matchOver = true;
     completed.matchGeneration = state.matchGeneration;
   } else {
-    completed.next = startLifecycleRound(state, seedForNext, "round_complete");
+    // An explicit boundary departure takes precedence over match-point UI: it
+    // must produce the promised replacement/cleanup transition exactly once.
+    state.matchOver = false;
+    finishBoundarySelection(state, completed, active, seedForNext, "round_complete");
   }
   return completed;
 }
@@ -331,10 +398,12 @@ export function abortLifecycleRound(state, reason, seedForNext) {
   };
   state.active = null;
   clearReconnectBatch(state);
-  return {
+  const completed = {
     type: "abort", epoch: previous.epoch, round: previous.round, reason,
-    next: startLifecycleRound(state, seedForNext, "epoch_abort"),
+    next: null,
   };
+  finishBoundarySelection(state, completed, previous, seedForNext, "epoch_abort");
+  return completed;
 }
 
 export const REMATCH_DEADLINE_MS = 10_000;

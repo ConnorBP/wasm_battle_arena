@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   createEpochState, startNextEpoch, submitReport, validateSignal,
   requestRematch, respondRematch, expireRematch, denyRematch, leaveMatch, requeuePlayer,
-  markActiveReconnect, rolloverActiveReconnect,
+  markActiveReconnect, rolloverActiveReconnect, requestBoundaryLeave,
 } from "./epoch-state.js";
 import { rotateReconnectIdentity } from "../vendor/cloudflare-game-common/lifecycle.js";
 import {
@@ -57,6 +57,7 @@ export class EpochLobby extends DurableObject {
     this.state.reconnectBatchDeadline ??= null;
     this.state.reconnectBatchEpoch ??= null;
     this.state.reconnectBatchRound ??= null;
+    this.state.boundaryDepartures ??= {};
     if (this.state.mode !== parsed.value.mode || this.state.capacity !== parsed.value.capacity) return text("Lobby configuration mismatch", 409);
     if (!assignmentAdmitted) {
       const admission = await this.admitAssignment(parsed.value, room, now);
@@ -183,6 +184,18 @@ export class EpochLobby extends DurableObject {
       this.send(socket, { type: "pong", ...(message.nonce === undefined ? {} : { nonce: message.nonce }) });
       return;
     }
+    if (message.type === "leave_at_boundary") {
+      const result = requestBoundaryLeave(this.state, player.playerId);
+      if (result.type === "error") return this.sendError(socket, result.code);
+      // Persist before acknowledging. Repeated requests for this same active
+      // round are successful no-ops and cannot change the current bootstrap.
+      await this.persist();
+      this.send(socket, {
+        type: "leave_at_boundary_ack", epoch: result.epoch, round: result.round,
+        duplicate: result.duplicate,
+      });
+      return;
+    }
     if (message.type === "leave" || message.type === "requeue") {
       const result = message.type === "requeue"
         ? requeuePlayer(this.state, player.playerId)
@@ -249,10 +262,12 @@ export class EpochLobby extends DurableObject {
       if (result.type === "ack") this.send(socket, reportAckMessage(result));
       else if (result.type === "commit") {
         this.broadcast(commitMessage(result));
+        this.finishBoundary(result);
         if (result.matchOver) this.broadcast({ type: "match_over", generation: result.matchGeneration, rematchGeneration: result.matchGeneration + 1 });
         if (result.next) this.broadcastStart(result.next);
       } else if (result.type === "abort") {
         this.broadcast(abortMessage(result));
+        this.finishBoundary(result);
         if (result.next) this.broadcastStart(result.next);
       } else this.sendError(socket, result.code);
     }
@@ -348,10 +363,31 @@ export class EpochLobby extends DurableObject {
     this.state.reconnectBatchRound = null;
   }
 
+  finishBoundary(result) {
+    for (const playerId of result.boundary?.departing ?? []) {
+      const socket = this.socket(playerId);
+      if (socket) this.send(socket, { type: "match_exit", destination: "main_menu", reason: "boundary_leave", roster: [playerId] });
+    }
+    // If fewer than the mode minimum remain, terminate only those survivors;
+    // unrelated waiting identities stay queued and receive no match_exit.
+    for (const playerId of result.boundary?.terminated ?? []) {
+      const socket = this.socket(playerId);
+      if (socket) this.send(socket, { type: "match_exit", destination: "main_menu", reason: "insufficient_roster", roster: result.boundary.terminated });
+    }
+  }
+
   startMessage(active) {
     return { type: "start", protocol: 3, epoch: active.epoch, round: active.round, matchGeneration: this.state.matchGeneration, mode: this.state.mode, capacity: this.state.capacity, seed: active.seed, roster: active.roster };
   }
-  broadcastStart(active) { this.broadcast(this.startMessage(active)); }
+  broadcastStart(active) {
+    const message = this.startMessage(active);
+    // Starts are recipient-safe: waiters and boundary departures must not be
+    // handed a bootstrap whose immutable roster excludes their identity.
+    for (const entry of active.roster) {
+      const socket = this.socket(entry.playerId);
+      if (socket) this.send(socket, message);
+    }
+  }
   sendStatus(socket, player, status = this.state.active ? "active" : "waiting") {
     const reconnectDeadline = status === "reconnecting"
       ? (this.state.reconnectBatchDeadline ?? this.activeReconnectGraceDeadline())

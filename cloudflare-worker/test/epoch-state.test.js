@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createEpochState, startNextEpoch, submitReport, selectNextRoster,
-  markActiveReconnect, rolloverActiveReconnect,
+  markActiveReconnect, rolloverActiveReconnect, requestBoundaryLeave,
 } from "../src/epoch-state.js";
 import { rotateReconnectIdentity } from "../vendor/cloudflare-game-common/lifecycle.js";
 
@@ -157,10 +157,48 @@ test("absent active member clears only batch and retains reconnect grace", () =>
   assert.equal(state.epoch, 0);
 });
 
-test("roster selection prefers incumbents then waiters", () => {
+test("roster selection prefers incumbents then oldest ready waiter", () => {
   const state = createEpochState("deathmatch", 3, 0);
-  state.players.a = player("a", 1); state.players.b = player("b", 2); state.players.c = player("c", 3); state.players.d = player("d", 4);
+  state.players.a = player("a", 1); state.players.b = player("b", 2); state.players.c = player("c", 3);
+  state.players.old = player("old", 4); state.players.new = player("new", 5);
   state.lastRoster = ["c", "a", "b"];
   state.players.b.ready = false;
-  assert.deepEqual(selectNextRoster(state), ["a", "c", "d"]);
+  assert.deepEqual(selectNextRoster(state), ["a", "c", "old"]);
+});
+
+test("boundary departure is persisted, idempotent, and replaces only after commit", () => {
+  const state = createEpochState("deathmatch", 3, 0);
+  state.players.a = player("a", 1); state.players.b = player("b", 2); state.players.c = player("c", 3); state.players.d = player("d", 4);
+  const active = startNextEpoch(state, "0".repeat(32), "initial");
+  state.players.a.score = 2; state.players.b.score = 1;
+  assert.deepEqual(requestBoundaryLeave(state, "b"), { type: "pending", duplicate: false, playerId: "b", epoch: 0, round: 0 });
+  assert.equal(requestBoundaryLeave(state, "b").duplicate, true);
+  assert.equal(state.players.b.ready, true, "request must not mutate current-round readiness");
+  assert.deepEqual(state.active.roster.map(entry => entry.playerId), active.roster.map(entry => entry.playerId));
+  const result = complete(state);
+  assert.deepEqual(result.boundary, { departing: ["b"], terminated: [] });
+  assert.equal(state.players.b.ready, false);
+  assert.deepEqual(result.next.roster.map(entry => entry.playerId), ["a", "c", "d"]);
+  assert.deepEqual([result.next.epoch, result.next.round], [1, 0]);
+  assert.equal(result.next.roster.find(entry => entry.playerId === "a").score, state.players.a.score);
+  assert.equal(result.next.roster.find(entry => entry.playerId === "d").score, 0);
+  const late = submitReport(state, "b", 0, 0, report(active), "2".repeat(32));
+  assert.equal(late.type, "ack");
+  assert.equal(late.duplicate, true);
+  assert.equal(state.players.b.ready, false, "late terminal report must not reapply departure");
+  assert.deepEqual([state.active.epoch, state.active.round], [1, 0]);
+});
+
+test("boundary departure below mode minimum terminates remaining roster cleanly", () => {
+  const state = createEpochState("deathmatch", 3, 0);
+  state.players.a = player("a", 1); state.players.b = player("b", 2); state.players.c = player("c", 3);
+  startNextEpoch(state, "0".repeat(32), "initial");
+  requestBoundaryLeave(state, "a");
+  const result = complete(state);
+  assert.equal(result.next, null);
+  assert.deepEqual(result.boundary, { departing: ["a"], terminated: ["b", "c"] });
+  assert.equal(state.players.a.ready, false);
+  assert.equal(state.players.b.ready, false);
+  assert.equal(state.players.c.ready, false);
+  assert.deepEqual(state.lastRoster, []);
 });

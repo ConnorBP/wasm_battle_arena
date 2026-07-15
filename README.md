@@ -53,9 +53,9 @@ The wasm-bindgen networking imports live in [`src/cloudflare_net.js`](src/cloudf
 
 ### Extended transition harness
 
-`npm run smoke:network-transition:all` builds a separate local-only WASM artifact with `network_transition_test`, starts the local Worker, and executes one-shot real browser scenarios for rollover, active/reset-barrier disconnect, grace reload/reconnect, rematch, requeue, and changed-roster capability. Set `TRANSITION_SCENARIO=<name>` to run one scenario. Each run uses isolated browser contexts and emits bounded schema-1 events into its artifact JSON. The harness calls the normal client rematch/requeue APIs and does not retry assertions.
+`npm run smoke:network-transition:all` builds a separate local-only WASM artifact with `network_transition_test`, starts the local Worker, and executes one-shot real browser scenarios for rollover, active/reset-barrier disconnect, grace reload/reconnect, rematch, requeue, and changed-roster boundary replacement. Set `TRANSITION_SCENARIO=<name>` to run one scenario. Each run uses isolated browser contexts and emits bounded schema-1 events into its artifact JSON. The harness calls the normal client rematch/requeue/boundary-leave APIs and does not retry assertions.
 
-The URL parameters (`ghost_transition`, `ghost_room`), `window.__ghostTransitionEvents`, and `window.__ghostTransitionApi` exist only in that feature build. The normal production build and Pages artifact contain none of them. `changed_roster` verifies a real three-player LGS with a waiting fourth, then explicitly reports the boundary-departure step as unsupported because the current Worker has no boundary-only incumbent-departure API (`leave` releases the active roster).
+The URL parameters (`ghost_transition`, `ghost_room`), `window.__ghostTransitionEvents`, and `window.__ghostTransitionApi` exist only in that feature build. The normal production build and Pages artifact contain none of them. `changed_roster` forms a real three-player LGS with a waiting fourth, invokes `leave_at_boundary` through the real client API, deterministically completes the current round, and verifies that only the departing incumbent returns to menu while survivors and the oldest ready waiter install one score-preserving epoch+1 roster at frame zero.
 
 ```
 cargo build --release --target wasm32-unknown-unknown

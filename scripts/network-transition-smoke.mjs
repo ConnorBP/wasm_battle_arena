@@ -195,17 +195,35 @@ try {
 
   if (scenario === "changed_roster") {
     // Establish the immutable capacity-three roster before admitting the waiter;
-    // otherwise a simultaneous fourth join can receive a start broadcast while
-    // its identity is not in that immutable roster.
+    // otherwise the fourth is not specifically exercising queued replacement.
     await waitUntil("initial three-player real LGS", () => [0, 1, 2].every(index => sessions(index).some(event => event.roster.length === 3)), pages.slice(0, 3));
     await pages[3].goto(url.href, { waitUntil: "domcontentloaded", timeout: 120_000 });
     await waitUntil("waiting fourth admission", () => records[3].events.some(event => event.kind === "matchmaking") && sessions(3).length === 0);
-    const activeRosters = [0, 1, 2].map(index => sessions(index)[0].roster.join(","));
+    const old = sessions(0).at(-1);
+    const activeRosters = [0, 1, 2].map(index => sessions(index).at(-1).roster.join(","));
     assert(activeRosters.every(value => value === activeRosters[0]), "three incumbents did not share one immutable LGS roster");
     const capability = await pages[0].evaluate(() => window.__ghostTransitionApi?.capabilities?.());
-    assert(capability?.changedRosterBoundaryDeparture === false, "unexpected changed-roster hook capability value");
-    note = "Worker exposes no boundary-only incumbent-departure client API: leave aborts/releases the whole active roster. Verified real 3-player LGS plus waiting fourth; boundary roster replacement is explicitly skipped.";
-    console.log(`PASS changed_roster: real three-player LGS formed with one waiting player. SKIP boundary departure: ${note}`);
+    assert(capability?.changedRosterBoundaryDeparture === true, "boundary departure capability is unavailable");
+    await command(pages[0], "leaveAtBoundary");
+    await waitUntil("real boundary leave API invocation", () => records[0].events.some(event => event.kind === "boundary_leave_api" && event.detail === "sent"));
+    const departure = records[0].events.find(event => event.kind === "boundary_leave_api" && event.detail === "sent");
+    const departingId = old.identity;
+    await waitUntil("departing incumbent menu and changed epoch roster", () => returnedToMenu(0) && [1, 2, 3].every(index => sessions(index).some(event =>
+      event.epoch === departure.epoch + 1 && event.round === 0 && event.frame === 0 && event.roster.length === 3 && !event.roster.includes(departingId)
+    )));
+    const replacements = [1, 2, 3].map(index => sessions(index).find(event => event.epoch === departure.epoch + 1 && event.round === 0 && event.frame === 0));
+    const replacementRoster = replacements[0].roster.join(",");
+    assert(replacements.every(event => event.roster.join(",") === replacementRoster), "survivors and waiter received different replacement rosters");
+    assert(replacements[0].roster.includes(replacements[2].identity), "oldest ready waiter did not fill the departed seat");
+    assert(replacements.every(event => event.roster.includes(event.identity)), "replacement bootstrap was sent to a non-member");
+    const oldScores = scoreMap(old);
+    for (const survivor of old.roster.filter(id => id !== departingId)) {
+      const nextScore = scoreMap(replacements[0]).get(survivor);
+      assert(Number.isInteger(nextScore) && nextScore >= (oldScores.get(survivor) ?? 0), `survivor ${survivor} score was not preserved`);
+    }
+    assert(scoreMap(replacements[0]).get(replacements[2].identity) === 0, "waiting replacement did not retain its queued score");
+    note = "Boundary-only departure used the real client API; the current round completed before one epoch+1/frame-0 roster replaced the departing incumbent with the waiting player.";
+    console.log("PASS changed_roster: departing player returned to menu; survivors and oldest waiter installed one score-preserving epoch+1 LGS roster at frame zero");
   }
 
   await snapshotEvents(pages.filter(page => !page.isClosed()));

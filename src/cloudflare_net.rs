@@ -379,6 +379,16 @@ impl CloudflareSocket {
         false
     }
 
+    /// Keep playing the current immutable round and release this seat only
+    /// after its authoritative report commits or aborts.
+    pub fn leave_at_boundary(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.transport_id != 0 {
+            return cloudflare_lobby_leave_at_boundary(self.transport_id);
+        }
+        false
+    }
+
     pub fn poll_control(&self) -> Option<LobbyControlEvent> {
         #[cfg(target_arch = "wasm32")]
         {
@@ -710,6 +720,7 @@ extern "C" {
         accept: bool,
     ) -> bool;
     fn cloudflare_lobby_leave(id: u32, requeue: bool) -> bool;
+    fn cloudflare_lobby_leave_at_boundary(id: u32) -> bool;
     fn cloudflare_lobby_seed(id: u32) -> String;
     fn cloudflare_lobby_epoch(id: u32) -> u32;
     fn cloudflare_lobby_round(id: u32) -> u32;

@@ -110,6 +110,8 @@ test("epoch protocol validates profiles and reports", () => {
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"rematch_response", generation:1, nonce, accept:false })).ok, true);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"leave" })).ok, true);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"requeue" })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"leave_at_boundary" })).ok, true);
+  assert.equal(parseEpochClientMessage(JSON.stringify({ type:"leave_at_boundary", epoch:0 })).ok, false);
   assert.equal(parseEpochClientMessage(JSON.stringify({ type:"rematch_request", generation:0, nonce })).ok, false);
 });
 

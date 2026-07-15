@@ -65,6 +65,7 @@ struct TransitionHarness {
     barrier: Option<(u32, u32)>,
     rollover_pending: Option<(u32, u32)>,
     requeue_requested: bool,
+    boundary_leave_requested: bool,
     fresh_queue_reported: bool,
 }
 
@@ -134,10 +135,21 @@ fn drive_transition_round(
     if frame.frame < TEST_ELIMINATION_FRAME || progress.resolved.is_some() {
         return;
     }
+    // The changed-roster scenario holds its first real round open until the
+    // fourth browser is waiting and the feature command has invoked the real
+    // boundary API. The request therefore cannot race a prior round rollover.
+    if harness.scenario == TransitionScenario::ChangedRoster
+        && !harness.boundary_leave_requested
+    {
+        return;
+    }
 
     let winner_index = match harness.scenario {
         TransitionScenario::Rematch | TransitionScenario::Requeue => 0,
-        TransitionScenario::ChangedRoster => bootstrap.roster.len() - 1,
+        // Keep the changed-roster match below first-to-three while the fourth
+        // browser is admitted and the boundary command is delivered.
+        TransitionScenario::ChangedRoster =>
+            (bootstrap.round.0 as usize + 1) % bootstrap.roster.len(),
         _ => (bootstrap.round.0 as usize + 1) % bootstrap.roster.len(),
     };
     let winner = bootstrap.roster[winner_index].player_id;
@@ -364,6 +376,26 @@ fn poll_browser_command(
                 if sent { "sent" } else { "rejected" },
             );
         }
+        "leave_at_boundary" if harness.scenario == TransitionScenario::ChangedRoster => {
+            let sent = socket.leave_at_boundary();
+            if sent {
+                harness.boundary_leave_requested = true;
+            }
+            transition_event(
+                "boundary_leave_api",
+                harness.scenario,
+                "ingame",
+                bootstrap.as_deref(),
+                bootstrap.as_ref().map_or(0, |value| value.epoch.0),
+                bootstrap.as_ref().map_or(0, |value| value.round.0),
+                0,
+                0,
+                "",
+                "",
+                "",
+                if sent { "sent" } else { "rejected" },
+            );
+        }
         "requeue" if harness.scenario == TransitionScenario::Requeue => {
             let sent = socket.leave_lobby(true);
             if sent {
@@ -587,7 +619,8 @@ export function install_transition_bridge() {
   window.__ghostTransitionApi = Object.freeze({
     rematch() { if (window.__ghostTransitionCommand) return false; window.__ghostTransitionCommand = "rematch"; return true; },
     requeue() { if (window.__ghostTransitionCommand) return false; window.__ghostTransitionCommand = "requeue"; return true; },
-    capabilities() { return Object.freeze({ changedRosterBoundaryDeparture: false }); }
+    leaveAtBoundary() { if (window.__ghostTransitionCommand) return false; window.__ghostTransitionCommand = "leave_at_boundary"; return true; },
+    capabilities() { return Object.freeze({ changedRosterBoundaryDeparture: true }); }
   });
 }
 export function take_transition_command() {

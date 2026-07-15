@@ -29,7 +29,8 @@ After `welcome`, send a validated `profile`, then `ready`. The control WebSocket
 A `start` message contains `protocol`, `epoch`, `round`, `mode`, `capacity`, a 32-hex `seed`, and a canonical roster with profile/score snapshots.
 
 * `ready` never replaces `active`. An immutable active epoch cannot be replaced by ready, profile, presence, or mid-round join events. The sole reconnect exception is the server-authoritative, deadline-batched changed-epoch rollover described above; it never mutates/replays the current bootstrap in place.
-* Mid-round joiners are waiting candidates for the next selection; incumbents keep their seat until one leaves.
+* Mid-round joiners are waiting candidates for the next selection; incumbents keep their seat until one leaves. When a seat opens, the oldest connected, ready, profiled waiter is selected first (with player ID as the deterministic tie-breaker).
+* `leave_at_boundary` is valid only for an active roster member. It is durably recorded and idempotently acknowledged, but does not change readiness, membership, signaling, reports, or the current round. On that exact round's commit or abort the requester becomes not-ready and receives `match_exit`; survivors do not. Selection then preserves survivor scores/profiles and fills open seats from ready waiters. Changed membership increments the epoch and starts at round/frame zero. If fewer than two Duel players or three LGS players are eligible, remaining incumbents receive a clean `match_exit` instead of a partial session.
 * If the next canonical roster is unchanged, `round` increments and `epoch` does not.
 * If membership changes, `epoch` increments and `round` resets to zero.
 * Epoch packet payloads are prefixed with a big-endian epoch and stale packets/signals are dropped.
@@ -46,19 +47,21 @@ At match point, ordinary round advancement stops. Clients have three distinct ch
 
 * `rematch_request { generation, nonce }` / `rematch_response { generation, nonce, accept }` keeps the lobby control sockets and identities. The generation is exactly the current generation plus one and the nonce is 32 hex characters. A request counts as acceptance, duplicate messages are idempotent, stale generations/nonces are rejected, and simultaneous requests mutually accept the first authoritative proposal.
 * `requeue` explicitly places only its sender back in the general queue. Former opponents are sent to main menu, never implicitly queued.
-* `leave` exits to main menu. It is also available during play as Exit Lobby.
+* `leave_at_boundary` queues only its sender to exit after the current round's authoritative terminal report. Exact duplicate requests return `leave_at_boundary_ack { epoch, round, duplicate:true }` and have no additional effect.
+* `leave` exits to main menu immediately. It is also available during play as Exit Lobby.
 
 A rematch proposal expires after 10 seconds. Its absolute deadline is persisted and checked both by the Durable Object alarm and on messages/connections. Denial, timeout, or disconnect releases the entire current roster to main menu. Acceptance resets scores and match state, deterministically advances seed/map, increments the epoch, and sends a fresh immutable `start`; clients tear down and recreate GGRS while retaining the control socket.
 
 ## Server messages
 
-The server may send `welcome`, `status`, `presence`, `profile_accepted`, `report_ack`, `round_commit`, `round_abort`, `start`, `signal`, `match_over`, `rematch_pending`, `rematch_accepted`, `rematch_denied`, `match_exit`, `requeue`, `pong`, and `error`. Clients must validate structure, bounds, epoch, and player IDs before acting. Unknown message types are protocol errors. Wire shapes:
+The server may send `welcome`, `status`, `presence`, `profile_accepted`, `leave_at_boundary_ack`, `report_ack`, `round_commit`, `round_abort`, `start`, `signal`, `match_over`, `rematch_pending`, `rematch_accepted`, `rematch_denied`, `match_exit`, `requeue`, `pong`, and `error`. Clients must validate structure, bounds, epoch, and player IDs before acting. Unknown message types are protocol errors. Wire shapes:
 
 * `welcome` — `{ type, protocol:3, playerId, reconnectToken, reconnectGraceMs, iceServers, turnExpiresAt }`
 * `start` — `{ type, protocol:3, epoch, round, mode, capacity, seed, roster:[{playerId,index,profile,score}] }`
 * `status` — `{ type, protocol:3, status:"active"|"waiting"|"reconnecting", mode, capacity, active:{epoch,round}|null, ready, score, reconnectDeadline? }`; `reconnectDeadline` is present for `reconnecting` and is the current absolute Unix-millisecond batch deadline, or the relevant grace deadline after an incomplete batch.
 * `presence` — `{ type, playerId, connected, expired }`
 * `profile_accepted` — `{ type }`
+* `leave_at_boundary_ack` — `{ type, epoch, round, duplicate }`
 * `report_ack` — `{ type, epoch, round, duplicate, received, required }`
 * `round_commit` — `{ type, epoch, round, outcomes:[{playerId,placement,scoreDelta}], scores:[{playerId,score}] }`
 * `round_abort` — `{ type, epoch, round, reason }`

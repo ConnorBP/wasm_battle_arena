@@ -128,7 +128,7 @@ export function parseEpochClientMessage(text) {
   try { message = JSON.parse(text); } catch { return fail("invalid JSON"); }
   if (!isRecord(message) || typeof message.type !== "string") return fail("invalid message");
   if (message.type === "ready" && onlyKeys(message, ["type"])) return { ok: true, value: message };
-  if ((message.type === "leave" || message.type === "requeue") && onlyKeys(message, ["type"])) return { ok: true, value: message };
+  if ((message.type === "leave" || message.type === "requeue" || message.type === "leave_at_boundary") && onlyKeys(message, ["type"])) return { ok: true, value: message };
   if (message.type === "rematch_request" && onlyKeys(message, ["type", "generation", "nonce"])) {
     if (!Number.isSafeInteger(message.generation) || message.generation < 1 || typeof message.nonce !== "string" || !PLAYER_ID_PATTERN.test(message.nonce)) return fail("invalid rematch request");
     return { ok: true, value: { ...message, nonce: message.nonce.toLowerCase() } };
