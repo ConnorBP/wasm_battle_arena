@@ -9,5 +9,5 @@
     "dry-run": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy"
   },
-  "devDependencies": { "wrangler": "4.110.0" }
+  "devDependencies": { "wrangler": "4.112.0" }
 }
